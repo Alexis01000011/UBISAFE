@@ -10,6 +10,8 @@
 2. [Tech Stack](#tech-stack)
 3. [Architecture — Modular Monolith](#architecture--modular-monolith)
 4. [Project Structure](#project-structure)
+   - [ubisafe\_app/](#ubisafe_app)
+   - [ubisafe\_api/](#ubisafe_api)
 5. [Module Breakdown](#module-breakdown)
    - [core/](#core)
    - [features/identity/](#featuresidentity)
@@ -19,8 +21,9 @@
    - [features/community/](#featurescommunity)
    - [features/shared/](#featuresshared)
    - [router/](#router)
-6. [Iteration Roadmap](#iteration-roadmap)
-7. [Getting Started](#getting-started)
+6. [API Module Breakdown](#api-module-breakdown)
+7. [Iteration Roadmap](#iteration-roadmap)
+8. [Getting Started](#getting-started)
 
 ---
 
@@ -79,6 +82,8 @@ The app follows a **modular monolith** pattern:
 ---
 
 ## Project Structure
+
+### `ubisafe_app/`
 
 ```
 ubisafe_app/
@@ -168,6 +173,37 @@ ubisafe_app/
         ├── build.gradle
         └── src/main/
             └── AndroidManifest.xml
+```
+
+### `ubisafe_api/`
+
+```
+ubisafe_api/
+├── main.py                              # Entry point: creates FastAPI app, registers routers, lifespan
+│
+├── routers/                             # Presentation layer: REST endpoints per domain
+│   ├── auth.py                          # AuthRouter: /auth/sync-profile, /auth/device-token
+│   ├── stops.py                         # StopRequestRouter: /stops and /stops/{id}
+│   └── risk_zones.py                    # RiskZoneRouter: /risk-zones
+│
+├── services/                            # Business layer: logic and Firebase access
+│   ├── firebase_admin_init.py           # FirebaseAdminInit: SDK initialisation, get_firestore/fcm
+│   ├── firestore_service.py             # FirestoreService: CRUD on Firestore collections
+│   └── notification_service.py         # NotificationService: FCM message dispatch
+│
+├── schemas/                             # Pydantic models: request, response and domain
+│   ├── user.py                          # UserProfile, SyncProfileRequest, DeviceTokenRequest
+│   ├── stop_request.py                  # StopRequest, CreateStopRequestBody, UpdateStatusBody
+│   └── risk_zone.py                     # RiskZone, CreateRiskZoneBody
+│
+├── dependencies.py                      # AuthMiddleware: get_current_user (FastAPI Depends)
+│
+├── .env.example                         # Environment variable template (copy to .env, do not commit)
+│   # FIREBASE_SERVICE_ACCOUNT_JSON=...
+│   # GOOGLE_MAPS_API_KEY=...
+│
+├── requirements.txt                     # Python project dependencies
+└── Dockerfile                           # Docker image for deployment
 ```
 
 ---
@@ -262,6 +298,38 @@ Cross-cutting concerns consumed by multiple feature modules.
 
 ---
 
+## API Module Breakdown
+
+### `routers/`
+
+| File | Purpose |
+|---|---|
+| `auth.py` | `POST /auth/sync-profile` — upsert user profile in Firestore. `POST /auth/device-token` — store FCM token. |
+| `stops.py` | `GET /stops`, `POST /stops` — list / create stop requests. `GET /stops/{id}`, `PATCH /stops/{id}/status` — read / update status. |
+| `risk_zones.py` | `GET /risk-zones`, `POST /risk-zones` — list / create risk zones. |
+
+### `services/`
+
+| File | Purpose |
+|---|---|
+| `firebase_admin_init.py` | `FirebaseAdminInit` — singleton SDK initialisation from `FIREBASE_SERVICE_ACCOUNT_JSON` env var. Exposes `get_firestore()` and `get_fcm()`. |
+| `firestore_service.py` | `FirestoreService` — async-style CRUD helpers for `users`, `stop_requests` and `risk_zones` collections. |
+| `notification_service.py` | `NotificationService.send()` — wraps `firebase_admin.messaging` to dispatch FCM push notifications. |
+
+### `schemas/`
+
+| File | Purpose |
+|---|---|
+| `user.py` | `UserProfile`, `SyncProfileRequest`, `DeviceTokenRequest` |
+| `stop_request.py` | `StopRequest`, `CreateStopRequestBody`, `UpdateStatusBody` |
+| `risk_zone.py` | `RiskZone`, `CreateRiskZoneBody` |
+
+### `dependencies.py`
+
+FastAPI dependency `get_current_user` — validates the Firebase ID token from the `Authorization: Bearer <token>` header and returns the decoded claims.
+
+---
+
 ## Iteration Roadmap
 
 | Tag | Status | Description |
@@ -272,6 +340,8 @@ Cross-cutting concerns consumed by multiple feature modules.
 ---
 
 ## Getting Started
+
+### Flutter app
 
 ```bash
 # 1. Install Flutter dependencies
@@ -289,3 +359,32 @@ flutter run
 > ```bash
 > flutter run --dart-define=API_BASE_URL=https://api.ubisafe.example.com
 > ```
+
+### FastAPI backend
+
+```bash
+# 1. Create and activate a virtual environment
+cd ubisafe_api
+python -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+
+# 2. Install dependencies
+pip install -r requirements.txt
+
+# 3. Configure environment variables
+cp .env.example .env
+# Edit .env and fill in FIREBASE_SERVICE_ACCOUNT_JSON and GOOGLE_MAPS_API_KEY
+
+# 4. Run the development server
+uvicorn main:app --reload
+```
+
+> API docs are available at `http://localhost:8000/docs` (Swagger UI) once the server is running.
+
+#### Docker
+
+```bash
+cd ubisafe_api
+docker build -t ubisafe-api .
+docker run -p 8000:8000 --env-file .env ubisafe-api
+```
