@@ -5,6 +5,9 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP"]
 
+[tool.ruff.lint.isort]
+known-first-party = ["routers", "services", "schemas", "dependencies", "modules"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
