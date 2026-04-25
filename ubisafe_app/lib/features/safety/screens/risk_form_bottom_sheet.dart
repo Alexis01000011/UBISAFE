@@ -54,7 +54,7 @@ class _RiskFormBottomSheetState extends ConsumerState<RiskFormBottomSheet> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
-              value: _category,
+              initialValue: _category,
               items: const [
                 DropdownMenuItem(value: 'robbery', child: Text('Robo')),
                 DropdownMenuItem(value: 'harassment', child: Text('Acoso')),

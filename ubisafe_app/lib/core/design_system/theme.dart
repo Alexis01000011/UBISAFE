@@ -23,7 +23,7 @@ abstract final class AppTheme {
             backgroundColor: AppColors.primary,
             foregroundColor: Colors.white,
             minimumSize: const Size(double.infinity, 48),
-            shape: RoundedRectangleBorder(
+            shape: const RoundedRectangleBorder(
               borderRadius: BorderRadius.all(Radius.circular(12)),
             ),
           ),
@@ -40,7 +40,7 @@ abstract final class AppTheme {
         textTheme: _textTheme,
       );
 
-  static TextTheme get _textTheme => TextTheme(
+  static TextTheme get _textTheme => const TextTheme(
         displayLarge: AppTypography.displayLarge,
         headlineLarge: AppTypography.headlineLarge,
         headlineMedium: AppTypography.headlineMedium,
