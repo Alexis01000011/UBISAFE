@@ -1,0 +1,23 @@
+{
+  "rules": {
+    "vendedores_activos": {
+      "$vendor_uid": {
+        ".write": "auth != null && auth.uid === $vendor_uid",
+        ".read": "auth != null",
+        ".validate": "newData.hasChildren(['lat', 'lng', 'timestamp', 'activo'])",
+        "lat": {
+          ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90"
+        },
+        "lng": {
+          ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180"
+        },
+        "timestamp": {
+          ".validate": "newData.isNumber() && newData.val() > 0"
+        },
+        "activo": {
+          ".validate": "newData.isBoolean() && newData.val() === true"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  flutter:
+    name: Flutter — analyze & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install dependencies
+        working-directory: ubisafe_app
+        run: flutter pub get
+
+      - name: Analyze
+        working-directory: ubisafe_app
+        run: flutter analyze
+
+      - name: Test
+        working-directory: ubisafe_app
+        run: flutter test
+
+  fastapi:
+    name: FastAPI — lint & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        working-directory: ubisafe_api
+        run: pip install -r requirements.txt
+
+      - name: Lint (ruff)
+        working-directory: ubisafe_api
+        run: ruff check . --fix
+
+      - name: Test (pytest)
+        working-directory: ubisafe_api
+        run: pytest --tb=short

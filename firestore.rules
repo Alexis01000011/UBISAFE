@@ -1,0 +1,47 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ─── FUNCIONES DE UTILIDAD ─────────────────────────────────────────────
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+
+    // ─── COLECCIÓN: users ──────────────────────────────────────────────────
+    // FastAPI lee perfiles con Admin SDK (las reglas no aplican al Admin SDK).
+    // Esta regla protege escrituras directas desde el cliente (ej. fcm_token).
+    match /users/{uid} {
+      allow read: if isOwner(uid);
+      allow write: if isOwner(uid);
+    }
+
+    // ─── COLECCIÓN: stop_requests ──────────────────────────────────────────
+    // La lógica de negocio (rol, validaciones, máquina de estados) la aplica
+    // FastAPI antes de que el Admin SDK escriba. Esta regla protege accesos
+    // directos desde el cliente.
+    match /stop_requests/{requestId} {
+      allow read: if isAuthenticated()
+                  && (resource.data.buyer_uid == request.auth.uid
+                      || resource.data.vendor_uid == request.auth.uid);
+      allow write: if isAuthenticated();
+    }
+
+    // ─── COLECCIÓN: risk_zones ─────────────────────────────────────────────
+    // El borrado lógico (active=false) lo ejecuta FastAPI con Admin SDK.
+    // Esta regla protege escrituras directas desde el cliente.
+    match /risk_zones/{zoneId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if isAuthenticated()
+                            && resource.data.reporter_uid == request.auth.uid;
+    }
+
+    // ─── iter.2: rides, community_reports ─────────────────────────────────
+    // Se añaden en F6 y F7 respectivamente.
+
+  }
+}

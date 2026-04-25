@@ -17,8 +17,11 @@ dependencies:
   cloud_firestore: ^4.14.0
   firebase_messaging: ^14.7.10
 
+  # ── Firebase RTDB ─────────────────────────────────────────────────────────
+  firebase_database: ^10.4.0
+
   # ── State management (Riverpod) ──────────────────────────────────────────
-  flutter_riverpod: ^2.4.9
+  flutter_riverpod: ^2.5.1
   riverpod_annotation: ^2.3.3
 
   # ── Navigation ───────────────────────────────────────────────────────────
@@ -42,6 +45,7 @@ dev_dependencies:
   flutter_lints: ^3.0.1
   build_runner: ^2.4.7
   riverpod_generator: ^2.3.9
+  mocktail: ^1.0.0
 
 flutter:
   uses-material-design: true
