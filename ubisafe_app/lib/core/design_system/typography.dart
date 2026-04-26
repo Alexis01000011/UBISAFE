@@ -1,55 +1,55 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
-/// UBISAFE text style catalogue.
 abstract final class AppTypography {
-  static const TextStyle displayLarge = TextStyle(
-    fontSize: 57,
-    fontWeight: FontWeight.w400,
-    letterSpacing: -0.25,
-  );
+  // ── SDD §7.1.2 — escala Inter ────────────────────────────────────────────
+  // Todos los tamaños en sp; height = interlineado / tamaño.
 
-  static const TextStyle headlineLarge = TextStyle(
-    fontSize: 32,
-    fontWeight: FontWeight.w700,
-  );
+  static TextStyle get display => GoogleFonts.inter(
+        fontSize: 24,
+        fontWeight: FontWeight.w700,
+        height: 32 / 24,
+      );
 
-  static const TextStyle headlineMedium = TextStyle(
-    fontSize: 28,
-    fontWeight: FontWeight.w600,
-  );
+  static TextStyle get heading1 => GoogleFonts.inter(
+        fontSize: 20,
+        fontWeight: FontWeight.w600,
+        height: 28 / 20,
+      );
 
-  static const TextStyle titleLarge = TextStyle(
-    fontSize: 22,
-    fontWeight: FontWeight.w600,
-  );
+  static TextStyle get heading2 => GoogleFonts.inter(
+        fontSize: 18,
+        fontWeight: FontWeight.w600,
+        height: 24 / 18,
+      );
 
-  static const TextStyle titleMedium = TextStyle(
-    fontSize: 16,
-    fontWeight: FontWeight.w500,
-    letterSpacing: 0.15,
-  );
+  static TextStyle get body1 => GoogleFonts.inter(
+        fontSize: 16,
+        fontWeight: FontWeight.w400,
+        height: 24 / 16,
+      );
 
-  static const TextStyle bodyLarge = TextStyle(
-    fontSize: 16,
-    fontWeight: FontWeight.w400,
-    letterSpacing: 0.5,
-  );
+  static TextStyle get body2 => GoogleFonts.inter(
+        fontSize: 14,
+        fontWeight: FontWeight.w400,
+        height: 20 / 14,
+      );
 
-  static const TextStyle bodyMedium = TextStyle(
-    fontSize: 14,
-    fontWeight: FontWeight.w400,
-    letterSpacing: 0.25,
-  );
+  static TextStyle get button => GoogleFonts.inter(
+        fontSize: 16,
+        fontWeight: FontWeight.w600,
+        height: 20 / 16,
+      );
 
-  static const TextStyle labelLarge = TextStyle(
-    fontSize: 14,
-    fontWeight: FontWeight.w500,
-    letterSpacing: 1.25,
-  );
+  static TextStyle get label => GoogleFonts.inter(
+        fontSize: 14,
+        fontWeight: FontWeight.w500,
+        height: 18 / 14,
+      );
 
-  static const TextStyle labelSmall = TextStyle(
-    fontSize: 11,
-    fontWeight: FontWeight.w400,
-    letterSpacing: 1.5,
-  );
+  static TextStyle get caption => GoogleFonts.inter(
+        fontSize: 12,
+        fontWeight: FontWeight.w400,
+        height: 16 / 12,
+      );
 }

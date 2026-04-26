@@ -1,28 +1,45 @@
 import 'package:flutter/material.dart';
 
-/// UBISAFE brand palette.
 abstract final class AppColors {
-  // Primary
-  static const Color primary = Color(0xFF1B4F72);
-  static const Color primaryLight = Color(0xFF2E86C1);
-  static const Color primaryDark = Color(0xFF154360);
+  // ── Primary (azules) ────────────────────────────────────────────────────
+  static const Color primary900 = Color(0xFF0D47A1);
+  static const Color primary700 = Color(0xFF1565C0); // marca principal, AppBar, botones
+  static const Color primary500 = Color(0xFF1E88E5);
+  static const Color primary100 = Color(0xFFBBDEFB);
+  static const Color primary50  = Color(0xFFE3F2FD);
 
-  // Secondary / accent
-  static const Color accent = Color(0xFFF39C12);
-  static const Color accentLight = Color(0xFFF8C471);
+  // ── Secondary (verdes) ──────────────────────────────────────────────────
+  static const Color secondary700 = Color(0xFF2E7D32); // vendedor activo, zonas seguras
+  static const Color secondary500 = Color(0xFF43A047);
+  static const Color secondary100 = Color(0xFFC8E6C9);
+  static const Color secondary50  = Color(0xFFF1F8E9); // fondo Home Vendedor
 
-  // Semantic
-  static const Color success = Color(0xFF27AE60);
-  static const Color warning = Color(0xFFF39C12);
-  static const Color error = Color(0xFFE74C3C);
-  static const Color info = Color(0xFF2980B9);
+  // ── Semánticos ──────────────────────────────────────────────────────────
+  static const Color danger700  = Color(0xFFC62828); // zonas riesgo Alto
+  static const Color danger500  = Color(0xFFE53935);
+  static const Color warning700 = Color(0xFFE65100); // zonas riesgo Medio, FAB
+  static const Color warning500 = Color(0xFFF57C00);
+  static const Color info500    = Color(0xFF0277BD); // zonas riesgo Bajo
+  static const Color success500 = Color(0xFF388E3C);
 
-  // Neutrals
-  static const Color backgroundLight = Color(0xFFF5F5F5);
-  static const Color backgroundDark = Color(0xFF121212);
-  static const Color surfaceLight = Color(0xFFFFFFFF);
-  static const Color surfaceDark = Color(0xFF1E1E1E);
-  static const Color textPrimary = Color(0xFF212121);
-  static const Color textSecondary = Color(0xFF757575);
-  static const Color divider = Color(0xFFBDBDBD);
+  // ── Neutros ─────────────────────────────────────────────────────────────
+  static const Color neutral900 = Color(0xFF212121); // texto principal
+  static const Color neutral600 = Color(0xFF616161); // texto secundario
+  static const Color neutral400 = Color(0xFF9E9E9E); // texto deshabilitado
+  static const Color neutral200 = Color(0xFFE0E0E0); // bordes
+  static const Color neutral100 = Color(0xFFF5F5F5); // fondo general
+  static const Color neutral0   = Color(0xFFFFFFFF); // superficies, tarjetas
+
+  // ── Aliases semánticos para uso en widgets ──────────────────────────────
+  static const Color textPrimary   = neutral900;
+  static const Color textSecondary = neutral600;
+  static const Color textDisabled  = neutral400;
+  static const Color border        = neutral200;
+  static const Color background    = neutral100;
+  static const Color surface       = neutral0;
+
+  // ── Mapa ────────────────────────────────────────────────────────────────
+  static const Color mapVendorActive   = secondary500;  // marcador verde
+  static const Color mapVendorInactive = neutral400;
+  static const Color mapBuyerLocation  = primary700;    // punto azul pulsante
 }
