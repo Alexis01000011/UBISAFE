@@ -1,4 +1,4 @@
-package com.ubisafe.app
+package com.borbotones.ubisafe
 
 import io.flutter.embedding.android.FlutterActivity
 
