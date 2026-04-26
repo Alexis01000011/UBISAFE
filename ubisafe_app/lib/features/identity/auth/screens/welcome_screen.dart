@@ -33,7 +33,7 @@ class WelcomeScreen extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               OutlinedButton(
-                onPressed: () => context.go('/signup'),
+                onPressed: () => context.go('/signup-data'),
                 child: const Text('Crear cuenta'),
               ),
               const SizedBox(height: 32),

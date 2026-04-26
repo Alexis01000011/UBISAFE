@@ -4,17 +4,29 @@ import 'package:go_router/go_router.dart';
 
 import '../auth_module.dart';
 
-class SignupScreen extends ConsumerStatefulWidget {
-  const SignupScreen({super.key});
+/// Step 2 of sign-up: choose role (BUYER / VENDOR), enter email + password,
+/// and create the Firebase Auth account.
+///
+/// Receives `extra = {'name': String, 'phone': String}` from SignupDataScreen.
+class SignupRoleScreen extends ConsumerStatefulWidget {
+  const SignupRoleScreen({
+    super.key,
+    required this.name,
+    required this.phone,
+  });
+
+  final String name;
+  final String phone;
 
   @override
-  ConsumerState<SignupScreen> createState() => _SignupScreenState();
+  ConsumerState<SignupRoleScreen> createState() => _SignupRoleScreenState();
 }
 
-class _SignupScreenState extends ConsumerState<SignupScreen> {
+class _SignupRoleScreenState extends ConsumerState<SignupRoleScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
+  String _role = 'BUYER';
   bool _loading = false;
 
   @override
@@ -32,7 +44,10 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
             email: _emailCtrl.text.trim(),
             password: _passwordCtrl.text,
           );
-      if (mounted) context.go('/home/buyer');
+      // Role sync to Firestore is handled in F2 (POST /auth/sync-profile).
+      if (mounted) {
+        context.go(_role == 'BUYER' ? '/home/buyer' : '/home/vendor');
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -47,7 +62,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Crear cuenta')),
+      appBar: AppBar(title: const Text('¿Cómo usarás UbiSafe?')),
       body: Padding(
         padding: const EdgeInsets.all(24.0),
         child: Form(
@@ -55,6 +70,15 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(value: 'BUYER', label: Text('Comprador')),
+                  ButtonSegment(value: 'VENDOR', label: Text('Vendedor')),
+                ],
+                selected: {_role},
+                onSelectionChanged: (s) => setState(() => _role = s.first),
+              ),
+              const SizedBox(height: 24),
               TextFormField(
                 controller: _emailCtrl,
                 keyboardType: TextInputType.emailAddress,
@@ -67,15 +91,16 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                 controller: _passwordCtrl,
                 obscureText: true,
                 decoration: const InputDecoration(labelText: 'Contraseña'),
-                validator: (v) =>
-                    (v == null || v.length < 6) ? 'Mínimo 6 caracteres' : null,
+                validator: (v) => (v == null || v.length < 6)
+                    ? 'Mínimo 6 caracteres'
+                    : null,
               ),
               const SizedBox(height: 24),
               _loading
                   ? const Center(child: CircularProgressIndicator())
                   : ElevatedButton(
                       onPressed: _submit,
-                      child: const Text('Registrarme'),
+                      child: const Text('Crear cuenta'),
                     ),
             ],
           ),

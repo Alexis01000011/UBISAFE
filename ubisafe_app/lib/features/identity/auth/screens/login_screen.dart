@@ -32,7 +32,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             email: _emailCtrl.text.trim(),
             password: _passwordCtrl.text,
           );
-      if (mounted) context.go('/map/buyer');
+      if (mounted) context.go('/home/buyer');
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

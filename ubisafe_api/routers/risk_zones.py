@@ -7,6 +7,11 @@ from services.firestore_service import FirestoreService
 router = APIRouter()
 
 
+@router.get("/health")
+async def health() -> dict:
+    return {"status": "ok"}
+
+
 @router.get("/", response_model=list[RiskZone])
 async def list_risk_zones(current_user: dict = Depends(get_current_user)):
     return await FirestoreService.list_risk_zones()

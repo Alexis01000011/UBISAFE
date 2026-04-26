@@ -7,6 +7,11 @@ from services.firestore_service import FirestoreService
 router = APIRouter()
 
 
+@router.get("/health")
+async def health() -> dict:
+    return {"status": "ok"}
+
+
 @router.post("/sync-profile", response_model=UserProfile)
 async def sync_profile(
     body: SyncProfileRequest,
