@@ -28,12 +28,12 @@ class WelcomeScreen extends StatelessWidget {
               ),
               const Spacer(),
               ElevatedButton(
-                onPressed: () => context.go('/login'),
+                onPressed: () => context.push('/login'),
                 child: const Text('Iniciar sesión'),
               ),
               const SizedBox(height: 12),
               OutlinedButton(
-                onPressed: () => context.go('/signup-data'),
+                onPressed: () => context.push('/signup-data'),
                 child: const Text('Crear cuenta'),
               ),
               const SizedBox(height: 32),

@@ -4,48 +4,40 @@ import 'package:go_router/go_router.dart';
 
 import '../auth_module.dart';
 
-/// Step 2 of sign-up: choose role (BUYER / VENDOR), enter email + password,
-/// create the Firebase Auth account, and sync the profile to Firestore.
+/// Step 2 of sign-up: choose role (BUYER / VENDOR) and create the account.
 ///
-/// Receives `extra = {'name': String, 'phone': String}` from SignupDataScreen.
+/// Receives name, phone, email and password from SignupDataScreen via route extra.
 class SignupRoleScreen extends ConsumerStatefulWidget {
   const SignupRoleScreen({
     super.key,
     required this.name,
     required this.phone,
+    required this.email,
+    required this.password,
   });
 
   final String name;
   final String phone;
+  final String email;
+  final String password;
 
   @override
   ConsumerState<SignupRoleScreen> createState() => _SignupRoleScreenState();
 }
 
 class _SignupRoleScreenState extends ConsumerState<SignupRoleScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final _emailCtrl = TextEditingController();
-  final _passwordCtrl = TextEditingController();
   String _role = 'BUYER';
   bool _loading = false;
 
-  @override
-  void dispose() {
-    _emailCtrl.dispose();
-    _passwordCtrl.dispose();
-    super.dispose();
-  }
-
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
     setState(() => _loading = true);
     try {
       await ref.read(authModuleProvider).register(
             name: widget.name,
             phone: widget.phone,
             role: _role,
-            email: _emailCtrl.text.trim(),
-            password: _passwordCtrl.text,
+            email: widget.email,
+            password: widget.password,
           );
       if (mounted) {
         context.go(_role == 'BUYER' ? '/home/buyer' : '/home/vendor');
@@ -67,45 +59,25 @@ class _SignupRoleScreenState extends ConsumerState<SignupRoleScreen> {
       appBar: AppBar(title: const Text('¿Cómo usarás UbiSafe?')),
       body: Padding(
         padding: const EdgeInsets.all(24.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(value: 'BUYER', label: Text('Comprador')),
-                  ButtonSegment(value: 'VENDOR', label: Text('Vendedor')),
-                ],
-                selected: {_role},
-                onSelectionChanged: (s) => setState(() => _role = s.first),
-              ),
-              const SizedBox(height: 24),
-              TextFormField(
-                controller: _emailCtrl,
-                keyboardType: TextInputType.emailAddress,
-                decoration: const InputDecoration(labelText: 'Correo'),
-                validator: (v) =>
-                    (v == null || !v.contains('@')) ? 'Correo inválido' : null,
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _passwordCtrl,
-                obscureText: true,
-                decoration: const InputDecoration(labelText: 'Contraseña'),
-                validator: (v) => (v == null || v.length < 6)
-                    ? 'Mínimo 6 caracteres'
-                    : null,
-              ),
-              const SizedBox(height: 24),
-              _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : ElevatedButton(
-                      onPressed: _submit,
-                      child: const Text('Crear cuenta'),
-                    ),
-            ],
-          ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SegmentedButton<String>(
+              segments: const [
+                ButtonSegment(value: 'BUYER', label: Text('Comprador')),
+                ButtonSegment(value: 'VENDOR', label: Text('Vendedor')),
+              ],
+              selected: {_role},
+              onSelectionChanged: (s) => setState(() => _role = s.first),
+            ),
+            const SizedBox(height: 24),
+            _loading
+                ? const Center(child: CircularProgressIndicator())
+                : ElevatedButton(
+                    onPressed: _submit,
+                    child: const Text('Crear cuenta'),
+                  ),
+          ],
         ),
       ),
     );

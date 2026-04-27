@@ -56,6 +56,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           return SignupRoleScreen(
             name: extra['name'] as String? ?? '',
             phone: extra['phone'] as String? ?? '',
+            email: extra['email'] as String? ?? '',
+            password: extra['password'] as String? ?? '',
           );
         },
       ),
