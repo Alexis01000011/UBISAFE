@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../core/providers/auth_providers.dart';
 import '../../auth/auth_module.dart';
 
 /// App-wide navigation drawer.
@@ -14,16 +15,16 @@ class DrawerModule extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final userAsync = ref.watch(authStateProvider);
+    final profileAsync = ref.watch(userProfileProvider);
 
     return Drawer(
-      child: userAsync.maybeWhen(
-        data: (user) => ListView(
+      child: profileAsync.maybeWhen(
+        data: (profile) => ListView(
           padding: EdgeInsets.zero,
           children: [
             UserAccountsDrawerHeader(
-              accountName: const Text('UbiSafe'),
-              accountEmail: Text(user?.email ?? ''),
+              accountName: Text(profile?.name ?? 'UbiSafe'),
+              accountEmail: Text(profile?.role ?? ''),
             ),
             ListTile(
               leading: const Icon(Icons.person),

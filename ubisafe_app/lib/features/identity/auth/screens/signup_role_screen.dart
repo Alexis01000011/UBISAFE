@@ -5,7 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../auth_module.dart';
 
 /// Step 2 of sign-up: choose role (BUYER / VENDOR), enter email + password,
-/// and create the Firebase Auth account.
+/// create the Firebase Auth account, and sync the profile to Firestore.
 ///
 /// Receives `extra = {'name': String, 'phone': String}` from SignupDataScreen.
 class SignupRoleScreen extends ConsumerStatefulWidget {
@@ -40,11 +40,13 @@ class _SignupRoleScreenState extends ConsumerState<SignupRoleScreen> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _loading = true);
     try {
-      await ref.read(authModuleProvider).signUpWithEmail(
+      await ref.read(authModuleProvider).register(
+            name: widget.name,
+            phone: widget.phone,
+            role: _role,
             email: _emailCtrl.text.trim(),
             password: _passwordCtrl.text,
           );
-      // Role sync to Firestore is handled in F2 (POST /auth/sync-profile).
       if (mounted) {
         context.go(_role == 'BUYER' ? '/home/buyer' : '/home/vendor');
       }
