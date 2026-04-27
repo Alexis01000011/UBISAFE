@@ -1,7 +1,8 @@
 """F1 — smoke tests: each router exposes GET /health → 200 {"status": "ok"}."""
+from unittest.mock import patch
+
 import pytest
 from httpx import ASGITransport, AsyncClient
-from unittest.mock import patch, MagicMock
 
 
 @pytest.fixture

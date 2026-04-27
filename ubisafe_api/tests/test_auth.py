@@ -1,9 +1,9 @@
 """F2 — AuthMiddleware + auth endpoints tests."""
-import pytest
 from datetime import datetime
-from httpx import ASGITransport, AsyncClient
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
+import pytest
+from httpx import ASGITransport, AsyncClient
 
 VALID_UID = "test-uid-123"
 VALID_TOKEN_PAYLOAD = {"uid": VALID_UID, "email": "test@example.com"}
