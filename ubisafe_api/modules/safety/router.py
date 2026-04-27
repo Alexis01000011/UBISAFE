@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, status
 
 from dependencies import get_current_user
-from schemas.risk_zone import CreateRiskZoneBody, RiskZone
-from services.firestore_service import FirestoreService
+from modules.safety.schemas import CreateRiskZoneBody, RiskZone
+from modules.shared.firestore_service import FirestoreService
 
 router = APIRouter()
 

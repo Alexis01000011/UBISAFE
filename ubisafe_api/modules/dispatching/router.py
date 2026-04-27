@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from dependencies import get_current_user
-from schemas.stop_request import CreateStopRequestBody, StopRequest, UpdateStatusBody
-from services.firestore_service import FirestoreService
+from modules.dispatching.schemas import CreateStopRequestBody, StopRequest, UpdateStatusBody
+from modules.shared.firestore_service import FirestoreService
 
 router = APIRouter()
 
