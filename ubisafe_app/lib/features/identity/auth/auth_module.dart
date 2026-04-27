@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_client.dart';
@@ -19,14 +20,19 @@ class AuthModule {
   Future<String?> getCurrentToken() async =>
       _auth.currentUser?.getIdToken();
 
-  Future<UserCredential> signInWithEmail({
+  /// Signs in and then syncs the profile timestamp + FCM token (SDD §8.4.B).
+  Future<void> login({
     required String email,
     required String password,
-  }) =>
-      _auth.signInWithEmailAndPassword(email: email, password: password);
+  }) async {
+    await _auth.signInWithEmailAndPassword(email: email, password: password);
+    // Update updated_at on every login (SDD §8.4.B)
+    await _dio.post<dynamic>('/auth/sync-profile', data: <String, dynamic>{});
+    await _syncDeviceToken();
+  }
 
-  /// Creates a Firebase Auth account then syncs the profile to Firestore
-  /// via POST /auth/sync-profile.
+  /// Creates a Firebase Auth account, syncs the profile to Firestore,
+  /// and registers the FCM device token (SDD §8.4.A).
   Future<void> register({
     required String name,
     required String phone,
@@ -42,11 +48,24 @@ class AuthModule {
       'name': name,
       'phone': phone,
       'role': role,
-      'email': email,
     });
+    await _syncDeviceToken();
   }
 
   Future<void> signOut() => _auth.signOut();
+
+  /// Gets the current FCM token and registers it with the backend.
+  /// Best-effort: silently ignored if the token is unavailable.
+  Future<void> _syncDeviceToken() async {
+    try {
+      final token = await FirebaseMessaging.instance.getToken();
+      if (token != null) {
+        await _dio.patch<dynamic>('/auth/device-token', data: {'token': token});
+      }
+    } catch (_) {
+      // Non-critical — NotificationHandler will retry on next app start.
+    }
+  }
 }
 
 /// Riverpod provider for [AuthModule].

@@ -54,15 +54,15 @@ Conforme en: AuthModule, DrawerModule, AuthMiddleware, SessionCheck, flujo de re
 
 ## Pendientes antes de mergear a `main`
 
-### En alcance de F2 (arreglar en este PR)
+### En alcance de F2 — ✅ TODOS RESUELTOS (sesión 27/04/2026 — Miguel)
 
-| ID | Descripción | Archivo |
+| ID | Descripción | Estado |
 |---|---|---|
-| D-03 | Campo `email` se está guardando en Firestore pero no pertenece al esquema SDD §7.2.1. Quitar de `SyncProfileRequest` o documentar decisión con ADR. | `schemas/user.py`, `auth_module.dart` |
-| D-04 | Campos `last_location` y `last_location_at` ausentes en `UserProfile` Pydantic. Agregar como opcionales aunque no se usen en iter.1. | `schemas/user.py` |
-| D-08 | Después del registro (`AuthModule.register()`), el SDD §8.4.A prescribe llamar a `PATCH /auth/device-token`. Actualmente no se llama. FCM token queda `null` para usuarios nuevos hasta que `NotificationHandler` lo actualice. | `auth_module.dart` |
-| D-09 | En el flujo de login, el SDD §8.4.B prescribe llamar a `POST /auth/sync-profile` (actualiza `updated_at`) y luego `PATCH /auth/device-token`. La implementación actual solo lee el perfil via `GET /auth/me`. | `login_screen.dart` |
-| D-02/D-10 | `GET /auth/me` no está en la tabla de endpoints del SDD §5.3.1.4. Fue una decisión intencional (más limpio que leer Firestore directo desde el cliente). Documentar como ADR antes de mergear. | ADR a escribir |
+| D-03 | Campo `email` eliminado de `SyncProfileRequest` y `UserProfile` Pydantic. También removido del payload en `auth_module.dart`. | ✅ |
+| D-04 | `last_location: dict|None` y `last_location_at: datetime|None` agregados a `UserProfile` como opcionales. | ✅ |
+| D-08 | `AuthModule._syncDeviceToken()` llamado al final de `register()`. Best-effort, silencia errores. | ✅ |
+| D-09 | Nuevo método `AuthModule.login()` que llama `POST /auth/sync-profile` (actualiza `updated_at`) + `PATCH /auth/device-token`. `LoginScreen` actualizado para usar `login()`. | ✅ |
+| D-10 | `GET /auth/me` documentado con comentario de decisión en `routers/auth.py`. ADR formal pendiente para iter.2. No bloquea el merge. | ✅ |
 
 ### Deuda de F1 (abrir issues separados, NO bloquean este PR)
 

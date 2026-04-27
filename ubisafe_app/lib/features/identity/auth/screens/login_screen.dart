@@ -29,7 +29,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _loading = true);
     try {
-      await ref.read(authModuleProvider).signInWithEmail(
+      // login() = signIn + sync-profile (updated_at) + device-token (SDD §8.4.B)
+      await ref.read(authModuleProvider).login(
             email: _emailCtrl.text.trim(),
             password: _passwordCtrl.text,
           );

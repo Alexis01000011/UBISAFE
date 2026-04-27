@@ -12,8 +12,9 @@ MOCK_PROFILE = {
     "name": "Test User",
     "phone": "+52 33 1234 5678",
     "role": "BUYER",
-    "email": "test@example.com",
     "fcm_token": None,
+    "last_location": None,
+    "last_location_at": None,
     "created_at": datetime(2026, 1, 1),
     "updated_at": datetime(2026, 1, 2),
 }
