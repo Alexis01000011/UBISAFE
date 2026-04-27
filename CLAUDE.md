@@ -56,6 +56,39 @@ firebase emulators:start --project demo-ubisafe
 
 ---
 
+## Configuración Android — matrix de versiones
+
+| Componente | Versión | Notas |
+|---|---|---|
+| Flutter | 3.41.7 stable | Verificar con `flutter doctor` |
+| AGP (Android Gradle Plugin) | **8.9.1** | Mínimo para `androidx.core:core-ktx:1.17.0` |
+| KGP (Kotlin Gradle Plugin) | **2.3.21** | Debe coincidir con stdlib que traen los plugins de terceros |
+| Gradle Wrapper | **8.11.1** | Satisface el mínimo de AGP 8.9.x |
+| NDK | **28.2.13676358** | Requerido por `jni 1.0.0` (transitiva de Firebase/maps) |
+| compileSdk / targetSdk | 36 | |
+| minSdk | 29 | |
+
+### Por qué NO subir a AGP 9.x
+
+Los plugins de pub en sus versiones actuales (`google_maps_flutter_android 2.19.8`, `geolocator_android 4.6.2`, `firebase_core 2.32.0`, `firebase_auth 4.16.0`, `cloud_firestore 4.17.5`, `firebase_messaging 14.7.10`, `firebase_database 10.5.7`) aplican `kotlin-android` en sus propios `build.gradle`. AGP 9 registra la extensión `kotlin` internamente, lo que produce `Cannot add extension with name 'kotlin'` al compilar cualquiera de esos plugins. Para usar AGP 9 habría que actualizar todos a sus versiones mayores (firebase_core 4.x, geolocator 14.x, etc.) — cambio disruptivo fuera del alcance actual.
+
+### Por qué KGP 2.3.21 y no una versión menor
+
+`google_maps_flutter_android 2.19.8` trae `kotlin-stdlib 2.3.10` (compilado con KGP 2.3.x). Si el KGP del proyecto es inferior a 2.3.x, el compilador Kotlin falla con `Module was compiled with an incompatible version of Kotlin. The binary version of its metadata is 2.3.0`. KGP debe ser ≥ 2.3.x.
+
+### Instalar el NDK correcto
+
+El NDK **no se instala automáticamente** con `flutter doctor`. Debe instalarse manualmente:
+> Android Studio → SDK Manager → SDK Tools → NDK (Side by side) → 28.2.13676358 → Apply
+
+Verificar desde terminal:
+```bash
+ls "$LOCALAPPDATA/Android/Sdk/ndk/"
+# debe aparecer 28.2.13676358 en la lista
+```
+
+---
+
 ## Reglas Git para Claude Code
 
 ### Claude Code PUEDE hacer sin preguntar:
