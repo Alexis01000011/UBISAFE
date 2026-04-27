@@ -36,10 +36,10 @@ def mock_valid_token():
 @pytest.fixture
 def mock_firestore_get_user():
     """Patch FirestoreService.get_user to return a mock profile."""
-    from schemas.user import UserProfile
+    from modules.identity.schemas import UserProfile
     profile = UserProfile(uid=VALID_UID, **MOCK_PROFILE)
     with patch(
-        "routers.auth.FirestoreService.get_user",
+        "modules.identity.router.FirestoreService.get_user",
         new_callable=AsyncMock,
         return_value=profile,
     ):
@@ -49,10 +49,10 @@ def mock_firestore_get_user():
 @pytest.fixture
 def mock_firestore_upsert_user():
     """Patch FirestoreService.upsert_user to return a mock profile."""
-    from schemas.user import UserProfile
+    from modules.identity.schemas import UserProfile
     profile = UserProfile(uid=VALID_UID, **MOCK_PROFILE)
     with patch(
-        "routers.auth.FirestoreService.upsert_user",
+        "modules.identity.router.FirestoreService.upsert_user",
         new_callable=AsyncMock,
         return_value=profile,
     ):
@@ -114,7 +114,7 @@ async def test_auth_me_profile_not_found_returns_404(mock_firebase, mock_valid_t
     from main import app
 
     with patch(
-        "routers.auth.FirestoreService.get_user",
+        "modules.identity.router.FirestoreService.get_user",
         new_callable=AsyncMock,
         return_value=None,
     ):

@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from dependencies import get_current_user
-from schemas.user import DeviceTokenRequest, SyncProfileRequest, UserProfile
-from services.firestore_service import FirestoreService
+from modules.identity.schemas import DeviceTokenRequest, SyncProfileRequest, UserProfile
+from modules.shared.firestore_service import FirestoreService
 
 router = APIRouter()
 

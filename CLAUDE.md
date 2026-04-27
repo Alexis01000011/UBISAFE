@@ -121,6 +121,89 @@ Ejemplo: `feat(dispatching): implement POST /stops with FCM notification`
 
 ---
 
+## Estructura de carpetas canónica
+
+### Flutter — `ubisafe_app/lib/`
+
+```
+lib/
+├── main.dart
+├── core/
+│   ├── api/api_client.dart
+│   ├── design_system/          # colors, spacing, theme, typography
+│   └── providers/              # app_lifecycle_provider, auth_providers
+├── features/
+│   ├── identity/               # AuthModule, DrawerModule
+│   │   ├── auth/               # auth_module, screens/, models/
+│   │   └── profile/            # screens/, widgets/drawer_module
+│   ├── presence/               # GPSService, VendorTracker
+│   │   ├── services/
+│   │   └── models/
+│   ├── dispatching/            # MapScreenBuyer, MapScreenVendor, StopRequestModule, RideRequestModule
+│   │   ├── screens/
+│   │   ├── services/
+│   │   ├── widgets/
+│   │   └── models/
+│   ├── safety/                 # RiskReportModule
+│   │   ├── screens/
+│   │   └── models/
+│   ├── community/              # CommunityReportModule, ReportValidationModule [iter.2]
+│   │   ├── screens/
+│   │   ├── services/
+│   │   ├── widgets/
+│   │   └── models/
+│   └── shared/                 # NotificationHandler, GpsRequiredEmptyState
+│       ├── notifications/
+│       └── widgets/
+└── router/app_router.dart
+```
+
+**Asignación de componentes por dominio (SDD_FASE2_PASO25 §5.3):**
+
+| Dominio | Componentes Flutter |
+|---|---|
+| `identity` | AuthModule, DrawerModule |
+| `presence` | GPSService, **VendorTracker** |
+| `dispatching` | **MapScreenBuyer, MapScreenVendor**, StopRequestModule, RideRequestModule [iter.2] |
+| `safety` | RiskReportModule |
+| `community` | CommunityReportModule, ReportValidationModule [iter.2] |
+| `shared` | NotificationHandler, GpsRequiredEmptyState |
+
+> Nota: MapScreenVendor pertenece a `dispatching` (orquesta CU-02, no el GPS en sí). VendorTracker pertenece a `presence` (suscribe RTDB de vendedores). DrawerModule pertenece a `identity` (acción principal = logout).
+
+---
+
+### FastAPI — `ubisafe_api/`
+
+```
+ubisafe_api/
+├── main.py
+├── dependencies.py             # get_current_user (AuthMiddleware)
+├── modules/
+│   ├── identity/               # AuthRouter
+│   │   ├── router.py           # /auth endpoints
+│   │   └── schemas.py          # UserProfile, SyncProfileRequest, DeviceTokenRequest
+│   ├── dispatching/            # StopRequestRouter [+ RideRouter iter.2]
+│   │   ├── router.py           # /stops endpoints
+│   │   └── schemas.py          # StopRequest, CreateStopRequestBody, UpdateStatusBody
+│   ├── safety/                 # RiskZoneRouter
+│   │   ├── router.py           # /risk-zones endpoints
+│   │   └── schemas.py          # RiskZone, CreateRiskZoneBody
+│   ├── community/              # CommunityReportRouter, ReportValidationRouter [iter.2]
+│   │   ├── router.py
+│   │   └── schemas.py
+│   └── shared/                 # Servicios transversales
+│       ├── firebase_admin_init.py
+│       ├── firestore_service.py
+│       └── notification_service.py
+├── tests/
+└── requirements.txt
+```
+
+> No existe `modules/presence/` en iter.1 — el GPS escribe directo a RTDB desde Flutter (ADR #2).
+
+---
+
 ## Guía de implementación
 
 Las fases se ejecutan en este orden: **F0 → F1 → F2 → F3 → F4 → F5** (iter.1) **→ F6 → F7 → F8** (iter.2).

@@ -4,10 +4,10 @@ from typing import Any
 
 from google.cloud.firestore import SERVER_TIMESTAMP
 
-from schemas.risk_zone import CreateRiskZoneBody, RiskZone
-from schemas.stop_request import CreateStopRequestBody, StopRequest
-from schemas.user import SyncProfileRequest, UserProfile
-from services.firebase_admin_init import FirebaseAdminInit
+from modules.dispatching.schemas import CreateStopRequestBody, StopRequest
+from modules.identity.schemas import SyncProfileRequest, UserProfile
+from modules.safety.schemas import CreateRiskZoneBody, RiskZone
+from modules.shared.firebase_admin_init import FirebaseAdminInit
 
 
 class FirestoreService:

@@ -1,6 +1,6 @@
 from firebase_admin import messaging
 
-from services.firebase_admin_init import FirebaseAdminInit
+from modules.shared.firebase_admin_init import FirebaseAdminInit
 
 
 class NotificationService:

@@ -5,8 +5,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers import auth, risk_zones, stops
-from services.firebase_admin_init import FirebaseAdminInit
+from modules.dispatching.router import router as stops_router
+from modules.identity.router import router as auth_router
+from modules.safety.router import router as risk_zones_router
+from modules.shared.firebase_admin_init import FirebaseAdminInit
 
 logging.basicConfig(
     level=logging.getLevelName(os.getenv("LOG_LEVEL", "INFO")),
@@ -40,6 +42,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(auth.router, prefix="/auth", tags=["auth"])
-app.include_router(stops.router, prefix="/stops", tags=["stops"])
-app.include_router(risk_zones.router, prefix="/risk-zones", tags=["risk-zones"])
+app.include_router(auth_router, prefix="/auth", tags=["auth"])
+app.include_router(stops_router, prefix="/stops", tags=["stops"])
+app.include_router(risk_zones_router, prefix="/risk-zones", tags=["risk-zones"])
