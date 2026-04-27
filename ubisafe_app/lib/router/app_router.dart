@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../core/providers/auth_providers.dart';
 import '../features/community/screens/community_reports_history_screen.dart';
 import '../features/dispatching/screens/map_screen_buyer.dart';
 import '../features/dispatching/screens/map_screen_vendor.dart';
@@ -19,6 +20,8 @@ const _authPaths = {'/splash', '/welcome', '/login', '/signup-data', '/signup-ro
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   final authState = ref.watch(authStateProvider);
+  // Read profile synchronously (may be null/loading on first frame).
+  final profileAsync = ref.watch(userProfileProvider);
 
   return GoRouter(
     initialLocation: '/splash',
@@ -27,10 +30,17 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       final path = state.matchedLocation;
       final isAuthPath = _authPaths.contains(path);
 
+      // Not logged in and trying to access a protected route → welcome.
       if (!isLoggedIn && !isAuthPath) return '/welcome';
-      // When logged in and still on an auth screen, send to buyer home.
-      // In F2 this will read the role from Firestore to choose buyer vs vendor.
-      if (isLoggedIn && isAuthPath && path != '/splash') return '/home/buyer';
+
+      // Logged in and still on an auth screen (other than splash, which handles
+      // its own navigation): redirect to the role-appropriate home.
+      // Splash handles its own navigation via SessionCheck; skip it here.
+      if (isLoggedIn && isAuthPath && path != '/splash') {
+        final role = profileAsync.valueOrNull?.role;
+        return role == 'VENDOR' ? '/home/vendor' : '/home/buyer';
+      }
+
       return null;
     },
     routes: [
@@ -46,6 +56,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           return SignupRoleScreen(
             name: extra['name'] as String? ?? '',
             phone: extra['phone'] as String? ?? '',
+            email: extra['email'] as String? ?? '',
+            password: extra['password'] as String? ?? '',
           );
         },
       ),

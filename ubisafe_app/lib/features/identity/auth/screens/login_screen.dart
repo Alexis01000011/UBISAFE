@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../core/providers/auth_providers.dart';
 import '../auth_module.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -28,11 +29,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _loading = true);
     try {
-      await ref.read(authModuleProvider).signInWithEmail(
+      // login() = signIn + sync-profile (updated_at) + device-token (SDD §8.4.B)
+      await ref.read(authModuleProvider).login(
             email: _emailCtrl.text.trim(),
             password: _passwordCtrl.text,
           );
-      if (mounted) context.go('/home/buyer');
+
+      // Invalidate cached profile so it re-fetches with the new session.
+      ref.invalidate(userProfileProvider);
+      final profile = await ref.read(userProfileProvider.future);
+      final home = profile?.role == 'VENDOR' ? '/home/vendor' : '/home/buyer';
+
+      if (mounted) context.go(home);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

@@ -1,20 +1,28 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, EmailStr
+from datetime import datetime
+from typing import Any
+
+from pydantic import BaseModel
 
 
 class UserProfile(BaseModel):
     uid: str
-    email: EmailStr | None = None
-    display_name: str | None = None
-    photo_url: str | None = None
-    device_token: str | None = None
+    name: str | None = None
+    phone: str | None = None
+    role: str | None = None
+    fcm_token: str | None = None
+    # Anticipatory iter.1 fields (SDD §7.2.1) — updated by GPSService in foreground
+    last_location: dict[str, Any] | None = None
+    last_location_at: datetime | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 class SyncProfileRequest(BaseModel):
-    email: EmailStr | None = None
-    display_name: str | None = None
-    photo_url: str | None = None
+    name: str | None = None
+    phone: str | None = None
+    role: str | None = None
 
 
 class DeviceTokenRequest(BaseModel):

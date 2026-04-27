@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from google.cloud.firestore import SERVER_TIMESTAMP
+
 from schemas.risk_zone import CreateRiskZoneBody, RiskZone
 from schemas.stop_request import CreateStopRequestBody, StopRequest
 from schemas.user import SyncProfileRequest, UserProfile
@@ -17,15 +19,37 @@ class FirestoreService:
     @classmethod
     async def upsert_user(cls, uid: str, body: SyncProfileRequest) -> UserProfile:
         ref = cls._db().collection("users").document(uid)
-        data: dict[str, Any] = body.model_dump(exclude_none=True)
-        ref.set(data, merge=True)
         doc = ref.get()
-        return UserProfile(uid=uid, **doc.to_dict())
+
+        data: dict[str, Any] = body.model_dump(exclude_none=True)
+        data["updated_at"] = SERVER_TIMESTAMP
+
+        if not doc.exists:
+            data["uid"] = uid
+            data["created_at"] = SERVER_TIMESTAMP
+            ref.set(data)
+        else:
+            ref.set(data, merge=True)
+
+        # Re-fetch to get server-resolved timestamps
+        doc = ref.get()
+        raw = doc.to_dict() or {}
+        raw.pop("uid", None)
+        return UserProfile(uid=uid, **raw)
+
+    @classmethod
+    async def get_user(cls, uid: str) -> UserProfile | None:
+        doc = cls._db().collection("users").document(uid).get()
+        if not doc.exists:
+            return None
+        raw = doc.to_dict() or {}
+        raw.pop("uid", None)
+        return UserProfile(uid=uid, **raw)
 
     @classmethod
     async def update_device_token(cls, uid: str, token: str) -> None:
         cls._db().collection("users").document(uid).set(
-            {"device_token": token}, merge=True
+            {"fcm_token": token, "updated_at": SERVER_TIMESTAMP}, merge=True
         )
 
     # --------------------------------------------------------------- stops

@@ -33,10 +33,10 @@ flutter test
 
 # FastAPI
 cd ubisafe_api
-pip install -r requirements.txt
-uvicorn main:app --reload            # http://localhost:8000/docs
+python -m pip install -r requirements.txt   # usar python -m pip, no pip directamente
+uvicorn main:app --reload                   # http://localhost:8000/docs
 ruff check .
-pytest
+python -m pytest                            # usar python -m pytest, no pytest directamente
 
 # Firebase Emulators (desde la raíz del repo)
 firebase emulators:start --project demo-ubisafe
