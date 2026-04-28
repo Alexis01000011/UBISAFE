@@ -56,7 +56,7 @@ void main() {
       expect(handler.captured?.headers['Authorization'], equals('Bearer test.jwt.token'));
     });
 
-    test('llama signOut en respuesta 401', () {
+    test('onError no llama signOut y propaga el error', () {
       when(() => mockAuth.signOut()).thenAnswer((_) async {});
 
       final err = DioException(
@@ -70,7 +70,24 @@ void main() {
 
       interceptor.onError(err, handler);
 
+      verifyNever(() => mockAuth.signOut());
+      expect(handler.captured, same(err));
+    });
+
+    test('hace signOut silencioso cuando getIdToken falla', () async {
+      final mockUser = _MockUser();
+      when(() => mockAuth.currentUser).thenReturn(mockUser);
+      when(() => mockUser.getIdToken(any())).thenThrow(Exception('token error'));
+      when(() => mockAuth.signOut()).thenAnswer((_) async {});
+
+      final options = RequestOptions(path: '/test');
+      final handler = _FakeRequestHandler();
+
+      await interceptor.onRequest(options, handler);
+
       verify(() => mockAuth.signOut()).called(1);
+      expect(handler.captured, isNotNull);
+      expect(handler.captured?.headers.containsKey('Authorization'), isFalse);
     });
   });
 }
