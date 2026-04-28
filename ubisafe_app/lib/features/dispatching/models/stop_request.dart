@@ -11,6 +11,7 @@ class StopRequest {
     required this.buyerLat,
     required this.buyerLng,
     required this.createdAt,
+    this.expiresAt,
   });
 
   final String id;
@@ -20,9 +21,10 @@ class StopRequest {
   final double buyerLat;
   final double buyerLng;
   final DateTime createdAt;
+  final DateTime? expiresAt;
 
   factory StopRequest.fromMap(String id, Map<String, dynamic> map) {
-    final raw = map['location'];
+    final raw = map['buyer_location'];
     double lat;
     double lng;
     if (raw is GeoPoint) {
@@ -45,11 +47,16 @@ class StopRequest {
       createdAt: map['created_at'] is Timestamp
           ? (map['created_at'] as Timestamp).toDate()
           : DateTime.now(),
+      expiresAt: map['expires_at'] is Timestamp
+          ? (map['expires_at'] as Timestamp).toDate()
+          : map['expires_at'] != null
+              ? DateTime.tryParse(map['expires_at'] as String)
+              : null,
     );
   }
 
   factory StopRequest.fromJson(Map<String, dynamic> json) {
-    final loc = json['location'] as Map<String, dynamic>;
+    final loc = json['buyer_location'] as Map<String, dynamic>;
     return StopRequest(
       id: json['id'] as String,
       buyerUid: json['buyer_uid'] as String,
@@ -60,6 +67,9 @@ class StopRequest {
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'] as String)
           : DateTime.now(),
+      expiresAt: json['expires_at'] != null
+          ? DateTime.tryParse(json['expires_at'] as String)
+          : null,
     );
   }
 
@@ -67,7 +77,7 @@ class StopRequest {
         'buyer_uid': buyerUid,
         if (vendorUid != null) 'vendor_uid': vendorUid,
         'status': status.name,
-        'location': GeoPoint(buyerLat, buyerLng),
+        'buyer_location': GeoPoint(buyerLat, buyerLng),
         'created_at': FieldValue.serverTimestamp(),
       };
 }

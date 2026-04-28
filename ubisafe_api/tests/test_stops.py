@@ -19,14 +19,14 @@ _PENDING_STOP = StopRequest(
     id=STOP_ID,
     buyer_uid=BUYER_UID,
     vendor_uid=VENDOR_UID,
-    location=GeoPoint(lat=20.6736, lng=-103.344),
+    buyer_location=GeoPoint(lat=20.6736, lng=-103.344),
     status="pending",
 )
 _ACCEPTED_STOP = StopRequest(
     id=STOP_ID,
     buyer_uid=BUYER_UID,
     vendor_uid=VENDOR_UID,
-    location=GeoPoint(lat=20.6736, lng=-103.344),
+    buyer_location=GeoPoint(lat=20.6736, lng=-103.344),
     status="accepted",
 )
 
@@ -97,7 +97,7 @@ async def test_create_stop_no_token(mock_firebase):
     ) as c:
         r = await c.post(
             "/stops/",
-            json={"vendor_uid": VENDOR_UID, "location": {"lat": 20.0, "lng": -103.0}},
+            json={"vendor_uid": VENDOR_UID, "buyer_location": {"lat": 20.0, "lng": -103.0}},
         )
     assert r.status_code == 401  # HTTPBearer rejects missing Authorization header
 
@@ -119,7 +119,7 @@ async def test_create_stop_as_buyer(mock_firebase, as_buyer):
                 headers={"Authorization": "Bearer tok"},
                 json={
                     "vendor_uid": VENDOR_UID,
-                    "location": {"lat": 20.6736, "lng": -103.344},
+                    "buyer_location": {"lat": 20.6736, "lng": -103.344},
                 },
             )
     assert r.status_code == 201
@@ -140,7 +140,7 @@ async def test_create_stop_as_vendor_returns_403(mock_firebase, as_vendor):
                 headers={"Authorization": "Bearer tok"},
                 json={
                     "vendor_uid": VENDOR_UID,
-                    "location": {"lat": 20.0, "lng": -103.0},
+                    "buyer_location": {"lat": 20.0, "lng": -103.0},
                 },
             )
     assert r.status_code == 403

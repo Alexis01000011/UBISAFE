@@ -12,7 +12,7 @@ class StopRequest(BaseModel):
     id: str
     buyer_uid: str
     vendor_uid: str | None = None
-    location: GeoPoint
+    buyer_location: GeoPoint
     status: str = "pending"
     expires_at: str | None = None
     created_at: str | None = None
@@ -21,7 +21,7 @@ class StopRequest(BaseModel):
 
 class CreateStopRequestBody(BaseModel):
     vendor_uid: str
-    location: GeoPoint
+    buyer_location: GeoPoint
 
 
 class UpdateStatusBody(BaseModel):
