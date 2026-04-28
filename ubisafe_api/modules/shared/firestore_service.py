@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -9,6 +10,19 @@ from modules.dispatching.schemas import CreateStopRequestBody, StopRequest
 from modules.identity.schemas import SyncProfileRequest, UserProfile
 from modules.safety.schemas import CreateRiskZoneBody, RiskZone
 from modules.shared.firebase_admin_init import FirebaseAdminInit
+
+_RISK_ZONE_TTL_HOURS = 24
+_EARTH_RADIUS_KM = 6371.0
+
+
+def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """Return great-circle distance in km between two points."""
+    dlat = math.radians(lat2 - lat1)
+    dlng = math.radians(lng2 - lng1)
+    a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(
+        math.radians(lat2)
+    ) * math.sin(dlng / 2) ** 2
+    return _EARTH_RADIUS_KM * 2 * math.asin(math.sqrt(a))
 
 _STOP_REQUEST_TTL_SECONDS = 60
 
@@ -119,14 +133,90 @@ class FirestoreService:
 
     # ------------------------------------------------------------ risk zones
     @classmethod
-    async def list_risk_zones(cls) -> list[RiskZone]:
-        docs = cls._db().collection("risk_zones").stream()
-        return [RiskZone(id=d.id, **d.to_dict()) for d in docs]
+    async def get_risk_zone(cls, zone_id: str) -> RiskZone | None:
+        doc = cls._db().collection("risk_zones").document(zone_id).get()
+        if not doc.exists:
+            return None
+        return RiskZone(id=doc.id, **doc.to_dict())
+
+    @classmethod
+    async def get_active_risk_zones(
+        cls, lat: float | None, lng: float | None, radius_km: float | None
+    ) -> list[RiskZone]:
+        """Return active risk zones, optionally filtered by proximity."""
+        query = cls._db().collection("risk_zones").where("active", "==", True)
+
+        if lat is not None and lng is not None and radius_km is not None:
+            # Bounding-box pre-filter (1° lat ≈ 111 km)
+            delta_lat = radius_km / 111.0
+            delta_lng = radius_km / (111.0 * math.cos(math.radians(lat)))
+            query = (
+                query.where("location.lat", ">=", lat - delta_lat)
+                .where("location.lat", "<=", lat + delta_lat)
+            )
+            docs = query.stream()
+            results = []
+            for d in docs:
+                raw = d.to_dict()
+                loc = raw.get("location", {})
+                doc_lat = loc.get("lat", 0.0)
+                doc_lng = loc.get("lng", 0.0)
+                if abs(doc_lng - lng) <= delta_lng and _haversine_km(
+                    lat, lng, doc_lat, doc_lng
+                ) <= radius_km:
+                    results.append(RiskZone(id=d.id, **raw))
+            return results
+
+        return [RiskZone(id=d.id, **d.to_dict()) for d in query.stream()]
+
+    @classmethod
+    async def find_duplicate_risk_zone(
+        cls, lat: float, lng: float, radius_meters: int
+    ) -> RiskZone | None:
+        """Return an existing active zone whose area overlaps the given point."""
+        radius_km = radius_meters / 1000.0
+        zones = await cls.get_active_risk_zones(lat, lng, radius_km * 2)
+        for z in zones:
+            dist_km = _haversine_km(lat, lng, z.location.lat, z.location.lng)
+            combined_radius_km = (z.radius_meters + radius_meters) / 1000.0
+            if dist_km <= combined_radius_km:
+                return z
+        return None
 
     @classmethod
     async def create_risk_zone(cls, uid: str, body: CreateRiskZoneBody) -> RiskZone:
+        expires_at = (
+            datetime.now(tz=UTC) + timedelta(hours=_RISK_ZONE_TTL_HOURS)
+        ).isoformat()
         data = body.model_dump()
-        data["reported_by"] = uid
+        data["reporter_uid"] = uid
+        data["active"] = True
+        data["created_at"] = SERVER_TIMESTAMP
+        data["expires_at"] = expires_at
+        data["expired_at"] = None
         _, ref = cls._db().collection("risk_zones").add(data)
         doc = ref.get()
         return RiskZone(id=doc.id, **doc.to_dict())
+
+    @classmethod
+    async def expire_risk_zone(cls, zone_id: str) -> RiskZone | None:
+        ref = cls._db().collection("risk_zones").document(zone_id)
+        doc = ref.get()
+        if not doc.exists:
+            return None
+        ref.update({
+            "active": False,
+            "expired_at": SERVER_TIMESTAMP,
+        })
+        doc = ref.get()
+        return RiskZone(id=doc.id, **doc.to_dict())
+
+    @classmethod
+    async def get_all_user_fcm_tokens(cls) -> list[str]:
+        """Return all non-null FCM tokens from the users collection."""
+        docs = cls._db().collection("users").stream()
+        return [
+            d.to_dict()["fcm_token"]
+            for d in docs
+            if d.to_dict().get("fcm_token")
+        ]

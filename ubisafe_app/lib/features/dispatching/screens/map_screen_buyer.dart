@@ -8,6 +8,9 @@ import '../../../core/providers/auth_providers.dart';
 import '../../identity/profile/widgets/drawer_module.dart';
 import '../../presence/services/gps_service.dart';
 import '../../presence/services/vendor_tracker.dart';
+import '../../safety/models/risk_zone.dart';
+import '../../safety/screens/risk_form_bottom_sheet.dart';
+import '../../safety/services/risk_zone_module.dart';
 import '../../shared/notifications/notification_handler.dart';
 import '../../shared/widgets/gps_required_empty_state.dart';
 import '../models/stop_request.dart';
@@ -26,11 +29,13 @@ class MapScreenBuyer extends ConsumerStatefulWidget {
 class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
   _BuyerMapState _mapState = _BuyerMapState.idle;
   String? _activeStopId;
+  bool _riskZonesLoaded = false;
 
   @override
   Widget build(BuildContext context) {
     final positionAsync = ref.watch(gpsServiceProvider);
     final vendorsAsync = ref.watch(vendorMarkersProvider);
+    final riskZonesAsync = ref.watch(activeRiskZonesProvider);
 
     // Listen for FCM events (accepted/rejected/expired)
     ref.listen<StopEvent?>(stopRequestEventProvider, (_, event) {
@@ -66,6 +71,13 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
     return Scaffold(
       drawer: const DrawerModule(),
       appBar: AppBar(title: const Text('UbiSafe — Mapa')),
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: AppColors.warning700,
+        foregroundColor: AppColors.surface,
+        tooltip: 'Reportar zona de riesgo',
+        onPressed: () => _onFabPressed(positionAsync.valueOrNull),
+        child: const Icon(Icons.add),
+      ),
       body: positionAsync.when(
         data: (position) {
           if (position == null) return const GpsRequiredEmptyState();
@@ -97,6 +109,22 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
             orElse: () => <Marker>{},
           );
 
+          // Load risk zones once when position is first available
+          if (!_riskZonesLoaded) {
+            _riskZonesLoaded = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              ref.read(activeRiskZonesProvider.notifier).load(
+                    lat: position.latitude,
+                    lng: position.longitude,
+                  );
+            });
+          }
+
+          final riskCircles = riskZonesAsync.valueOrNull
+                  ?.map((z) => _riskZoneToCircle(z))
+                  .toSet() ??
+              <Circle>{};
+
           return Stack(
             children: [
               GoogleMap(
@@ -104,6 +132,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
                 myLocationEnabled: true,
                 myLocationButtonEnabled: true,
                 markers: markers,
+                circles: riskCircles,
               ),
               if (_mapState == _BuyerMapState.waiting)
                 _WaitingOverlay(
@@ -169,6 +198,46 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
         SnackBar(content: Text('Error al solicitar parada: $e')),
       );
     }
+  }
+
+  void _onFabPressed(dynamic position) {
+    final gpsStatus = ref.read(gpsStatusProvider).valueOrNull;
+    if (gpsStatus != GpsStatus.ready || position == null) {
+      showModalBottomSheet<void>(
+        context: context,
+        builder: (_) => const GpsRequiredEmptyState(),
+      );
+      return;
+    }
+    RiskFormBottomSheet.show(
+      context,
+      lat: position.latitude,
+      lng: position.longitude,
+    );
+  }
+
+  static Circle _riskZoneToCircle(RiskZone zone) {
+    final Color fill;
+    final Color stroke;
+    switch (zone.riskLevel) {
+      case RiskLevel.high:
+        fill = AppColors.danger700.withValues(alpha: 0.35);
+        stroke = AppColors.danger700;
+      case RiskLevel.medium:
+        fill = AppColors.warning500.withValues(alpha: 0.30);
+        stroke = AppColors.warning500;
+      case RiskLevel.low:
+        fill = AppColors.info500.withValues(alpha: 0.25);
+        stroke = AppColors.info500;
+    }
+    return Circle(
+      circleId: CircleId(zone.id),
+      center: LatLng(zone.latitude, zone.longitude),
+      radius: zone.radiusMeters.toDouble(),
+      fillColor: fill,
+      strokeColor: stroke,
+      strokeWidth: 2,
+    );
   }
 }
 

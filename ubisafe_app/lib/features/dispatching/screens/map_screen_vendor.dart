@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,6 +9,9 @@ import '../../../core/design_system/colors.dart';
 import '../../../core/providers/auth_providers.dart';
 import '../../identity/profile/widgets/drawer_module.dart';
 import '../../presence/services/gps_service.dart';
+import '../../safety/models/risk_zone.dart';
+import '../../safety/screens/risk_form_bottom_sheet.dart';
+import '../../safety/services/risk_zone_module.dart';
 import '../../shared/notifications/notification_handler.dart';
 import '../../shared/widgets/gps_required_empty_state.dart';
 import '../services/stop_request_module.dart';
@@ -25,12 +30,14 @@ class MapScreenVendor extends ConsumerStatefulWidget {
 class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
   bool _isVisible = false;
   bool _isNavigating = false;
+  bool _riskZonesLoaded = false;
   String? _activeStopId;
   List<LatLng> _routePolyline = [];
 
   @override
   Widget build(BuildContext context) {
     final positionAsync = ref.watch(gpsServiceProvider);
+    final riskZonesAsync = ref.watch(activeRiskZonesProvider);
 
     // Listen for incoming stop requests (vendor receives FCM)
     ref.listen<Map<String, dynamic>?>(incomingStopRequestProvider, (_, data) {
@@ -54,6 +61,13 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
           ),
         ],
       ),
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: AppColors.warning700,
+        foregroundColor: AppColors.surface,
+        tooltip: 'Reportar zona de riesgo',
+        onPressed: () => _onFabPressed(positionAsync.valueOrNull),
+        child: const Icon(Icons.add),
+      ),
       body: positionAsync.when(
         data: (position) {
           if (position == null) return const GpsRequiredEmptyState();
@@ -74,6 +88,22 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
                 }
               : <Polyline>{};
 
+          // Load risk zones once when position is first available
+          if (!_riskZonesLoaded) {
+            _riskZonesLoaded = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              ref.read(activeRiskZonesProvider.notifier).load(
+                    lat: position.latitude,
+                    lng: position.longitude,
+                  );
+            });
+          }
+
+          final riskCircles = riskZonesAsync.valueOrNull
+                  ?.map((z) => _riskZoneToCircle(z))
+                  .toSet() ??
+              <Circle>{};
+
           return Stack(
             children: [
               GoogleMap(
@@ -81,6 +111,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
                 myLocationEnabled: true,
                 myLocationButtonEnabled: true,
                 polylines: polylines,
+                circles: riskCircles,
               ),
               // Visibility toggle button
               Positioned(
@@ -200,7 +231,8 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
     final position = ref.read(gpsServiceProvider).valueOrNull;
     if (position == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('GPS no disponible. Activa el GPS para aceptar.')),
+        const SnackBar(
+            content: Text('GPS no disponible. Activa el GPS para aceptar.')),
       );
       return;
     }
@@ -217,13 +249,17 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
 
     setState(() => _activeStopId = stopId);
 
-    // Calculate route (iter.1: origin → destination only, no risk-zone waypoints)
-    // TODO(F5): add waypoints to avoid HIGH-risk zones
+    // Route around HIGH-risk zones using via: waypoints
+    final highZones = ref.read(activeRiskZonesProvider).valueOrNull
+            ?.where((z) => z.riskLevel == RiskLevel.high)
+            .toList() ??
+        [];
     await _fetchRoute(
       originLat: position.latitude,
       originLng: position.longitude,
       destLat: double.tryParse(buyerLatStr) ?? 0,
       destLng: double.tryParse(buyerLngStr) ?? 0,
+      avoidZones: highZones,
     );
 
     setState(() => _isNavigating = true);
@@ -234,18 +270,50 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
     required double originLng,
     required double destLat,
     required double destLng,
+    List<RiskZone> avoidZones = const [],
   }) async {
     if (_kMapsApiKey.isEmpty) return;
 
     try {
       final dio = Dio();
+
+      // Compute via: waypoints that steer around each HIGH-risk zone on the route
+      final viaPoints = avoidZones
+          .where(
+            (z) => _isNearRoute(
+              originLat: originLat,
+              originLng: originLng,
+              destLat: destLat,
+              destLng: destLng,
+              zoneLat: z.latitude,
+              zoneLng: z.longitude,
+              radiusMeters: z.radiusMeters.toDouble(),
+            ),
+          )
+          .map((z) {
+            final bypass = _bypassPoint(
+              originLat: originLat,
+              originLng: originLng,
+              destLat: destLat,
+              destLng: destLng,
+              zoneLat: z.latitude,
+              zoneLng: z.longitude,
+              offsetMeters: z.radiusMeters + 50.0,
+            );
+            return 'via:${bypass.latitude},${bypass.longitude}';
+          })
+          .join('|');
+
+      final params = <String, dynamic>{
+        'origin': '$originLat,$originLng',
+        'destination': '$destLat,$destLng',
+        'key': _kMapsApiKey,
+        if (viaPoints.isNotEmpty) 'waypoints': viaPoints,
+      };
+
       final res = await dio.get<Map<String, dynamic>>(
         'https://maps.googleapis.com/maps/api/directions/json',
-        queryParameters: {
-          'origin': '$originLat,$originLng',
-          'destination': '$destLat,$destLng',
-          'key': _kMapsApiKey,
-        },
+        queryParameters: params,
       );
       final routes = res.data?['routes'] as List?;
       if (routes == null || routes.isEmpty) return;
@@ -284,6 +352,97 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
         ),
       );
     }
+  }
+
+  void _onFabPressed(dynamic position) {
+    final gpsStatus = ref.read(gpsStatusProvider).valueOrNull;
+    if (gpsStatus != GpsStatus.ready || position == null) {
+      showModalBottomSheet<void>(
+        context: context,
+        builder: (_) => const GpsRequiredEmptyState(),
+      );
+      return;
+    }
+    RiskFormBottomSheet.show(
+      context,
+      lat: position.latitude,
+      lng: position.longitude,
+    );
+  }
+
+  /// Returns true if [zone] is within [radiusMeters]+50 m of the route segment.
+  static bool _isNearRoute({
+    required double originLat,
+    required double originLng,
+    required double destLat,
+    required double destLng,
+    required double zoneLat,
+    required double zoneLng,
+    required double radiusMeters,
+  }) {
+    final dx = destLat - originLat;
+    final dy = destLng - originLng;
+    final lenSq = dx * dx + dy * dy;
+    if (lenSq == 0) return false;
+    final t =
+        ((zoneLat - originLat) * dx + (zoneLng - originLng) * dy) / lenSq;
+    final ct = t.clamp(0.0, 1.0);
+    final closestLat = originLat + ct * dx;
+    final closestLng = originLng + ct * dy;
+    final dLat = (zoneLat - closestLat) * 111320;
+    final dLng =
+        (zoneLng - closestLng) * 111320 * math.cos(zoneLat * math.pi / 180);
+    return math.sqrt(dLat * dLat + dLng * dLng) <= radiusMeters + 50;
+  }
+
+  /// Returns a point perpendicular to the route, [offsetMeters] away from the zone.
+  static LatLng _bypassPoint({
+    required double originLat,
+    required double originLng,
+    required double destLat,
+    required double destLng,
+    required double zoneLat,
+    required double zoneLng,
+    required double offsetMeters,
+  }) {
+    final dLat = destLat - originLat;
+    final dLng = destLng - originLng;
+    final len = math.sqrt(dLat * dLat + dLng * dLng);
+    if (len == 0) return LatLng(zoneLat, zoneLng);
+    // Perpendicular unit vector (rotated 90°)
+    final perpLat = -dLng / len;
+    final perpLng = dLat / len;
+    final latOffset = offsetMeters / 111320;
+    final lngOffset =
+        offsetMeters / (111320 * math.cos(zoneLat * math.pi / 180));
+    return LatLng(
+      zoneLat + perpLat * latOffset,
+      zoneLng + perpLng * lngOffset,
+    );
+  }
+
+  static Circle _riskZoneToCircle(RiskZone zone) {
+    final Color fill;
+    final Color stroke;
+    switch (zone.riskLevel) {
+      case RiskLevel.high:
+        fill = AppColors.danger700.withValues(alpha: 0.35);
+        stroke = AppColors.danger700;
+      case RiskLevel.medium:
+        fill = AppColors.warning500.withValues(alpha: 0.30);
+        stroke = AppColors.warning500;
+      case RiskLevel.low:
+        fill = AppColors.info500.withValues(alpha: 0.25);
+        stroke = AppColors.info500;
+    }
+    return Circle(
+      circleId: CircleId(zone.id),
+      center: LatLng(zone.latitude, zone.longitude),
+      radius: zone.radiusMeters.toDouble(),
+      fillColor: fill,
+      strokeColor: stroke,
+      strokeWidth: 2,
+    );
   }
 }
 

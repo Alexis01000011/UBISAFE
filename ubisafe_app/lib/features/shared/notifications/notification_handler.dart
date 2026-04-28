@@ -3,8 +3,9 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../dispatching/models/stop_request.dart';
 import '../../../core/api/api_client.dart';
+import '../../dispatching/models/stop_request.dart';
+import '../../safety/services/risk_zone_module.dart';
 
 /// Background message handler — must be a top-level function.
 @pragma('vm:entry-point')
@@ -33,13 +34,16 @@ class NotificationHandler {
     this._dio, {
     required void Function(Map<String, dynamic>?) setIncomingStop,
     required void Function(StopEvent?) setStopEvent,
+    required void Function() onRiskZoneAlert,
   })  : _setIncomingStop = setIncomingStop,
-        _setStopEvent = setStopEvent;
+        _setStopEvent = setStopEvent,
+        _onRiskZoneAlert = onRiskZoneAlert;
 
   final FirebaseMessaging _messaging;
   final Dio _dio;
   final void Function(Map<String, dynamic>?) _setIncomingStop;
   final void Function(StopEvent?) _setStopEvent;
+  final void Function() _onRiskZoneAlert;
   bool _initialized = false;
 
   /// Must be called once before runApp() — cannot be in init() because
@@ -105,6 +109,9 @@ class NotificationHandler {
           _setStopEvent(StopEvent(stopId, StopRequestStatus.completed));
         }
 
+      case 'risk_zone_alert':
+        _onRiskZoneAlert();
+
       default:
         debugPrint('FCM unhandled type [$type]');
     }
@@ -124,5 +131,7 @@ final notificationHandlerProvider = Provider<NotificationHandler>((ref) {
         ref.read(incomingStopRequestProvider.notifier).state = data,
     setStopEvent: (event) =>
         ref.read(stopRequestEventProvider.notifier).state = event,
+    onRiskZoneAlert: () =>
+        ref.read(activeRiskZonesProvider.notifier).refresh(),
   );
 });

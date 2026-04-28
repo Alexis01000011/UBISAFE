@@ -46,6 +46,7 @@ void main() {
         mockDio,
         setIncomingStop: onIncoming ?? (_) {},
         setStopEvent: onEvent ?? (_) {},
+        onRiskZoneAlert: () {},
       );
 
   group('NotificationHandler.init', () {

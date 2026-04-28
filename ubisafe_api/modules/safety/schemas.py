@@ -10,14 +10,19 @@ class GeoPoint(BaseModel):
 
 class RiskZone(BaseModel):
     id: str
-    reported_by: str
+    reporter_uid: str
+    threat_type: str
+    risk_level: str  # HIGH | MEDIUM | LOW
     location: GeoPoint
-    description: str
-    level: str = "medium"
+    radius_meters: int = 100
+    active: bool = True
     created_at: str | None = None
+    expires_at: str | None = None
+    expired_at: str | None = None
 
 
 class CreateRiskZoneBody(BaseModel):
+    threat_type: str
+    risk_level: str  # HIGH | MEDIUM | LOW
     location: GeoPoint
-    description: str
-    level: str = "medium"
+    radius_meters: int = 100

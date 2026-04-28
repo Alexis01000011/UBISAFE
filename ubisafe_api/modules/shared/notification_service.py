@@ -91,3 +91,37 @@ class NotificationService:
             body="El vendedor confirmó la entrega.",
             data={"type": "stop_request_completed", "stop_id": stop_id},
         )
+
+    @staticmethod
+    async def send_risk_zone_alert(
+        tokens: list[str],
+        zone_id: str,
+        risk_level: str,
+        threat_type: str,
+        lat: float,
+        lng: float,
+    ) -> None:
+        """Multicast FCM alert to all users with a registered token."""
+        if not tokens:
+            return
+        fcm = FirebaseAdminInit.get_fcm()
+        data = {
+            "type": "risk_zone_alert",
+            "zone_id": zone_id,
+            "risk_level": risk_level,
+            "threat_type": threat_type,
+            "lat": str(lat),
+            "lng": str(lng),
+        }
+        # send_each_for_multicast accepts max 500 tokens per call
+        chunk_size = 500
+        for i in range(0, len(tokens), chunk_size):
+            chunk = tokens[i : i + chunk_size]
+            try:
+                message = fcm.MulticastMessage(
+                    data=data,
+                    tokens=chunk,
+                )
+                await asyncio.to_thread(fcm.send_each_for_multicast, message)
+            except Exception as exc:
+                logger.error("FCM multicast failed: %s", exc)
