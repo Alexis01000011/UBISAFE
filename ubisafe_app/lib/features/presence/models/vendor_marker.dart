@@ -1,44 +1,31 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
-/// Represents a vendor pin shown on the map.
+/// Represents a vendor pin on the buyer's map.
 ///
-/// [iter.2] Adds `rideEnabled` field to opt-in to ride requests (CU-04).
+/// Built from RTDB /vendedores_activos/{uid} nodes, which store flat numeric
+/// fields (lat/lng) — NOT Firestore GeoPoint objects.
+///
+/// [iter.2] rideEnabled will be written to the RTDB node when the vendor
+/// activates ride mode (CU-04), so the buyer can see it on the marker.
 class VendorMarker {
   const VendorMarker({
     required this.uid,
     required this.latitude,
     required this.longitude,
-    required this.isActive,
-    this.rideEnabled = false, // [iter.2]
-    this.displayName,
+    this.rideEnabled = false,
   });
 
   final String uid;
   final double latitude;
   final double longitude;
-  final bool isActive;
 
   /// [iter.2] When true the vendor accepts ride requests (CU-04).
   final bool rideEnabled;
 
-  final String? displayName;
-
-  factory VendorMarker.fromMap(String uid, Map<String, dynamic> map) {
-    final GeoPoint geoPoint = map['location'] as GeoPoint;
+  factory VendorMarker.fromMap(String uid, Map<dynamic, dynamic> map) {
     return VendorMarker(
       uid: uid,
-      latitude: geoPoint.latitude,
-      longitude: geoPoint.longitude,
-      isActive: map['is_active'] as bool? ?? false,
+      latitude: (map['lat'] as num).toDouble(),
+      longitude: (map['lng'] as num).toDouble(),
       rideEnabled: map['ride_enabled'] as bool? ?? false,
-      displayName: map['display_name'] as String?,
     );
   }
-
-  Map<String, dynamic> toMap() => {
-        'location': GeoPoint(latitude, longitude),
-        'is_active': isActive,
-        'ride_enabled': rideEnabled,
-        if (displayName != null) 'display_name': displayName,
-      };
 }

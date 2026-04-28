@@ -13,9 +13,10 @@ import 'router/app_router.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
+  NotificationHandler.registerBackgroundHandler();
 
   if (kDebugMode) {
-    _connectToEmulators();
+    await _connectToEmulators();
   }
 
   runApp(
@@ -24,23 +25,50 @@ Future<void> main() async {
 }
 
 /// Wires Firebase SDKs to local emulators when running in debug mode.
-void _connectToEmulators() {
+Future<void> _connectToEmulators() async {
   const host = 'localhost';
-  FirebaseAuth.instance.useAuthEmulator(host, 9099);
+  await FirebaseAuth.instance.useAuthEmulator(host, 9099,
+      automaticHostMapping: false);
   FirebaseFirestore.instance.useFirestoreEmulator(host, 8080);
   FirebaseDatabase.instance.useDatabaseEmulator(host, 9000);
 }
 
-class UbiSafeApp extends ConsumerWidget {
+class UbiSafeApp extends ConsumerStatefulWidget {
   const UbiSafeApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final router = ref.watch(appRouterProvider);
+  ConsumerState<UbiSafeApp> createState() => _UbiSafeAppState();
+}
 
-    // Initialize FCM after the widget tree is ready.
+class _UbiSafeAppState extends ConsumerState<UbiSafeApp>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // Init FCM once — not inside build() to avoid repeated calls on rebuild.
     ref.read(notificationHandlerProvider).init();
+  }
 
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.detached) {
+      // Sign out when the app is closed so the next launch always starts
+      // from the welcome screen.  Best-effort: not awaited because the
+      // engine may be torn down before the future resolves.
+      FirebaseAuth.instance.signOut();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final router = ref.watch(appRouterProvider);
     return MaterialApp.router(
       title: 'UbiSafe',
       theme: AppTheme.light,

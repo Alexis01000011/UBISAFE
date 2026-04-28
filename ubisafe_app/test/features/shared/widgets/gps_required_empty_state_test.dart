@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,7 +12,7 @@ Widget _wrap({
 }) {
   return ProviderScope(
     overrides: [
-      gpsStatusProvider.overrideWith((ref) => status),
+      gpsStatusProvider.overrideWith((ref) => Stream.value(status)),
     ],
     child: MaterialApp(
       home: GpsRequiredEmptyState(onResolved: onResolved),
@@ -21,47 +23,43 @@ Widget _wrap({
 void main() {
   group('GpsRequiredEmptyState', () {
     testWidgets('shows correct title for permissionDenied', (tester) async {
-      await tester.pumpWidget(
-        _wrap(status: GpsStatus.permissionDenied),
-      );
+      await tester.pumpWidget(_wrap(status: GpsStatus.permissionDenied));
+      await tester.pump(); // allow StreamProvider to deliver first value
       expect(find.text('Necesitamos tu ubicación'), findsOneWidget);
     });
 
     testWidgets('shows CTA "Conceder permiso" for permissionDenied',
         (tester) async {
-      await tester.pumpWidget(
-        _wrap(status: GpsStatus.permissionDenied),
-      );
+      await tester.pumpWidget(_wrap(status: GpsStatus.permissionDenied));
+      await tester.pump();
       expect(find.text('Conceder permiso'), findsOneWidget);
     });
 
     testWidgets('shows correct title for serviceOff', (tester) async {
-      await tester.pumpWidget(
-        _wrap(status: GpsStatus.serviceOff),
-      );
+      await tester.pumpWidget(_wrap(status: GpsStatus.serviceOff));
+      await tester.pump();
       expect(find.text('Activa el GPS'), findsOneWidget);
     });
 
     testWidgets('shows CTA "Abrir ajustes de ubicación" for serviceOff',
         (tester) async {
-      await tester.pumpWidget(
-        _wrap(status: GpsStatus.serviceOff),
-      );
+      await tester.pumpWidget(_wrap(status: GpsStatus.serviceOff));
+      await tester.pump();
       expect(find.text('Abrir ajustes de ubicación'), findsOneWidget);
     });
 
     testWidgets('calls onResolved when status changes to ready', (tester) async {
       var resolved = false;
-      final container = ProviderContainer(
-        overrides: [
-          gpsStatusProvider.overrideWith((ref) => GpsStatus.serviceOff),
-        ],
-      );
-      addTearDown(container.dispose);
+      final ctrl = StreamController<GpsStatus>();
 
       await tester.pumpWidget(
-        UncontrolledProviderScope(
-          container: container,
+        ProviderScope(
+          overrides: [
+            gpsStatusProvider.overrideWith((ref) {
+              ref.onDispose(ctrl.close);
+              return ctrl.stream;
+            }),
+          ],
           child: MaterialApp(
             home: GpsRequiredEmptyState(
               onResolved: () => resolved = true,
@@ -70,16 +68,18 @@ void main() {
         ),
       );
 
-      container.read(gpsStatusProvider.notifier).state = GpsStatus.ready;
+      ctrl.add(GpsStatus.serviceOff);
+      await tester.pump();
+
+      ctrl.add(GpsStatus.ready);
       await tester.pump();
 
       expect(resolved, isTrue);
     });
 
     testWidgets('returns SizedBox.shrink when status is ready', (tester) async {
-      await tester.pumpWidget(
-        _wrap(status: GpsStatus.ready),
-      );
+      await tester.pumpWidget(_wrap(status: GpsStatus.ready));
+      await tester.pump();
       expect(find.byType(SizedBox), findsOneWidget);
       expect(find.text('Necesitamos tu ubicación'), findsNothing);
       expect(find.text('Activa el GPS'), findsNothing);

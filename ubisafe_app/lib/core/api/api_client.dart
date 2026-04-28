@@ -38,18 +38,23 @@ class JwtInterceptor extends Interceptor {
   ) async {
     final user = _auth.currentUser;
     if (user != null) {
-      final token = await user.getIdToken();
-      options.headers['Authorization'] = 'Bearer $token';
+      try {
+        final token = await user.getIdToken();
+        options.headers['Authorization'] = 'Bearer $token';
+      } catch (_) {
+        // Token refresh failed (e.g. emulator restarted, stale session).
+        // Sign out so the router redirects to welcome.
+        await _auth.signOut();
+      }
     }
     handler.next(options);
   }
 
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
-    if (err.response?.statusCode == 401) {
-      // Token rejected by server — sign out and let go_router redirect.
-      _auth.signOut();
-    }
+    // 401s are handled per-caller. Signing out globally here cascades en un
+    // loop cuando endpoints no críticos (e.g. FCM token sync) devuelven 401.
+    // El try-catch en onRequest ya cubre sesiones stale.
     handler.next(err);
   }
 }

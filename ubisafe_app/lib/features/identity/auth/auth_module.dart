@@ -25,7 +25,16 @@ class AuthModule {
     required String email,
     required String password,
   }) async {
-    await _auth.signInWithEmailAndPassword(email: email, password: password);
+    try {
+      await _auth.signInWithEmailAndPassword(email: email, password: password);
+    } catch (e) {
+      // firebase_auth 4.16.0 on Android has a Pigeon serialisation bug where
+      // signInWithEmailAndPassword throws a type-cast error even though the
+      // sign-in itself succeeded and the auth state was updated.
+      // If the user is now authenticated we ignore the exception and continue;
+      // otherwise we rethrow so the caller sees the real error.
+      if (_auth.currentUser == null) rethrow;
+    }
     // Update updated_at on every login (SDD §8.4.B)
     await _dio.post<dynamic>('/auth/sync-profile', data: <String, dynamic>{});
     await _syncDeviceToken();

@@ -29,78 +29,83 @@ class GpsRequiredEmptyState extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final status = ref.watch(gpsStatusProvider);
+    final statusAsync = ref.watch(gpsStatusProvider);
 
     // Auto-resolve when GPS becomes available.
-    ref.listen<GpsStatus>(gpsStatusProvider, (_, next) {
-      if (next == GpsStatus.ready) onResolved?.call();
+    ref.listen<AsyncValue<GpsStatus>>(gpsStatusProvider, (_, next) {
+      if (next.value == GpsStatus.ready) onResolved?.call();
     });
 
-    if (status == GpsStatus.ready) {
-      return const SizedBox.shrink();
-    }
+    return statusAsync.when(
+      // While the initial permission/service check is in flight, don't block.
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
+      data: (status) {
+        if (status == GpsStatus.ready) return const SizedBox.shrink();
 
-    final copy = status == GpsStatus.permissionDenied
-        ? _Copy(
-            title: 'Necesitamos tu ubicación',
-            description: featureName != null
-                ? 'UBISAFE usa tu ubicación $featureName. Concede el permiso para continuar.'
-                : 'UBISAFE usa tu ubicación para esta función. Concede el permiso para continuar.',
-            cta: 'Conceder permiso',
-          )
-        : const _Copy(
-            title: 'Activa el GPS',
-            description:
-                'Tu dispositivo tiene el GPS apagado. Actívalo desde los ajustes para continuar.',
-            cta: 'Abrir ajustes de ubicación',
-          );
+        final copy = status == GpsStatus.permissionDenied
+            ? _Copy(
+                title: 'Necesitamos tu ubicación',
+                description: featureName != null
+                    ? 'UBISAFE usa tu ubicación $featureName. Concede el permiso para continuar.'
+                    : 'UBISAFE usa tu ubicación para esta función. Concede el permiso para continuar.',
+                cta: 'Conceder permiso',
+              )
+            : const _Copy(
+                title: 'Activa el GPS',
+                description:
+                    'Tu dispositivo tiene el GPS apagado. Actívalo desde los ajustes para continuar.',
+                cta: 'Abrir ajustes de ubicación',
+              );
 
-    return Semantics(
-      label: '${copy.title}. ${copy.description}',
-      child: ColoredBox(
-        color: AppColors.surface,
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Icon(
-                  Icons.location_off_outlined,
-                  size: 72,
-                  color: AppColors.warning700,
+        return Semantics(
+          label: '${copy.title}. ${copy.description}',
+          child: ColoredBox(
+            color: AppColors.surface,
+            child: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Icon(
+                      Icons.location_off_outlined,
+                      size: 72,
+                      color: AppColors.warning700,
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    Text(
+                      copy.title,
+                      style: AppTypography.heading2.copyWith(
+                        color: AppColors.textPrimary,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    Text(
+                      copy.description,
+                      style: AppTypography.body1.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: AppSpacing.xl),
+                    Semantics(
+                      button: true,
+                      label: copy.cta,
+                      child: ElevatedButton(
+                        onPressed: () => _handleCta(status),
+                        child: Text(copy.cta),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: AppSpacing.lg),
-                Text(
-                  copy.title,
-                  style: AppTypography.heading2.copyWith(
-                    color: AppColors.textPrimary,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                Text(
-                  copy.description,
-                  style: AppTypography.body1.copyWith(
-                    color: AppColors.textSecondary,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: AppSpacing.xl),
-                Semantics(
-                  button: true,
-                  label: copy.cta,
-                  child: ElevatedButton(
-                    onPressed: () => _handleCta(status),
-                    child: Text(copy.cta),
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
