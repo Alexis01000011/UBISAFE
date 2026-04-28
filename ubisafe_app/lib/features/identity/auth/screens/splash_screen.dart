@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -51,9 +52,19 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
     }
 
     try {
-      final profile = await ref.read(userProfileProvider.future);
-      final home = profile?.role == 'VENDOR' ? '/home/vendor' : '/home/buyer';
+      final profile = await ref
+          .read(userProfileProvider.future)
+          .timeout(const Duration(seconds: 5));
+      if (profile == null) {
+        // await ref.read(authModuleProvider).signOut();
+        _go('/welcome');
+        return;
+      }
+      final home = profile.role == 'VENDOR' ? '/home/vendor' : '/home/buyer';
       _go(home);
+    } on TimeoutException {
+      debugPrint('SplashScreen: Firestore timeout — redirecting to welcome');
+      _go('/welcome');
     } catch (_) {
       _go('/welcome');
     }

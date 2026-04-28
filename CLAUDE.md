@@ -61,8 +61,52 @@ adb tcpip 5555                  # habilita ADB por red (no sustituye adb reverse
 1. **Flutter:** Instalar Flutter 3.x stable. Verificar con `flutter doctor`.
 2. **Firebase Tools:** `npm install -g firebase-tools` → `firebase login`
 3. **`google-services.json`:** Descargar del proyecto Firebase en console.firebase.google.com y colocar en `ubisafe_app/android/app/google-services.json` (este archivo está en `.gitignore`, nunca se commitea).
-4. **`.env`:** Copiar `ubisafe_api/.env.example` a `ubisafe_api/.env` y completar los valores reales.
-5. **Demo project para emuladores:** El `.firebaserc` apunta a `demo-ubisafe`. Para desarrollo local con emuladores, no se necesita un proyecto real. Para deploy a producción, ejecutar `firebase use --add` y seleccionar el proyecto real.
+4. **`.env`:** Copiar `ubisafe_api/.env.example` a `ubisafe_api/.env`. Para desarrollo con emuladores, el mínimo necesario es:
+   ```
+   FIREBASE_AUTH_EMULATOR_HOST=localhost:9099
+   FIRESTORE_EMULATOR_HOST=127.0.0.1:8088
+   ```
+   No se necesita `FIREBASE_SERVICE_ACCOUNT_JSON` para emuladores — la clase `_EmulatorCredential` en `firebase_admin_init.py` maneja la inicialización automáticamente.
+5. **Maps API Key:** Añadir al archivo `ubisafe_app/android/local.properties` (no se commitea):
+   ```
+   MAPS_API_KEY=<tu_clave>
+   ```
+   La clave debe tener habilitada la API **"Maps SDK for Android"** en Google Cloud Console, con billing activo. Sin esto el mapa muestra fondo amarillo.
+6. **Demo project para emuladores:** El `.firebaserc` apunta a `demo-ubisafe`. Para desarrollo local con emuladores, no se necesita un proyecto real. Para deploy a producción, ejecutar `firebase use --add` y seleccionar el proyecto real.
+
+---
+
+## Bugs críticos resueltos — no revertir
+
+Encontrados al correr F3/F4 en dispositivo físico Android (MIUI/Xiaomi, `firebase_auth 4.16.0`). Están en los commits de `feat/presence/f3-gps-vendor-tracker`. Revertir cualquiera rompe el flujo de autenticación.
+
+| # | Síntoma | Causa | Archivo corregido |
+|---|---|---|---|
+| 1 | App congelada en Splash, decenas de 401 en uvicorn | `JwtInterceptor.onError` llamaba `signOut()` ante cualquier 401 → FCM sync 401 → signOut → rebuild → repeat | `core/api/api_client.dart` |
+| 2 | Listeners de FCM acumulados en cada rebuild de la app | `NotificationHandler.init()` se llamaba en `build()` sin guard | `features/shared/notifications/notification_handler.dart` + `main.dart` |
+| 3 | Crash al hacer login: `type 'List<Object?>' is not subtype of 'PigeonUserDetails?'` | Bug conocido de `firebase_auth 4.16.0` en Android — login exitoso lanza excepción de deserialización Pigeon | `features/identity/auth/auth_module.dart` |
+| 4 | FastAPI 500 en todos los endpoints Firestore: `DefaultCredentialsError` | `ApplicationDefault()` falla sin ADC configurado; no hay service account en dev | `ubisafe_api/modules/shared/firebase_admin_init.py` |
+| 5 | Firestore del emulador inaccesible aunque Auth funciona | Faltaba `FIRESTORE_EMULATOR_HOST` en `.env`; Firestore intentaba conectar a producción | `ubisafe_api/.env` + `firebase.json` (puerto 8088) |
+
+**Comportamientos adicionales implementados:**
+- La sesión se cierra automáticamente al cerrar la app (swipe desde recientes) — implementado con `WidgetsBindingObserver` + `AppLifecycleState.detached` en `main.dart`.
+- El token JWT inválido (ej. emulador reiniciado con sesión persistida) hace `signOut()` silencioso desde `onRequest`, no desde `onError`.
+
+---
+
+## Estado de iter.1 al 28/04/2026
+
+### Funciona en dispositivo físico ✅
+- Registro y login (Firebase Auth emulador)
+- Perfil en Firestore (drawer muestra nombre, rol, opciones de navegación)
+- Mapa se renderiza con tiles cuando Maps SDK for Android está habilitado en Cloud Console
+- Cierre de sesión desde drawer y automático al cerrar la app
+
+### Pendiente de validación manual ⏳
+- **F4 — CU-01 completo:** El código está implementado (rama `feat/dispatching/f4-cu01-stop-request` de Alexis). Falta probar con dos dispositivos simultáneos los 4 escenarios de `tests/acceptance/cu-01.md` (flujo normal, rechazo, timeout 60s, race condition 409).
+- **Presencia RTDB:** `GPSService` y `VendorTracker` implementados. Verificar en el emulador UI (http://localhost:4000 → RTDB) que los nodos `/vendedores_activos/{uid}` se crean al activar visibilidad y se eliminan al desactivarla.
+- **FCM:** Las notificaciones push no funcionan con emuladores locales (limitación de Firebase Cloud Messaging). El token se sincroniza correctamente; las notificaciones en vivo requieren staging/producción.
+- **F5 — CU-03 Safety:** Aún no iniciado. Ver plan_code.md §F5.
 
 ---
 

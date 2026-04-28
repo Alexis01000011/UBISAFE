@@ -40,6 +40,7 @@ class NotificationHandler {
   final Dio _dio;
   final void Function(Map<String, dynamic>?) _setIncomingStop;
   final void Function(StopEvent?) _setStopEvent;
+  bool _initialized = false;
 
   /// Must be called once before runApp() — cannot be in init() because
   /// FirebaseMessaging.onBackgroundMessage requires Flutter bindings.
@@ -48,11 +49,19 @@ class NotificationHandler {
   }
 
   Future<void> init() async {
+    if (_initialized) return;
+    _initialized = true;
     await _messaging.requestPermission();
 
-    final token = await _messaging.getToken();
-    if (token != null) {
-      await _syncToken(token);
+    try {
+      final token = await _messaging
+          .getToken()
+          .timeout(const Duration(seconds: 5));
+      if (token != null) {
+        await _syncToken(token);
+      }
+    } catch (e) {
+      debugPrint('FCM getToken failed (emulator/unavailable): $e');
     }
 
     _messaging.onTokenRefresh.listen(_syncToken);

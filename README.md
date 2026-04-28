@@ -179,31 +179,28 @@ ubisafe_app/
 
 ```
 ubisafe_api/
-├── main.py                              # Entry point: creates FastAPI app, registers routers, lifespan
+├── main.py                              # Entry point: FastAPI app, routers, lifespan
+├── dependencies.py                      # get_current_user (Bearer JWT via firebase-admin)
 │
-├── routers/                             # Presentation layer: REST endpoints per domain
-│   ├── auth.py                          # AuthRouter: /auth/sync-profile, /auth/device-token
-│   ├── stops.py                         # StopRequestRouter: /stops and /stops/{id}
-│   └── risk_zones.py                    # RiskZoneRouter: /risk-zones
+├── modules/                             # Domain modules — one folder per bounded context
+│   ├── identity/
+│   │   ├── router.py                    # GET /auth/me · POST /auth/sync-profile · PATCH /auth/device-token
+│   │   └── schemas.py                   # UserProfile · SyncProfileRequest · DeviceTokenRequest
+│   ├── dispatching/
+│   │   ├── router.py                    # POST /stops · GET /stops/{id} · PATCH /stops/{id}/status
+│   │   └── schemas.py                   # StopRequest · CreateStopRequestBody · UpdateStatusBody · StopRequestStatus
+│   ├── safety/
+│   │   ├── router.py                    # GET /risk-zones · POST /risk-zones
+│   │   └── schemas.py                   # RiskZone · CreateRiskZoneBody
+│   └── shared/                          # Transversal services (no public endpoints)
+│       ├── firebase_admin_init.py       # FirebaseAdminInit — SDK init + emulator credential
+│       ├── firestore_service.py         # FirestoreService — CRUD on Firestore collections
+│       └── notification_service.py     # NotificationService — FCM dispatch
 │
-├── services/                            # Business layer: logic and Firebase access
-│   ├── firebase_admin_init.py           # FirebaseAdminInit: SDK initialisation, get_firestore/fcm
-│   ├── firestore_service.py             # FirestoreService: CRUD on Firestore collections
-│   └── notification_service.py         # NotificationService: FCM message dispatch
-│
-├── schemas/                             # Pydantic models: request, response and domain
-│   ├── user.py                          # UserProfile, SyncProfileRequest, DeviceTokenRequest
-│   ├── stop_request.py                  # StopRequest, CreateStopRequestBody, UpdateStatusBody
-│   └── risk_zone.py                     # RiskZone, CreateRiskZoneBody
-│
-├── dependencies.py                      # AuthMiddleware: get_current_user (FastAPI Depends)
-│
-├── .env.example                         # Environment variable template (copy to .env, do not commit)
-│   # FIREBASE_SERVICE_ACCOUNT_JSON=...
-│   # GOOGLE_MAPS_API_KEY=...
-│
-├── requirements.txt                     # Python project dependencies
-└── Dockerfile                           # Docker image for deployment
+├── tests/                               # pytest test suite
+├── requirements.txt
+├── .env.example                         # Template — copy to .env, never commit .env
+└── Dockerfile
 ```
 
 ---
@@ -300,33 +297,38 @@ Cross-cutting concerns consumed by multiple feature modules.
 
 ## API Module Breakdown
 
-### `routers/`
+### `modules/identity/`
 
 | File | Purpose |
 |---|---|
-| `auth.py` | `POST /auth/sync-profile` — upsert user profile in Firestore. `POST /auth/device-token` — store FCM token. |
-| `stops.py` | `GET /stops`, `POST /stops` — list / create stop requests. `GET /stops/{id}`, `PATCH /stops/{id}/status` — read / update status. |
-| `risk_zones.py` | `GET /risk-zones`, `POST /risk-zones` — list / create risk zones. |
+| `router.py` | `GET /auth/me` — fetch own profile. `POST /auth/sync-profile` — upsert user in Firestore. `PATCH /auth/device-token` — store FCM token. |
+| `schemas.py` | `UserProfile`, `SyncProfileRequest`, `DeviceTokenRequest` |
 
-### `services/`
+### `modules/dispatching/`
 
 | File | Purpose |
 |---|---|
-| `firebase_admin_init.py` | `FirebaseAdminInit` — singleton SDK initialisation from `FIREBASE_SERVICE_ACCOUNT_JSON` env var. Exposes `get_firestore()` and `get_fcm()`. |
-| `firestore_service.py` | `FirestoreService` — async-style CRUD helpers for `users`, `stop_requests` and `risk_zones` collections. |
+| `router.py` | `POST /stops` — create stop request + FCM to vendor. `GET /stops/{id}` — read request. `PATCH /stops/{id}/status` — transition state machine (pending → accepted / rejected / expired / completed). |
+| `schemas.py` | `StopRequest`, `CreateStopRequestBody`, `UpdateStatusBody`, `StopRequestStatus` enum, `VALID_TRANSITIONS` map |
+
+### `modules/safety/`
+
+| File | Purpose |
+|---|---|
+| `router.py` | `GET /risk-zones` — list zones near a coordinate. `POST /risk-zones` — report a new risk zone. |
+| `schemas.py` | `RiskZone`, `CreateRiskZoneBody` |
+
+### `modules/shared/`
+
+| File | Purpose |
+|---|---|
+| `firebase_admin_init.py` | `FirebaseAdminInit` — singleton SDK init. Uses `_EmulatorCredential` (AnonymousCredentials) when `FIREBASE_AUTH_EMULATOR_HOST` is set; `Certificate` when `FIREBASE_SERVICE_ACCOUNT_JSON` is set; `ApplicationDefault` otherwise. |
+| `firestore_service.py` | `FirestoreService` — async CRUD helpers for `users`, `stop_requests`, `risk_zones` collections. |
 | `notification_service.py` | `NotificationService.send()` — wraps `firebase_admin.messaging` to dispatch FCM push notifications. |
-
-### `schemas/`
-
-| File | Purpose |
-|---|---|
-| `user.py` | `UserProfile`, `SyncProfileRequest`, `DeviceTokenRequest` |
-| `stop_request.py` | `StopRequest`, `CreateStopRequestBody`, `UpdateStatusBody` |
-| `risk_zone.py` | `RiskZone`, `CreateRiskZoneBody` |
 
 ### `dependencies.py`
 
-FastAPI dependency `get_current_user` — validates the Firebase ID token from the `Authorization: Bearer <token>` header and returns the decoded claims.
+FastAPI dependency `get_current_user` — validates the Firebase ID token from `Authorization: Bearer <token>` and returns the decoded claims. Logs the exact exception on failure to help diagnose emulator token issues.
 
 ---
 
@@ -341,47 +343,58 @@ FastAPI dependency `get_current_user` — validates the Firebase ID token from t
 
 ## Getting Started
 
-### Flutter app
+> **Start order:** Firebase Emulators → FastAPI → Flutter. The app and the API both need the emulators running first.
+
+### 1. Firebase Emulators
 
 ```bash
-# 1. Install Flutter dependencies
-cd ubisafe_app
-flutter pub get
-
-# 2. Add your google-services.json (Android) to android/app/
-# 3. Add your GoogleService-Info.plist (iOS) to ios/Runner/
-
-# 4. Run on a device / emulator
-flutter run
+# From the repo root
+firebase emulators:start --project demo-ubisafe
+# UI: http://localhost:4000
+# Auth: 9099 | Firestore: 8088 | RTDB: 9000 | Functions: 5001
 ```
 
-> **Environment variables** — pass `API_BASE_URL` via `--dart-define` at build time:
-> ```bash
-> flutter run --dart-define=API_BASE_URL=https://api.ubisafe.example.com
-> ```
+> Firestore runs on **port 8088** (not 8080 — 8080 may be occupied on dev machines). See `firebase.json`.
 
-### FastAPI backend
+### 2. FastAPI backend
 
 ```bash
-# 1. Create and activate a virtual environment
 cd ubisafe_api
 python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
+python -m pip install -r requirements.txt
 
-# 2. Install dependencies
-pip install -r requirements.txt
-
-# 3. Configure environment variables
 cp .env.example .env
-# Edit .env and fill in FIREBASE_SERVICE_ACCOUNT_JSON and GOOGLE_MAPS_API_KEY
+# Minimum required for emulator development:
+#   FIREBASE_AUTH_EMULATOR_HOST=localhost:9099
+#   FIRESTORE_EMULATOR_HOST=127.0.0.1:8088
+# (No service account needed — _EmulatorCredential handles auth when emulator host is set)
 
-# 4. Run the development server
-uvicorn main:app --reload
+python -m uvicorn main:app --reload
+# API docs: http://localhost:8000/docs
 ```
 
-> API docs are available at `http://localhost:8000/docs` (Swagger UI) once the server is running.
+### 3. Flutter app
 
-#### Docker
+```bash
+cd ubisafe_app
+flutter pub get
+
+# Place google-services.json at android/app/google-services.json (never commit)
+# Add your Maps API key to android/local.properties:
+#   MAPS_API_KEY=<your_key>
+# The key must have "Maps SDK for Android" enabled in Google Cloud Console.
+
+# Physical device over USB — run adb reverse before flutter run (re-run after reconnect):
+adb reverse tcp:9099 tcp:9099
+adb reverse tcp:8088 tcp:8088
+adb reverse tcp:9000 tcp:9000
+adb reverse tcp:8000 tcp:8000
+
+flutter run
+```
+
+#### Docker (FastAPI)
 
 ```bash
 cd ubisafe_api
