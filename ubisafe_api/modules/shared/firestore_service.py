@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from google.cloud.firestore import SERVER_TIMESTAMP
@@ -8,6 +9,8 @@ from modules.dispatching.schemas import CreateStopRequestBody, StopRequest
 from modules.identity.schemas import SyncProfileRequest, UserProfile
 from modules.safety.schemas import CreateRiskZoneBody, RiskZone
 from modules.shared.firebase_admin_init import FirebaseAdminInit
+
+_STOP_REQUEST_TTL_SECONDS = 60
 
 
 class FirestoreService:
@@ -31,7 +34,6 @@ class FirestoreService:
         else:
             ref.set(data, merge=True)
 
-        # Re-fetch to get server-resolved timestamps
         doc = ref.get()
         raw = doc.to_dict() or {}
         raw.pop("uid", None)
@@ -67,9 +69,13 @@ class FirestoreService:
     async def create_stop_request(
         cls, uid: str, body: CreateStopRequestBody
     ) -> StopRequest:
+        expires_at = (
+            datetime.now(tz=UTC) + timedelta(seconds=_STOP_REQUEST_TTL_SECONDS)
+        ).isoformat()
         data = body.model_dump()
         data["buyer_uid"] = uid
         data["status"] = "pending"
+        data["expires_at"] = expires_at
         _, ref = cls._db().collection("stop_requests").add(data)
         doc = ref.get()
         return StopRequest(id=doc.id, **doc.to_dict())
@@ -87,9 +93,29 @@ class FirestoreService:
         doc = ref.get()
         if not doc.exists:
             return None
-        ref.update({"status": new_status})
+        ref.update({"status": new_status, "updated_at": SERVER_TIMESTAMP})
         doc = ref.get()
         return StopRequest(id=doc.id, **doc.to_dict())
+
+    @classmethod
+    async def update_stop_status_if_pending(
+        cls, stop_id: str, new_status: str
+    ) -> tuple[StopRequest | None, bool]:
+        """Update status only if current status is 'pending'.
+
+        Returns (doc, was_updated). If not pending, returns (current_doc, False).
+        Used for race-condition detection when buyer sends 'expired'.
+        """
+        ref = cls._db().collection("stop_requests").document(stop_id)
+        doc = ref.get()
+        if not doc.exists:
+            return None, False
+        current = doc.to_dict() or {}
+        if current.get("status") != "pending":
+            return StopRequest(id=doc.id, **current), False
+        ref.update({"status": new_status, "updated_at": SERVER_TIMESTAMP})
+        doc = ref.get()
+        return StopRequest(id=doc.id, **doc.to_dict()), True
 
     # ------------------------------------------------------------ risk zones
     @classmethod

@@ -1,34 +1,88 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/api/api_client.dart';
 import '../models/stop_request.dart';
 
-/// Handles creating and cancelling stop requests.
 class StopRequestModule {
-  StopRequestModule(this._firestore);
+  StopRequestModule(this._dio, this._firestore);
 
+  final Dio _dio;
   final FirebaseFirestore _firestore;
+  Timer? _timeoutTimer;
 
   CollectionReference<Map<String, dynamic>> get _col =>
       _firestore.collection('stop_requests');
 
-  /// Creates a new [StopRequest] and returns its Firestore document ID.
-  Future<String> create(StopRequest request) async {
-    final doc = await _col.add(request.toMap());
-    return doc.id;
+  Future<StopRequest> createStopRequest({
+    required String vendorUid,
+    required double buyerLat,
+    required double buyerLng,
+  }) async {
+    final res = await _dio.post<Map<String, dynamic>>(
+      '/stops/',
+      data: {
+        'vendor_uid': vendorUid,
+        'location': {'lat': buyerLat, 'lng': buyerLng},
+      },
+    );
+    final req = StopRequest.fromJson(res.data!);
+    _startTimer(req.id);
+    return req;
   }
 
-  /// Cancels a pending stop request.
-  Future<void> cancel(String requestId) =>
-      _col.doc(requestId).update({'status': StopRequestStatus.cancelled.name});
+  void _startTimer(String stopId) {
+    _timeoutTimer?.cancel();
+    _timeoutTimer = Timer(const Duration(seconds: 60), () async {
+      try {
+        await expireStopRequest(stopId);
+      } on DioException catch (e) {
+        if (e.response?.statusCode == 409) return;
+      }
+    });
+  }
 
-  /// Stream of a single stop request.
-  Stream<StopRequest?> watch(String requestId) => _col
-      .doc(requestId)
+  void cancelTimer() {
+    _timeoutTimer?.cancel();
+    _timeoutTimer = null;
+  }
+
+  Future<void> expireStopRequest(String stopId) =>
+      _dio.patch('/stops/$stopId/status', data: {'status': 'expired'});
+
+  Future<void> rejectStopRequest(String stopId) =>
+      _dio.patch('/stops/$stopId/status', data: {'status': 'rejected'});
+
+  Future<void> acceptStopRequest(String stopId) =>
+      _dio.patch('/stops/$stopId/status', data: {'status': 'accepted'});
+
+  Future<void> completeStopRequest(String stopId) =>
+      _dio.patch('/stops/$stopId/status', data: {'status': 'completed'});
+
+  Stream<StopRequest?> watchStopRequest(String stopId) => _col
+      .doc(stopId)
       .snapshots()
       .map((s) => s.exists ? StopRequest.fromMap(s.id, s.data()!) : null);
 }
 
+class ActiveStopNotifier extends StateNotifier<StopRequest?> {
+  ActiveStopNotifier() : super(null);
+
+  void set(StopRequest req) => state = req;
+  void clear() => state = null;
+}
+
+final activeStopProvider =
+    StateNotifierProvider<ActiveStopNotifier, StopRequest?>(
+  (ref) => ActiveStopNotifier(),
+);
+
 final stopRequestModuleProvider = Provider<StopRequestModule>((ref) {
-  return StopRequestModule(FirebaseFirestore.instance);
+  return StopRequestModule(
+    ref.read(apiClientProvider),
+    FirebaseFirestore.instance,
+  );
 });

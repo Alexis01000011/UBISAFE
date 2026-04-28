@@ -1,13 +1,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-enum StopRequestStatus { pending, accepted, arrived, completed, cancelled }
+enum StopRequestStatus { pending, accepted, rejected, completed, expired }
 
-/// Represents a buyer's request for a vendor to stop at their location.
 class StopRequest {
   const StopRequest({
     required this.id,
     required this.buyerUid,
-    required this.vendorUid,
+    this.vendorUid,
     required this.status,
     required this.buyerLat,
     required this.buyerLng,
@@ -16,30 +15,59 @@ class StopRequest {
 
   final String id;
   final String buyerUid;
-  final String vendorUid;
+  final String? vendorUid;
   final StopRequestStatus status;
   final double buyerLat;
   final double buyerLng;
   final DateTime createdAt;
 
   factory StopRequest.fromMap(String id, Map<String, dynamic> map) {
-    final GeoPoint geoPoint = map['buyer_location'] as GeoPoint;
+    final raw = map['location'];
+    double lat;
+    double lng;
+    if (raw is GeoPoint) {
+      lat = raw.latitude;
+      lng = raw.longitude;
+    } else if (raw is Map) {
+      lat = (raw['lat'] as num).toDouble();
+      lng = (raw['lng'] as num).toDouble();
+    } else {
+      lat = 0;
+      lng = 0;
+    }
     return StopRequest(
       id: id,
       buyerUid: map['buyer_uid'] as String,
-      vendorUid: map['vendor_uid'] as String,
+      vendorUid: map['vendor_uid'] as String?,
       status: StopRequestStatus.values.byName(map['status'] as String),
-      buyerLat: geoPoint.latitude,
-      buyerLng: geoPoint.longitude,
-      createdAt: (map['created_at'] as Timestamp).toDate(),
+      buyerLat: lat,
+      buyerLng: lng,
+      createdAt: map['created_at'] is Timestamp
+          ? (map['created_at'] as Timestamp).toDate()
+          : DateTime.now(),
+    );
+  }
+
+  factory StopRequest.fromJson(Map<String, dynamic> json) {
+    final loc = json['location'] as Map<String, dynamic>;
+    return StopRequest(
+      id: json['id'] as String,
+      buyerUid: json['buyer_uid'] as String,
+      vendorUid: json['vendor_uid'] as String?,
+      status: StopRequestStatus.values.byName(json['status'] as String),
+      buyerLat: (loc['lat'] as num).toDouble(),
+      buyerLng: (loc['lng'] as num).toDouble(),
+      createdAt: json['created_at'] != null
+          ? DateTime.parse(json['created_at'] as String)
+          : DateTime.now(),
     );
   }
 
   Map<String, dynamic> toMap() => {
         'buyer_uid': buyerUid,
-        'vendor_uid': vendorUid,
+        if (vendorUid != null) 'vendor_uid': vendorUid,
         'status': status.name,
-        'buyer_location': GeoPoint(buyerLat, buyerLng),
+        'location': GeoPoint(buyerLat, buyerLng),
         'created_at': FieldValue.serverTimestamp(),
       };
 }

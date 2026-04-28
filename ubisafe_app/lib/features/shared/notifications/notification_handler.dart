@@ -1,6 +1,10 @@
+import 'package:dio/dio.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../dispatching/models/stop_request.dart';
+import '../../../core/api/api_client.dart';
 
 /// Background message handler — must be a top-level function.
 @pragma('vm:entry-point')
@@ -8,45 +12,108 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   debugPrint('FCM background message: ${message.messageId}');
 }
 
+/// Incoming stop request data for a vendor (stop_request_incoming FCM event).
+final incomingStopRequestProvider =
+    StateProvider<Map<String, dynamic>?>((ref) => null);
+
+/// Status change event dispatched to buyer/vendor screens.
+final stopRequestEventProvider = StateProvider<StopEvent?>((ref) => null);
+
+/// Carries a stop_id and the new status from an FCM notification.
+class StopEvent {
+  const StopEvent(this.stopId, this.status);
+  final String stopId;
+  final StopRequestStatus status;
+}
+
 /// Handles all FCM push-notification events for UbiSafe.
-///
-/// [iter.2 ext] Supported FCM event types:
-///   1. `ride_request`       — buyer requests a ride from vendor (CU-04).
-///   2. `ride_accepted`      — vendor accepts buyer's ride.
-///   3. `ride_completed`     — ride marked completed.
-///   4. `community_report`   — new community report near user's location.
-///   5. `report_confirmed`   — user's report received enough confirmations.
 class NotificationHandler {
-  NotificationHandler(this._messaging);
+  NotificationHandler(
+    this._messaging,
+    this._dio, {
+    required void Function(Map<String, dynamic>?) setIncomingStop,
+    required void Function(StopEvent?) setStopEvent,
+  })  : _setIncomingStop = setIncomingStop,
+        _setStopEvent = setStopEvent;
 
   final FirebaseMessaging _messaging;
+  final Dio _dio;
+  final void Function(Map<String, dynamic>?) _setIncomingStop;
+  final void Function(StopEvent?) _setStopEvent;
+
+  /// Must be called once before runApp() — cannot be in init() because
+  /// FirebaseMessaging.onBackgroundMessage requires Flutter bindings.
+  static void registerBackgroundHandler() {
+    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+  }
 
   Future<void> init() async {
-    FirebaseMessaging.onBackgroundMessage(
-      _firebaseMessagingBackgroundHandler,
-    );
-
     await _messaging.requestPermission();
 
-    FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
-    FirebaseMessaging.onMessageOpenedApp.listen(_handleMessageTap);
+    final token = await _messaging.getToken();
+    if (token != null) {
+      await _syncToken(token);
+    }
+
+    _messaging.onTokenRefresh.listen(_syncToken);
+    FirebaseMessaging.onMessage.listen(_handleMessage);
+    FirebaseMessaging.onMessageOpenedApp.listen(_handleMessage);
   }
 
-  void _handleForegroundMessage(RemoteMessage message) {
-    final type = message.data['type'] as String?;
-    debugPrint('FCM foreground [$type]: ${message.notification?.title}');
-    // TODO: show in-app notification banner based on type.
+  Future<void> _syncToken(String token) async {
+    try {
+      await _dio.patch<dynamic>(
+        '/auth/device-token',
+        data: {'token': token},
+      );
+    } catch (e) {
+      debugPrint('FCM token sync failed: $e');
+    }
   }
 
-  void _handleMessageTap(RemoteMessage message) {
-    final type = message.data['type'] as String?;
-    debugPrint('FCM tapped [$type]');
-    // TODO: navigate to relevant screen based on type.
+  void _handleMessage(RemoteMessage message) => _dispatchData(message.data);
+
+  void _dispatchData(Map<String, dynamic> data) {
+    final type = data['type'] as String?;
+    final stopId = data['stop_id'] as String?;
+
+    switch (type) {
+      case 'stop_request_incoming':
+        _setIncomingStop(Map<String, dynamic>.from(data));
+
+      case 'stop_request_accepted':
+        if (stopId != null) {
+          _setStopEvent(StopEvent(stopId, StopRequestStatus.accepted));
+        }
+
+      case 'stop_request_rejected':
+        if (stopId != null) {
+          _setStopEvent(StopEvent(stopId, StopRequestStatus.rejected));
+        }
+
+      case 'stop_request_completed':
+        if (stopId != null) {
+          _setStopEvent(StopEvent(stopId, StopRequestStatus.completed));
+        }
+
+      default:
+        debugPrint('FCM unhandled type [$type]');
+    }
   }
 
   Future<String?> get fcmToken => _messaging.getToken();
+
+  /// Dispatches a raw data map as if it were an FCM message. Use in tests only.
+  void handleMessageForTest(Map<String, dynamic> data) => _dispatchData(data);
 }
 
 final notificationHandlerProvider = Provider<NotificationHandler>((ref) {
-  return NotificationHandler(FirebaseMessaging.instance);
+  return NotificationHandler(
+    FirebaseMessaging.instance,
+    ref.read(apiClientProvider),
+    setIncomingStop: (data) =>
+        ref.read(incomingStopRequestProvider.notifier).state = data,
+    setStopEvent: (event) =>
+        ref.read(stopRequestEventProvider.notifier).state = event,
+  );
 });

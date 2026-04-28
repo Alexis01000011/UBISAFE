@@ -13,6 +13,7 @@ import 'router/app_router.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
+  NotificationHandler.registerBackgroundHandler();
 
   if (kDebugMode) {
     await _connectToEmulators();
