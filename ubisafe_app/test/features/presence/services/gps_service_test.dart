@@ -25,12 +25,12 @@ void main() {
     when(() => mockRef.remove()).thenAnswer((_) async {});
   });
 
-  GPSService _makeService(Stream<Position> posStream) => GPSService(
+  GPSService makeService(Stream<Position> posStream) => GPSService(
         positionStreamFactory: (_) => posStream,
         rtdbRefFactory: (_) => mockRef,
       );
 
-  _MockPosition _pos(double lat, double lng) {
+  _MockPosition pos(double lat, double lng) {
     final p = _MockPosition();
     when(() => p.latitude).thenReturn(lat);
     when(() => p.longitude).thenReturn(lng);
@@ -41,10 +41,10 @@ void main() {
     test('set is called with the correct RTDB shape on position arrival',
         () async {
       final ctrl = StreamController<Position>();
-      final service = _makeService(ctrl.stream);
+      final service = makeService(ctrl.stream);
 
       service.startTransmission('vendor-1');
-      ctrl.add(_pos(19.432608, -99.133209));
+      ctrl.add(pos(19.432608, -99.133209));
       await Future.microtask(() {});
 
       final captured =
@@ -61,14 +61,14 @@ void main() {
     test('stateStream emits error_no_signal when position stream errors',
         () async {
       final ctrl = StreamController<Position>();
-      final service = _makeService(ctrl.stream);
+      final service = makeService(ctrl.stream);
 
       final states = <GPSServiceState>[];
       service.stateStream.listen(states.add);
 
       service.startTransmission('vendor-1');
       ctrl.addError(Exception('GPS timeout'));
-      await Future.microtask(() {});
+      await pumpEventQueue();
 
       expect(states, contains(GPSServiceState.error_no_signal));
 
@@ -78,7 +78,7 @@ void main() {
 
     test('stopTransmission calls remove on the RTDB node', () async {
       final ctrl = StreamController<Position>();
-      final service = _makeService(ctrl.stream);
+      final service = makeService(ctrl.stream);
 
       service.startTransmission('vendor-1');
       await service.stopTransmission('vendor-1');
@@ -99,10 +99,10 @@ void main() {
       });
 
       final ctrl = StreamController<Position>();
-      final service = _makeService(ctrl.stream);
+      final service = makeService(ctrl.stream);
 
       service.startTransmission('vendor-1');
-      ctrl.add(_pos(0.0, 0.0));
+      ctrl.add(pos(0.0, 0.0));
       await Future.microtask(() {});
 
       expect(callOrder.indexOf('onDisconnect'),

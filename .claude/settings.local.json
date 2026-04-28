@@ -8,7 +8,17 @@
       "Bash(flutter create *)",
       "Bash(java -version)",
       "Bash(dart --version)",
-      "Bash(flutter --version)"
+      "Bash(flutter --version)",
+      "Bash(python -m pytest tests/ -v)",
+      "Bash(git commit -m ' *)",
+      "Bash(git fetch *)",
+      "Bash(git pull *)",
+      "Bash(python -m ruff check .)",
+      "Bash(python -m ruff check . --fix)",
+      "Bash(python -m pytest -v)",
+      "Bash(flutter test *)",
+      "Bash(git add *)",
+      "Bash(git push *)"
     ]
   }
 }

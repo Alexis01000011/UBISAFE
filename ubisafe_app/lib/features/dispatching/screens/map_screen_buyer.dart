@@ -18,7 +18,7 @@ class MapScreenBuyer extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final positionAsync = ref.watch(gpsServiceProvider);
-    final vendorsAsync = ref.watch(vendorTrackerProvider);
+    final vendorsAsync = ref.watch(vendorMarkersProvider);
 
     return Scaffold(
       drawer: const DrawerModule(),
@@ -38,7 +38,7 @@ class MapScreenBuyer extends ConsumerWidget {
                   (v) => Marker(
                     markerId: MarkerId(v.uid),
                     position: LatLng(v.latitude, v.longitude),
-                    infoWindow: InfoWindow(title: v.displayName ?? v.uid),
+                    infoWindow: InfoWindow(title: v.uid),
                   ),
                 )
                 .toSet(),

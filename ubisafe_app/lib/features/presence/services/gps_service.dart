@@ -73,6 +73,8 @@ final gpsServiceInstanceProvider = Provider<GPSService>((ref) {
 typedef PositionStreamFactory = Stream<Position> Function(LocationSettings);
 typedef RtdbRefFactory = DatabaseReference Function(String vendorUid);
 
+const _kVendorsPath = 'vendedores_activos';
+
 // ─── GPSService ───────────────────────────────────────────────────────────────
 
 /// Reads device GPS and writes vendor positions directly to Firebase RTDB.
@@ -89,7 +91,6 @@ class GPSService {
             positionStreamFactory ?? _defaultPositionStream,
         _rtdbRefFactory = rtdbRefFactory ?? _defaultRtdbRef;
 
-  static const _kVendorsPath = 'vendedores_activos';
   static const _kNoSignalTimeout = Duration(seconds: 10);
   static const _kRetryDelay = Duration(seconds: 5);
 
@@ -131,7 +132,7 @@ class GPSService {
 
     _posSub?.cancel();
     _posSub = _positionStreamFactory(
-      LocationSettings(
+      const LocationSettings(
         accuracy: LocationAccuracy.high,
         distanceFilter: 10,
         timeLimit: _kNoSignalTimeout,
