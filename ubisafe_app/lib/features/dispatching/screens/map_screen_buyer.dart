@@ -8,6 +8,8 @@ import '../../../core/providers/auth_providers.dart';
 import '../../identity/profile/widgets/drawer_module.dart';
 import '../../presence/services/gps_service.dart';
 import '../../presence/services/vendor_tracker.dart';
+import '../../safety/screens/risk_form_bottom_sheet.dart';
+import '../../safety/services/risk_zone_service.dart';
 import '../../shared/notifications/notification_handler.dart';
 import '../../shared/widgets/gps_required_empty_state.dart';
 import '../models/stop_request.dart';
@@ -97,6 +99,25 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
             orElse: () => <Marker>{},
           );
 
+          final zonesAsync = ref.watch(
+            activeRiskZonesProvider(LatLng(position.latitude, position.longitude)),
+          );
+          final circles = zonesAsync.maybeWhen(
+            data: (zones) => zones
+                .map(
+                  (z) => Circle(
+                    circleId: CircleId(z.id),
+                    center: LatLng(z.latitude, z.longitude),
+                    radius: z.radiusMeters.toDouble(),
+                    fillColor: _riskFillColor(z.riskLevel),
+                    strokeColor: _riskStrokeColor(z.riskLevel),
+                    strokeWidth: 2,
+                  ),
+                )
+                .toSet(),
+            orElse: () => <Circle>{},
+          );
+
           return Stack(
             children: [
               GoogleMap(
@@ -104,6 +125,21 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
                 myLocationEnabled: true,
                 myLocationButtonEnabled: true,
                 markers: markers,
+                circles: circles,
+              ),
+              // Report risk zone FAB
+              Positioned(
+                bottom: _mapState == _BuyerMapState.waiting ? 180 : 24,
+                right: 16,
+                child: FloatingActionButton(
+                  heroTag: 'buyer_risk_fab',
+                  backgroundColor: const Color(0xFFE65100),
+                  onPressed: () => RiskFormBottomSheet.show(
+                    context,
+                    LatLng(position.latitude, position.longitude),
+                  ),
+                  child: const Icon(Icons.add, color: Colors.white),
+                ),
               ),
               if (_mapState == _BuyerMapState.waiting)
                 _WaitingOverlay(
@@ -171,6 +207,22 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
     }
   }
 }
+
+// ─── Risk zone color helpers ──────────────────────────────────────────────────
+
+Color _riskFillColor(String level) => switch (level) {
+      'HIGH' => const Color(0x59C62828),
+      'MEDIUM' => const Color(0x4DF57C00),
+      _ => const Color(0x400277BD),
+    };
+
+Color _riskStrokeColor(String level) => switch (level) {
+      'HIGH' => const Color(0xFFC62828),
+      'MEDIUM' => const Color(0xFFF57C00),
+      _ => const Color(0xFF0277BD),
+    };
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _WaitingOverlay extends StatelessWidget {
   const _WaitingOverlay({required this.onCancel});

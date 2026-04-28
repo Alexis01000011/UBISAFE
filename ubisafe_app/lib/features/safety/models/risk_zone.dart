@@ -1,50 +1,51 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
-/// Represents a community-reported risk zone on the map.
+/// Represents a community-reported risk zone (CU-03).
+/// Schema matches SDD §7.2.3.
 class RiskZone {
   const RiskZone({
     required this.id,
     required this.reporterUid,
+    required this.threatType,
+    required this.riskLevel,
     required this.latitude,
     required this.longitude,
-    required this.category,
-    required this.description,
+    required this.radiusMeters,
+    required this.active,
     required this.createdAt,
-    this.confirmations = 0,
+    required this.expiresAt,
+    this.expiredAt,
   });
 
   final String id;
   final String reporterUid;
+  final String threatType;
+
+  /// 'HIGH' | 'MEDIUM' | 'LOW'
+  final String riskLevel;
+
   final double latitude;
   final double longitude;
-
-  /// E.g. 'robbery', 'harassment', 'accident', 'other'.
-  final String category;
-
-  final String description;
+  final int radiusMeters;
+  final bool active;
   final DateTime createdAt;
-  final int confirmations;
+  final DateTime expiresAt;
+  final DateTime? expiredAt;
 
-  factory RiskZone.fromMap(String id, Map<String, dynamic> map) {
-    final GeoPoint geoPoint = map['location'] as GeoPoint;
+  factory RiskZone.fromJson(Map<String, dynamic> json) {
+    final loc = json['location'] as Map<String, dynamic>;
     return RiskZone(
-      id: id,
-      reporterUid: map['reporter_uid'] as String,
-      latitude: geoPoint.latitude,
-      longitude: geoPoint.longitude,
-      category: map['category'] as String,
-      description: map['description'] as String,
-      createdAt: (map['created_at'] as Timestamp).toDate(),
-      confirmations: map['confirmations'] as int? ?? 0,
+      id: json['id'] as String,
+      reporterUid: json['reporter_uid'] as String,
+      threatType: json['threat_type'] as String,
+      riskLevel: json['risk_level'] as String,
+      latitude: (loc['lat'] as num).toDouble(),
+      longitude: (loc['lng'] as num).toDouble(),
+      radiusMeters: (json['radius_meters'] as num).toInt(),
+      active: json['active'] as bool,
+      createdAt: DateTime.parse(json['created_at'] as String),
+      expiresAt: DateTime.parse(json['expires_at'] as String),
+      expiredAt: json['expired_at'] != null
+          ? DateTime.parse(json['expired_at'] as String)
+          : null,
     );
   }
-
-  Map<String, dynamic> toMap() => {
-        'reporter_uid': reporterUid,
-        'location': GeoPoint(latitude, longitude),
-        'category': category,
-        'description': description,
-        'created_at': FieldValue.serverTimestamp(),
-        'confirmations': confirmations,
-      };
 }

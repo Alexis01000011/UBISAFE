@@ -119,14 +119,62 @@ class FirestoreService:
 
     # ------------------------------------------------------------ risk zones
     @classmethod
-    async def list_risk_zones(cls) -> list[RiskZone]:
-        docs = cls._db().collection("risk_zones").stream()
-        return [RiskZone(id=d.id, **d.to_dict()) for d in docs]
-
-    @classmethod
-    async def create_risk_zone(cls, uid: str, body: CreateRiskZoneBody) -> RiskZone:
+    async def create_risk_zone(cls, reporter_uid: str, body: CreateRiskZoneBody) -> RiskZone:
+        expires_at = (
+            datetime.now(tz=UTC) + timedelta(hours=24)
+        ).isoformat()
         data = body.model_dump()
-        data["reported_by"] = uid
+        data["reporter_uid"] = reporter_uid
+        data["active"] = True
+        data["created_at"] = datetime.now(tz=UTC).isoformat()
+        data["expires_at"] = expires_at
+        data["expired_at"] = None
         _, ref = cls._db().collection("risk_zones").add(data)
         doc = ref.get()
-        return RiskZone(id=doc.id, **doc.to_dict())
+        raw = doc.to_dict() or {}
+        return RiskZone(id=doc.id, **raw)
+
+    @classmethod
+    async def query_active_risk_zones_bbox(
+        cls, lat: float, lng: float, delta: float
+    ) -> list[dict]:
+        docs = (
+            cls._db()
+            .collection("risk_zones")
+            .where("active", "==", True)
+            .stream()
+        )
+        candidates = []
+        for doc in docs:
+            data = doc.to_dict() or {}
+            loc = data.get("location") or {}
+            zone_lat = loc.get("lat", 0)
+            zone_lng = loc.get("lng", 0)
+            if abs(zone_lat - lat) <= delta and abs(zone_lng - lng) <= delta:
+                candidates.append({"id": doc.id, **data})
+        return candidates
+
+    @classmethod
+    async def get_risk_zone(cls, zone_id: str) -> dict | None:
+        doc = cls._db().collection("risk_zones").document(zone_id).get()
+        if not doc.exists:
+            return None
+        return {"id": doc.id, **(doc.to_dict() or {})}
+
+    @classmethod
+    async def expire_risk_zone(cls, zone_id: str) -> None:
+        cls._db().collection("risk_zones").document(zone_id).update({
+            "active": False,
+            "expired_at": datetime.now(tz=UTC).isoformat(),
+        })
+
+    @classmethod
+    async def get_all_fcm_tokens(cls) -> list[str]:
+        docs = cls._db().collection("users").stream()
+        tokens = []
+        for doc in docs:
+            data = doc.to_dict() or {}
+            token = data.get("fcm_token")
+            if token:
+                tokens.append(token)
+        return tokens
