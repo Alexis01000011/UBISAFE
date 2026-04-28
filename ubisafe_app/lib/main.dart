@@ -15,7 +15,7 @@ Future<void> main() async {
   await Firebase.initializeApp();
 
   if (kDebugMode) {
-    _connectToEmulators();
+    await _connectToEmulators();
   }
 
   runApp(
@@ -24,9 +24,10 @@ Future<void> main() async {
 }
 
 /// Wires Firebase SDKs to local emulators when running in debug mode.
-void _connectToEmulators() {
+Future<void> _connectToEmulators() async {
   const host = 'localhost';
-  FirebaseAuth.instance.useAuthEmulator(host, 9099);
+  await FirebaseAuth.instance.useAuthEmulator(host, 9099,
+      automaticHostMapping: false);
   FirebaseFirestore.instance.useFirestoreEmulator(host, 8080);
   FirebaseDatabase.instance.useDatabaseEmulator(host, 9000);
 }
