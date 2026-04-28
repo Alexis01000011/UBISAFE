@@ -64,7 +64,7 @@ adb tcpip 5555                  # habilita ADB por red (no sustituye adb reverse
 4. **`.env`:** Copiar `ubisafe_api/.env.example` a `ubisafe_api/.env`. Para desarrollo con emuladores, el mínimo necesario es:
    ```
    FIREBASE_AUTH_EMULATOR_HOST=localhost:9099
-   FIRESTORE_EMULATOR_HOST=127.0.0.1:8088
+   FIRESTORE_EMULATOR_HOST=127.0.0.1:8080
    ```
    No se necesita `FIREBASE_SERVICE_ACCOUNT_JSON` para emuladores — la clase `_EmulatorCredential` en `firebase_admin_init.py` maneja la inicialización automáticamente.
 5. **Maps API Key:** Añadir al archivo `ubisafe_app/android/local.properties` (no se commitea):
@@ -86,7 +86,7 @@ Encontrados al correr F3/F4 en dispositivo físico Android (MIUI/Xiaomi, `fireba
 | 2 | Listeners de FCM acumulados en cada rebuild de la app | `NotificationHandler.init()` se llamaba en `build()` sin guard | `features/shared/notifications/notification_handler.dart` + `main.dart` |
 | 3 | Crash al hacer login: `type 'List<Object?>' is not subtype of 'PigeonUserDetails?'` | Bug conocido de `firebase_auth 4.16.0` en Android — login exitoso lanza excepción de deserialización Pigeon | `features/identity/auth/auth_module.dart` |
 | 4 | FastAPI 500 en todos los endpoints Firestore: `DefaultCredentialsError` | `ApplicationDefault()` falla sin ADC configurado; no hay service account en dev | `ubisafe_api/modules/shared/firebase_admin_init.py` |
-| 5 | Firestore del emulador inaccesible aunque Auth funciona | Faltaba `FIRESTORE_EMULATOR_HOST` en `.env`; Firestore intentaba conectar a producción | `ubisafe_api/.env` + `firebase.json` (puerto 8088) |
+| 5 | Firestore del emulador inaccesible aunque Auth funciona | Faltaba `FIRESTORE_EMULATOR_HOST` en `.env`; Firestore intentaba conectar a producción | `ubisafe_api/.env` + `firebase.json` (puerto 8080) |
 
 **Comportamientos adicionales implementados:**
 - La sesión se cierra automáticamente al cerrar la app (swipe desde recientes) — implementado con `WidgetsBindingObserver` + `AppLifecycleState.detached` en `main.dart`.

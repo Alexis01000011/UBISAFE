@@ -351,10 +351,10 @@ FastAPI dependency `get_current_user` — validates the Firebase ID token from `
 # From the repo root
 firebase emulators:start --project demo-ubisafe
 # UI: http://localhost:4000
-# Auth: 9099 | Firestore: 8088 | RTDB: 9000 | Functions: 5001
+# Auth: 9099 | Firestore: 8080 | RTDB: 9000 | Functions: 5001
 ```
 
-> Firestore runs on **port 8088** (not 8080 — 8080 may be occupied on dev machines). See `firebase.json`.
+> Firestore runs on **port 8080**. See `firebase.json`.
 
 ### 2. FastAPI backend
 
@@ -367,7 +367,7 @@ python -m pip install -r requirements.txt
 cp .env.example .env
 # Minimum required for emulator development:
 #   FIREBASE_AUTH_EMULATOR_HOST=localhost:9099
-#   FIRESTORE_EMULATOR_HOST=127.0.0.1:8088
+#   FIRESTORE_EMULATOR_HOST=127.0.0.1:8080
 # (No service account needed — _EmulatorCredential handles auth when emulator host is set)
 
 python -m uvicorn main:app --reload
@@ -387,7 +387,7 @@ flutter pub get
 
 # Physical device over USB — run adb reverse before flutter run (re-run after reconnect):
 adb reverse tcp:9099 tcp:9099
-adb reverse tcp:8088 tcp:8088
+adb reverse tcp:8080 tcp:8080
 adb reverse tcp:9000 tcp:9000
 adb reverse tcp:8000 tcp:8000
 

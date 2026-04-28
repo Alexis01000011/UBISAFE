@@ -6,8 +6,6 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-load_dotenv()
-
 from modules.dispatching.router import router as stops_router
 from modules.identity.router import router as auth_router
 from modules.safety.router import router as risk_zones_router
@@ -22,6 +20,7 @@ logger = logging.getLogger("ubisafe")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    load_dotenv()
     FirebaseAdminInit.initialize()
     logger.info("Firebase Admin SDK initialized")
     yield
