@@ -42,6 +42,16 @@ python -m pytest                            # usar python -m pytest, no pytest d
 firebase emulators:start --project demo-ubisafe
 # UI en http://localhost:4000
 # Auth: 9099 | Firestore: 8080 | RTDB: 9000 | Functions: 5001
+
+# ADB (debug inalámbrico en dispositivo físico)
+adb devices -l
+adb reverse --list
+adb reverse tcp:9099 tcp:9099   # Firebase Auth emulator
+adb reverse tcp:8080 tcp:8080   # Firestore emulator
+adb reverse tcp:9000 tcp:9000   # RTDB emulator
+adb reverse tcp:8000 tcp:8000   # FastAPI local
+adb reverse tcp:5001 tcp:5001   # Functions emulator (opcional)
+adb tcpip 5555                  # habilita ADB por red (no sustituye adb reverse)
 ```
 
 ---
