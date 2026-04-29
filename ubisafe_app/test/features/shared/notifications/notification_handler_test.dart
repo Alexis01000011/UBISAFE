@@ -40,12 +40,14 @@ void main() {
   NotificationHandler makeHandler({
     void Function(Map<String, dynamic>?)? onIncoming,
     void Function(StopEvent?)? onEvent,
+    void Function()? onInvalidateRiskZones,
   }) =>
       NotificationHandler(
         mockMessaging,
         mockDio,
         setIncomingStop: onIncoming ?? (_) {},
         setStopEvent: onEvent ?? (_) {},
+        invalidateRiskZones: onInvalidateRiskZones ?? () {},
       );
 
   group('NotificationHandler.init', () {
@@ -159,6 +161,19 @@ void main() {
       handler.handleMessageForTest({'type': 'stop_request_accepted'});
 
       expect(received, isNull);
+    });
+
+    test('risk_zone_alert calls invalidateRiskZones', () {
+      var invalidated = false;
+      final handler = makeHandler(onInvalidateRiskZones: () => invalidated = true);
+
+      handler.handleMessageForTest({
+        'type': 'risk_zone_alert',
+        'risk_zone_id': 'rz-001',
+        'risk_level': 'HIGH',
+      });
+
+      expect(invalidated, isTrue);
     });
 
     test('unknown type does not dispatch anything', () {

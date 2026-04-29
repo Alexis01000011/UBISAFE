@@ -91,3 +91,27 @@ class NotificationService:
             body="El vendedor confirmó la entrega.",
             data={"type": "stop_request_completed", "stop_id": stop_id},
         )
+
+    @staticmethod
+    async def notify_risk_zone_alert(
+        fcm_tokens: list[str], risk_zone_data: dict
+    ) -> None:
+        if not fcm_tokens:
+            return
+        data_str = {k: str(v) for k, v in risk_zone_data.items()}
+        batch_size = 500
+        for i in range(0, len(fcm_tokens), batch_size):
+            batch = fcm_tokens[i : i + batch_size]
+            message = messaging.MulticastMessage(data=data_str, tokens=batch)
+            try:
+                response = await asyncio.to_thread(messaging.send_multicast, message)
+                if response.failure_count > 0:
+                    for idx, result in enumerate(response.responses):
+                        if not result.success:
+                            logger.warning(
+                                "FCM multicast failure for token %s: %s",
+                                batch[idx][:20],
+                                result.exception,
+                            )
+            except Exception as exc:
+                logger.error("FCM multicast failed: %s", exc)

@@ -20,24 +20,26 @@ service cloud.firestore {
     }
 
     // ─── COLECCIÓN: stop_requests ──────────────────────────────────────────
-    // La lógica de negocio (rol, validaciones, máquina de estados) la aplica
-    // FastAPI antes de que el Admin SDK escriba. Esta regla protege accesos
-    // directos desde el cliente.
+    // Toda escritura (create/update/delete) pasa por FastAPI con Admin SDK.
+    // El Admin SDK bypasea estas reglas, por lo que bloquear escritura directa
+    // del cliente NO afecta a la API. Impide que un cliente evada la máquina
+    // de estados (pending→accepted→completed) y la validación de rol.
+    // Ref: SDD_FASE3_UBISAFE.md §7.2.4
     match /stop_requests/{requestId} {
       allow read: if isAuthenticated()
                   && (resource.data.buyer_uid == request.auth.uid
                       || resource.data.vendor_uid == request.auth.uid);
-      allow write: if isAuthenticated();
+      allow write: if false;
     }
 
     // ─── COLECCIÓN: risk_zones ─────────────────────────────────────────────
-    // El borrado lógico (active=false) lo ejecuta FastAPI con Admin SDK.
-    // Esta regla protege escrituras directas desde el cliente.
+    // Toda escritura (create/update/delete) pasa por FastAPI con Admin SDK.
+    // Impide que un cliente cree zonas con severity arbitraria, modifique la
+    // geolocalización o marque activo=false directamente.
+    // Ref: SDD_FASE3_UBISAFE.md §7.2.4
     match /risk_zones/{zoneId} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated();
-      allow update, delete: if isAuthenticated()
-                            && resource.data.reporter_uid == request.auth.uid;
+      allow write: if false;
     }
 
     // ─── iter.2: rides, community_reports ─────────────────────────────────
