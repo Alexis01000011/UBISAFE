@@ -21,7 +21,7 @@ Map<String, dynamic> _fakeStopJson({String status = 'pending'}) => {
       'id': _stopId,
       'buyer_uid': _buyerUid,
       'vendor_uid': _vendorUid,
-      'location': {'lat': 20.67, 'lng': -103.34},
+      'buyer_location': {'lat': 20.67, 'lng': -103.34},
       'status': status,
       'created_at': null,
     };
@@ -49,7 +49,7 @@ void main() {
   StopRequestModule makeModule() => StopRequestModule(mockDio, mockFirestore);
 
   group('createStopRequest', () {
-    test('calls POST /stops/ and returns parsed StopRequest', () async {
+    test('calls POST /stops and returns parsed StopRequest', () async {
       when(() => mockDio.post<Map<String, dynamic>>(
             any(),
             data: any(named: 'data'),
