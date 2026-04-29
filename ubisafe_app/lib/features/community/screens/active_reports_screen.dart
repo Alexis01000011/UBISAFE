@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/design_system/colors.dart';
+import '../../../core/design_system/typography.dart';
 import '../models/community_report.dart';
 import '../services/community_report_module.dart';
 
@@ -15,7 +16,15 @@ class ActiveReportsScreen extends ConsumerWidget {
     final reportsAsync = ref.watch(activeCommunityReportsProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Reportes activos')),
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        title: Text(
+          'Reportes activos',
+          style: AppTypography.heading2.copyWith(color: Colors.white),
+        ),
+        backgroundColor: AppColors.primary700,
+        iconTheme: const IconThemeData(color: Colors.white),
+      ),
       body: reportsAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Error: $e')),
@@ -25,8 +34,10 @@ class ActiveReportsScreen extends ConsumerWidget {
               child: Text('No hay reportes activos en tu zona'),
             );
           }
-          return ListView.builder(
+          return ListView.separated(
+            padding: const EdgeInsets.all(16),
             itemCount: reports.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 8),
             itemBuilder: (context, index) {
               final r = reports[index];
               final label = r.threatType == ThreatType.animalMuerto
@@ -39,18 +50,27 @@ class ActiveReportsScreen extends ConsumerWidget {
                 ReportStatus.expired => 'Expirado',
               };
               return ListTile(
+                tileColor: AppColors.surface,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
                 leading: Icon(
                   Icons.report_problem,
                   color: r.threatType == ThreatType.animalMuerto
                       ? AppColors.neutral900
                       : const Color(0xFF795548),
                 ),
-                title: Text(label),
-                subtitle:
-                    Text('${r.confirmCount} confirmaciones · $statusLabel'),
+                title: Text(
+                  label,
+                  style: AppTypography.body1.copyWith(color: AppColors.textPrimary),
+                ),
+                subtitle: Text(
+                  '${r.confirmCount} confirmaciones · $statusLabel',
+                  style: AppTypography.caption.copyWith(color: AppColors.textSecondary),
+                ),
                 trailing: r.isDuplicate
                     ? const Chip(label: Text('Agrupado'))
-                    : const Icon(Icons.chevron_right),
+                    : const Icon(Icons.chevron_right, color: AppColors.textSecondary),
                 onTap: () =>
                     context.push('/community/reports/detail', extra: r),
               );

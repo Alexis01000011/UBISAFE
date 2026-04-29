@@ -459,7 +459,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
   }
 }
 
-// ── SpeedDial FAB — CU-03 + CU-05 (SDD2_FASE2 §PASO 2'.4) ───────────────────
+// ── SpeedDial FAB — CU-03 + CU-05 ───────────────────
 class _SpeedDial extends StatelessWidget {
   const _SpeedDial({
     required this.open,

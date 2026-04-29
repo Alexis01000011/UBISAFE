@@ -101,7 +101,7 @@ class _DrawerModuleState extends ConsumerState<DrawerModule> {
                       title: 'Mi Perfil',
                       onTap: () {
                         Navigator.pop(context);
-                        context.go('/profile');
+                        context.push('/profile');
                       },
                     ),
                     _buildDrawerItem(
@@ -109,7 +109,7 @@ class _DrawerModuleState extends ConsumerState<DrawerModule> {
                       title: 'Historial',
                       onTap: () {
                         Navigator.pop(context);
-                        context.go('/history');
+                        context.push('/history');
                       },
                     ),
                     _buildDrawerItem(
@@ -117,26 +117,37 @@ class _DrawerModuleState extends ConsumerState<DrawerModule> {
                       title: 'Reportes Activos',
                       onTap: () {
                         Navigator.pop(context);
-                        context.go('/community/reports');
+                        context.push('/community/reports');
                       },
                     ),
                     if (isVendor) ...[
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
-                        child: Divider(color: AppColors.textSecondary.withOpacity(0.2)),
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
+                        child: Divider(color: AppColors.border),
                       ),
                       SwitchListTile(
-                        activeColor: AppColors.primary700,
-                        secondary: Container(
-                          padding: const EdgeInsets.all(8),
+                        activeThumbColor: AppColors.primary700,
+                        secondary: const DecoratedBox(
                           decoration: BoxDecoration(
-                            color: AppColors.secondary500.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(8),
+                            color: AppColors.secondary50,
+                            borderRadius: BorderRadius.all(Radius.circular(8)),
                           ),
-                          child: const Icon(Icons.electric_rickshaw_outlined, color: AppColors.secondary500),
+                          child: Padding(
+                            padding: EdgeInsets.all(8),
+                            child: Icon(Icons.electric_rickshaw_outlined, color: AppColors.secondary700),
+                          ),
                         ),
-                        title: Text('Ofrecer Raites', style: AppTypography.body1.copyWith(fontWeight: FontWeight.bold)),
-                        subtitle: Text('Acepta solicitudes de raite', style: AppTypography.caption.copyWith(color: AppColors.textSecondary)),
+                        title: Text(
+                          'Ofrecer Raites',
+                          style: AppTypography.body1.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                        subtitle: Text(
+                          'Acepta solicitudes de raite',
+                          style: AppTypography.caption.copyWith(color: AppColors.textSecondary),
+                        ),
                         value: _rideEnabled ?? false,
                         onChanged: _rideToggling
                             ? null
@@ -215,12 +226,17 @@ class _DrawerModuleState extends ConsumerState<DrawerModule> {
               _buildDrawerItem(
                 icon: Icons.person_outline,
                 title: 'Mi Perfil',
-                onTap: () { Navigator.pop(context); context.go('/profile'); },
+                onTap: () { Navigator.pop(context); context.push('/profile'); },
               ),
               _buildDrawerItem(
                 icon: Icons.history_outlined,
                 title: 'Historial',
-                onTap: () { Navigator.pop(context); context.go('/history'); },
+                onTap: () { Navigator.pop(context); context.push('/history'); },
+              ),
+              _buildDrawerItem(
+                icon: Icons.map_outlined,
+                title: 'Reportes Activos',
+                onTap: () { Navigator.pop(context); context.push('/community/reports'); },
               ),
             ],
           ),
@@ -256,8 +272,11 @@ class _DrawerModuleState extends ConsumerState<DrawerModule> {
     required VoidCallback onTap,
   }) {
     return ListTile(
-      leading: Icon(icon, color: AppColors.textPrimary),
-      title: Text(title, style: AppTypography.body1),
+      leading: Icon(icon, color: AppColors.primary700),
+      title: Text(
+        title,
+        style: AppTypography.body1.copyWith(color: AppColors.textPrimary),
+      ),
       contentPadding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: 4),
       onTap: onTap,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppSpacing.sm)),
