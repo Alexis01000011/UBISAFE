@@ -16,7 +16,7 @@ import '../../identity/profile/widgets/drawer_module.dart';
 import '../../presence/services/gps_service.dart';
 import '../../safety/models/risk_zone.dart';
 import '../../safety/screens/risk_form_bottom_sheet.dart';
-import '../../safety/services/risk_zone_module.dart';
+import '../../safety/services/risk_report_module.dart';
 import '../../shared/notifications/notification_handler.dart';
 import '../../shared/widgets/gps_required_empty_state.dart';
 import '../models/ride.dart';
@@ -320,9 +320,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
         onReject: () async {
           Navigator.of(context).pop();
           try {
-            await ref
-                .read(stopRequestModuleProvider)
-                .rejectStopRequest(stopId);
+            await ref.read(stopRequestModuleProvider).rejectStopRequest(stopId);
           } catch (_) {}
         },
       ),
@@ -358,7 +356,9 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
     setState(() => _activeStopId = stopId);
 
     // Route around HIGH-risk zones using via: waypoints
-    final highZones = ref.read(activeRiskZonesProvider).valueOrNull
+    final highZones = ref
+            .read(activeRiskZonesProvider)
+            .valueOrNull
             ?.where((z) => z.riskLevel == RiskLevel.high)
             .toList() ??
         [];
@@ -388,29 +388,28 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
       // Compute via: waypoints that steer around each HIGH-risk zone on the route
       final viaPoints = avoidZones
           .where(
-            (z) => _isNearRoute(
-              originLat: originLat,
-              originLng: originLng,
-              destLat: destLat,
-              destLng: destLng,
-              zoneLat: z.latitude,
-              zoneLng: z.longitude,
-              radiusMeters: z.radiusMeters.toDouble(),
-            ),
-          )
+        (z) => _isNearRoute(
+          originLat: originLat,
+          originLng: originLng,
+          destLat: destLat,
+          destLng: destLng,
+          zoneLat: z.latitude,
+          zoneLng: z.longitude,
+          radiusMeters: z.radiusMeters.toDouble(),
+        ),
+      )
           .map((z) {
-            final bypass = _bypassPoint(
-              originLat: originLat,
-              originLng: originLng,
-              destLat: destLat,
-              destLng: destLng,
-              zoneLat: z.latitude,
-              zoneLng: z.longitude,
-              offsetMeters: z.radiusMeters + 50.0,
-            );
-            return 'via:${bypass.latitude},${bypass.longitude}';
-          })
-          .join('|');
+        final bypass = _bypassPoint(
+          originLat: originLat,
+          originLng: originLng,
+          destLat: destLat,
+          destLng: destLng,
+          zoneLat: z.latitude,
+          zoneLng: z.longitude,
+          offsetMeters: z.radiusMeters + 50.0,
+        );
+        return 'via:${bypass.latitude},${bypass.longitude}';
+      }).join('|');
 
       final params = <String, dynamic>{
         'origin': '$originLat,$originLng',
@@ -490,8 +489,8 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
           Navigator.of(context).pop();
           try {
             await ref.read(rideRequestModuleProvider).updateStatus(
-                  rideId, 'rejected',
-                  rejectedReason: 'vendor_rejected');
+                rideId, 'rejected',
+                rejectedReason: 'vendor_rejected');
           } catch (_) {}
         },
       ),
@@ -522,8 +521,8 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
               Navigator.of(context).pop();
               try {
                 await ref.read(rideRequestModuleProvider).updateStatus(
-                      rideId, 'rejected',
-                      rejectedReason: 'destination_too_far');
+                    rideId, 'rejected',
+                    rejectedReason: 'destination_too_far');
               } catch (_) {}
             },
             child: const Text('Rechazar'),
@@ -542,12 +541,15 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
     final position = ref.read(gpsServiceProvider).valueOrNull;
     if (position == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('GPS no disponible. Activa el GPS para aceptar.')),
+        const SnackBar(
+            content: Text('GPS no disponible. Activa el GPS para aceptar.')),
       );
       return;
     }
     try {
-      await ref.read(rideRequestModuleProvider).updateStatus(rideId, 'accepted');
+      await ref
+          .read(rideRequestModuleProvider)
+          .updateStatus(rideId, 'accepted');
     } catch (e) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -562,7 +564,8 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
 
     // Watch the ride for status changes (in_progress triggered by vendor action)
     await _rideSub?.cancel();
-    _rideSub = ref.read(rideRequestModuleProvider).watchRide(rideId).listen((ride) {
+    _rideSub =
+        ref.read(rideRequestModuleProvider).watchRide(rideId).listen((ride) {
       if (ride == null) return;
       if (ride.status == RideStatus.inProgress && _ridePhase == 1) {
         setState(() => _ridePhase = 2);
@@ -586,7 +589,9 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
     try {
       await ref.read(rideRequestModuleProvider).vendorArrived(rideId);
       // Transition to in_progress (passenger boards)
-      await ref.read(rideRequestModuleProvider).updateStatus(rideId, 'in_progress');
+      await ref
+          .read(rideRequestModuleProvider)
+          .updateStatus(rideId, 'in_progress');
       setState(() => _ridePhase = 2);
     } catch (e) {
       if (!context.mounted) return;
@@ -600,7 +605,9 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
     final rideId = _activeRideId;
     if (rideId == null) return;
     try {
-      await ref.read(rideRequestModuleProvider).updateStatus(rideId, 'completed');
+      await ref
+          .read(rideRequestModuleProvider)
+          .updateStatus(rideId, 'completed');
     } catch (e) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -663,7 +670,8 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
     );
   }
 
-  Marker _communityReportToMarker(CommunityReport report, BuildContext context) {
+  Marker _communityReportToMarker(
+      CommunityReport report, BuildContext context) {
     final hue = report.threatType == ThreatType.animalMuerto
         ? BitmapDescriptor.hueRose
         : BitmapDescriptor.hueOrange;
@@ -696,8 +704,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
     final dy = destLng - originLng;
     final lenSq = dx * dx + dy * dy;
     if (lenSq == 0) return false;
-    final t =
-        ((zoneLat - originLat) * dx + (zoneLng - originLng) * dy) / lenSq;
+    final t = ((zoneLat - originLat) * dx + (zoneLng - originLng) * dy) / lenSq;
     final ct = t.clamp(0.0, 1.0);
     final closestLat = originLat + ct * dx;
     final closestLng = originLng + ct * dy;
@@ -1044,11 +1051,13 @@ class _IncomingRideDialog extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             'Recogida: ${pickupLat.toStringAsFixed(4)}, ${pickupLng.toStringAsFixed(4)}',
-            style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+            style:
+                const TextStyle(color: AppColors.textSecondary, fontSize: 13),
           ),
           Text(
             'Destino: ${destinationLat.toStringAsFixed(4)}, ${destinationLng.toStringAsFixed(4)}',
-            style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+            style:
+                const TextStyle(color: AppColors.textSecondary, fontSize: 13),
           ),
         ],
       ),

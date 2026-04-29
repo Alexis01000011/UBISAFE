@@ -48,7 +48,5 @@ async def validate_report(
             detail="already_voted",
         )
 
-    updated = await FirestoreService.vote_community_report(
-        report_id, voter_uid, body.vote.value
-    )
+    updated = await FirestoreService.vote_community_report(report_id, voter_uid, body.vote.value)
     return updated

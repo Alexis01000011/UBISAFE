@@ -46,9 +46,7 @@ async def create_community_report(
                 },
             )
 
-    report = await FirestoreService.create_community_report(
-        uid=current_user["uid"], body=body
-    )
+    report = await FirestoreService.create_community_report(uid=current_user["uid"], body=body)
 
     asyncio.ensure_future(_notify_nearby(report))
 

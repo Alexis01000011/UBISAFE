@@ -68,9 +68,8 @@ class _CommunityFormBottomSheetState
       }
     } on DioException catch (e) {
       final code = e.response?.statusCode;
-      final detail = e.response?.data is Map
-          ? (e.response!.data as Map)['detail']
-          : null;
+      final detail =
+          e.response?.data is Map ? (e.response!.data as Map)['detail'] : null;
       final errorCode = detail is Map ? detail['error'] as String? : null;
 
       final msg = switch (errorCode) {
@@ -157,8 +156,7 @@ class _CommunityFormBottomSheetState
                 ),
               ),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: AppColors.secondary50,
                   borderRadius: BorderRadius.circular(12),

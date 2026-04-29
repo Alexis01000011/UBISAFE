@@ -13,7 +13,7 @@ import '../../presence/services/gps_service.dart';
 import '../../presence/services/vendor_tracker.dart';
 import '../../safety/models/risk_zone.dart';
 import '../../safety/screens/risk_form_bottom_sheet.dart';
-import '../../safety/services/risk_zone_module.dart';
+import '../../safety/services/risk_report_module.dart';
 import '../../shared/notifications/notification_handler.dart';
 import '../../shared/widgets/gps_required_empty_state.dart';
 import '../models/stop_request.dart';
@@ -92,7 +92,9 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
           ref.read(rideEventProvider.notifier).state = null;
           if (rideId != null && context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('¡El vendedor aceptó tu raite! Se está acercando.')),
+              const SnackBar(
+                  content:
+                      Text('¡El vendedor aceptó tu raite! Se está acercando.')),
             );
           }
         case RideEventType.rejected:
@@ -258,10 +260,9 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
                     });
                     if (rideId != null) {
                       try {
-                        await ref
-                            .read(rideRequestModuleProvider)
-                            .updateStatus(rideId, 'rejected',
-                                rejectedReason: 'buyer_cancelled');
+                        await ref.read(rideRequestModuleProvider).updateStatus(
+                            rideId, 'rejected',
+                            rejectedReason: 'buyer_cancelled');
                       } catch (_) {}
                     }
                   },
@@ -366,7 +367,8 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
             _activeRideId = null;
           });
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Tiempo agotado. El vendedor no respondió.')),
+            const SnackBar(
+                content: Text('Tiempo agotado. El vendedor no respondió.')),
           );
         },
       );
@@ -412,7 +414,8 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
   }
 
   // Flujo 9.6.C: duplicates are hidden; canonical pin opens ReportDetailScreen.
-  Marker _communityReportToMarker(CommunityReport report, BuildContext context) {
+  Marker _communityReportToMarker(
+      CommunityReport report, BuildContext context) {
     final hue = report.threatType == ThreatType.animalMuerto
         ? BitmapDescriptor.hueRose // closest to black in Maps SDK hues
         : BitmapDescriptor.hueOrange; // café approximation
@@ -605,7 +608,8 @@ class _WaitingOverlay extends StatelessWidget {
 }
 
 class _VendorBottomSheet extends StatelessWidget {
-  const _VendorBottomSheet({required this.vendorUid, required this.rideEnabled});
+  const _VendorBottomSheet(
+      {required this.vendorUid, required this.rideEnabled});
 
   final String vendorUid;
   final bool rideEnabled;

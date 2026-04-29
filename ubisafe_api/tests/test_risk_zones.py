@@ -1,4 +1,5 @@
 """F5 — RiskZoneRouter tests: POST, GET, DELETE, 409 duplicate, 401/403/404."""
+
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -46,17 +47,13 @@ def mock_firebase():
 
 @pytest.fixture
 def as_reporter():
-    with patch(
-        "dependencies.auth.verify_id_token", return_value=_REPORTER_TOKEN
-    ):
+    with patch("dependencies.auth.verify_id_token", return_value=_REPORTER_TOKEN):
         yield
 
 
 @pytest.fixture
 def as_other():
-    with patch(
-        "dependencies.auth.verify_id_token", return_value=_OTHER_TOKEN
-    ):
+    with patch("dependencies.auth.verify_id_token", return_value=_OTHER_TOKEN):
         yield
 
 
@@ -69,9 +66,7 @@ _AUTH = {"Authorization": "Bearer tok"}
 async def test_create_zone_no_token(mock_firebase):
     from main import app
 
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         res = await client.post("/risk-zones/", json=_BODY)
 
     assert res.status_code == 401
@@ -86,9 +81,7 @@ async def test_create_zone_success(mock_firebase, as_reporter):
         patch(_CREATE, new_callable=AsyncMock, return_value=_ACTIVE_ZONE),
         patch(_NOTIFY, new_callable=AsyncMock),
     ):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             res = await client.post("/risk-zones/", headers=_AUTH, json=_BODY)
 
     assert res.status_code == 201
@@ -103,9 +96,7 @@ async def test_create_zone_duplicate_returns_409(mock_firebase, as_reporter):
     from main import app
 
     with patch(_FIND_DUP, new_callable=AsyncMock, return_value=_ACTIVE_ZONE):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             res = await client.post("/risk-zones/", headers=_AUTH, json=_BODY)
 
     assert res.status_code == 409
@@ -121,9 +112,7 @@ async def test_create_zone_duplicate_returns_409(mock_firebase, as_reporter):
 async def test_list_zones_no_token(mock_firebase):
     from main import app
 
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         res = await client.get("/risk-zones/")
 
     assert res.status_code == 401
@@ -134,9 +123,7 @@ async def test_list_zones_with_filters(mock_firebase, as_reporter):
     from main import app
 
     with patch(_GET_ZONES, new_callable=AsyncMock, return_value=[_ACTIVE_ZONE]):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             res = await client.get(
                 "/risk-zones/",
                 headers=_AUTH,
@@ -154,9 +141,7 @@ async def test_list_zones_empty(mock_firebase, as_reporter):
     from main import app
 
     with patch(_GET_ZONES, new_callable=AsyncMock, return_value=[]):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             res = await client.get("/risk-zones/", headers=_AUTH)
 
     assert res.status_code == 200
@@ -174,9 +159,7 @@ async def test_expire_zone_by_reporter_returns_204(mock_firebase, as_reporter):
         patch(_GET_ZONE, new_callable=AsyncMock, return_value=_ACTIVE_ZONE),
         patch(_EXPIRE, new_callable=AsyncMock, return_value=_ACTIVE_ZONE),
     ):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             res = await client.delete(f"/risk-zones/{ZONE_ID}", headers=_AUTH)
 
     assert res.status_code == 204
@@ -187,9 +170,7 @@ async def test_expire_zone_by_non_reporter_returns_403(mock_firebase, as_other):
     from main import app
 
     with patch(_GET_ZONE, new_callable=AsyncMock, return_value=_ACTIVE_ZONE):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             res = await client.delete(f"/risk-zones/{ZONE_ID}", headers=_AUTH)
 
     assert res.status_code == 403
@@ -200,9 +181,7 @@ async def test_expire_zone_not_found_returns_404(mock_firebase, as_reporter):
     from main import app
 
     with patch(_GET_ZONE, new_callable=AsyncMock, return_value=None):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             res = await client.delete(f"/risk-zones/{ZONE_ID}", headers=_AUTH)
 
     assert res.status_code == 404

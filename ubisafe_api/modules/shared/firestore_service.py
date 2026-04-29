@@ -28,10 +28,12 @@ def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     """Return great-circle distance in km between two points."""
     dlat = math.radians(lat2 - lat1)
     dlng = math.radians(lng2 - lng1)
-    a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(
-        math.radians(lat2)
-    ) * math.sin(dlng / 2) ** 2
+    a = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlng / 2) ** 2
+    )
     return _EARTH_RADIUS_KM * 2 * math.asin(math.sqrt(a))
+
 
 _STOP_REQUEST_TTL_SECONDS = 60
 
@@ -80,18 +82,11 @@ class FirestoreService:
     # --------------------------------------------------------------- stops
     @classmethod
     async def list_stop_requests(cls, uid: str) -> list[StopRequest]:
-        docs = (
-            cls._db()
-            .collection("stop_requests")
-            .where("buyer_uid", "==", uid)
-            .stream()
-        )
+        docs = cls._db().collection("stop_requests").where("buyer_uid", "==", uid).stream()
         return [StopRequest(id=d.id, **d.to_dict()) for d in docs]
 
     @classmethod
-    async def create_stop_request(
-        cls, uid: str, body: CreateStopRequestBody
-    ) -> StopRequest:
+    async def create_stop_request(cls, uid: str, body: CreateStopRequestBody) -> StopRequest:
         expires_at = (
             datetime.now(tz=UTC) + timedelta(seconds=_STOP_REQUEST_TTL_SECONDS)
         ).isoformat()
@@ -159,9 +154,8 @@ class FirestoreService:
             # Bounding-box pre-filter (1° lat ≈ 111 km)
             delta_lat = radius_km / 111.0
             delta_lng = radius_km / (111.0 * math.cos(math.radians(lat)))
-            query = (
-                query.where("location.lat", ">=", lat - delta_lat)
-                .where("location.lat", "<=", lat + delta_lat)
+            query = query.where("location.lat", ">=", lat - delta_lat).where(
+                "location.lat", "<=", lat + delta_lat
             )
             docs = query.stream()
             results = []
@@ -170,9 +164,10 @@ class FirestoreService:
                 loc = raw.get("location", {})
                 doc_lat = loc.get("lat", 0.0)
                 doc_lng = loc.get("lng", 0.0)
-                if abs(doc_lng - lng) <= delta_lng and _haversine_km(
-                    lat, lng, doc_lat, doc_lng
-                ) <= radius_km:
+                if (
+                    abs(doc_lng - lng) <= delta_lng
+                    and _haversine_km(lat, lng, doc_lat, doc_lng) <= radius_km
+                ):
                     results.append(RiskZone(id=d.id, **raw))
             return results
 
@@ -194,9 +189,7 @@ class FirestoreService:
 
     @classmethod
     async def create_risk_zone(cls, uid: str, body: CreateRiskZoneBody) -> RiskZone:
-        expires_at = (
-            datetime.now(tz=UTC) + timedelta(hours=_RISK_ZONE_TTL_HOURS)
-        ).isoformat()
+        expires_at = (datetime.now(tz=UTC) + timedelta(hours=_RISK_ZONE_TTL_HOURS)).isoformat()
         data = body.model_dump()
         data["reporter_uid"] = uid
         data["active"] = True
@@ -213,10 +206,12 @@ class FirestoreService:
         doc = ref.get()
         if not doc.exists:
             return None
-        ref.update({
-            "active": False,
-            "expired_at": SERVER_TIMESTAMP,
-        })
+        ref.update(
+            {
+                "active": False,
+                "expired_at": SERVER_TIMESTAMP,
+            }
+        )
         doc = ref.get()
         return RiskZone(id=doc.id, **doc.to_dict())
 
@@ -224,11 +219,7 @@ class FirestoreService:
     async def get_all_user_fcm_tokens(cls) -> list[str]:
         """Return all non-null FCM tokens from the users collection."""
         docs = cls._db().collection("users").stream()
-        return [
-            d.to_dict()["fcm_token"]
-            for d in docs
-            if d.to_dict().get("fcm_token")
-        ]
+        return [d.to_dict()["fcm_token"] for d in docs if d.to_dict().get("fcm_token")]
 
     # -------------------------------------------------- community_reports
     @classmethod
@@ -297,16 +288,13 @@ class FirestoreService:
             ReportStatus.pending_validation.value,
             ReportStatus.confirmed.value,
         ]
-        query = cls._db().collection("community_reports").where(
-            "status", "in", active_statuses
-        )
+        query = cls._db().collection("community_reports").where("status", "in", active_statuses)
 
         if lat is not None and lng is not None and radius_km is not None:
             delta_lat = radius_km / 111.0
             delta_lng = radius_km / (111.0 * math.cos(math.radians(lat)))
-            query = (
-                query.where("location.lat", ">=", lat - delta_lat)
-                .where("location.lat", "<=", lat + delta_lat)
+            query = query.where("location.lat", ">=", lat - delta_lat).where(
+                "location.lat", "<=", lat + delta_lat
             )
             docs = query.stream()
             results = []
@@ -318,9 +306,10 @@ class FirestoreService:
                 else:
                     doc_lat = loc.get("lat", 0.0)
                     doc_lng = loc.get("lng", 0.0)
-                if abs(doc_lng - lng) <= delta_lng and _haversine_km(
-                    lat, lng, doc_lat, doc_lng
-                ) <= radius_km:
+                if (
+                    abs(doc_lng - lng) <= delta_lng
+                    and _haversine_km(lat, lng, doc_lat, doc_lng) <= radius_km
+                ):
                     results.append(cls._doc_to_community_report(d))
             return results
 
@@ -372,8 +361,12 @@ class FirestoreService:
     def _doc_to_ride(cls, doc: Any) -> Ride:
         raw = doc.to_dict() or {}
         timestamp_fields = (
-            "created_at", "updated_at", "accepted_at",
-            "started_at", "completed_at", "expires_at",
+            "created_at",
+            "updated_at",
+            "accepted_at",
+            "started_at",
+            "completed_at",
+            "expires_at",
         )
         for field in timestamp_fields:
             val = raw.get(field)
@@ -416,9 +409,8 @@ class FirestoreService:
     @classmethod
     async def create_ride(cls, buyer_uid: str, body: CreateRideBody) -> Ride:
         from modules.dispatching.ride_schemas import _RIDE_TTL_SECONDS
-        expires_at = (
-            datetime.now(tz=UTC) + timedelta(seconds=_RIDE_TTL_SECONDS)
-        ).isoformat()
+
+        expires_at = (datetime.now(tz=UTC) + timedelta(seconds=_RIDE_TTL_SECONDS)).isoformat()
         data = body.model_dump()
         data["buyer_uid"] = buyer_uid
         data["status"] = "pending"

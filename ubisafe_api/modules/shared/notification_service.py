@@ -22,13 +22,9 @@ class NotificationService:
         return fcm.send(message)
 
     @staticmethod
-    async def send_async(
-        token: str, title: str, body: str, data: dict | None = None
-    ) -> str | None:
+    async def send_async(token: str, title: str, body: str, data: dict | None = None) -> str | None:
         try:
-            return await asyncio.to_thread(
-                NotificationService.send, token, title, body, data
-            )
+            return await asyncio.to_thread(NotificationService.send, token, title, body, data)
         except messaging.UnregisteredError:
             logger.warning("FCM token unregistered: %s", token[:20])
             return None
@@ -37,9 +33,7 @@ class NotificationService:
             return None
 
     @staticmethod
-    async def send_to_user(
-        uid: str, title: str, body: str, data: dict | None = None
-    ) -> None:
+    async def send_to_user(uid: str, title: str, body: str, data: dict | None = None) -> None:
         # Import here to avoid circular dependency
         from modules.shared.firestore_service import FirestoreService
 

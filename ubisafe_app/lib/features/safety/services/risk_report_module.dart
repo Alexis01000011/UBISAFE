@@ -4,8 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/api_client.dart';
 import '../models/risk_zone.dart';
 
-class RiskZoneModule {
-  RiskZoneModule(this._dio);
+class RiskReportModule {
+  RiskReportModule(this._dio);
 
   final Dio _dio;
 
@@ -48,22 +48,21 @@ class RiskZoneModule {
   }
 }
 
-final riskZoneModuleProvider = Provider<RiskZoneModule>(
-  (ref) => RiskZoneModule(ref.read(apiClientProvider)),
+final riskReportModuleProvider = Provider<RiskReportModule>(
+  (ref) => RiskReportModule(ref.read(apiClientProvider)),
 );
 
 /// Holds the latest list of active risk zones for the current map view.
 /// Invalidated when a risk_zone_alert FCM arrives or after a successful POST.
 final activeRiskZonesProvider =
     StateNotifierProvider<_RiskZonesNotifier, AsyncValue<List<RiskZone>>>(
-  (ref) => _RiskZonesNotifier(ref.read(riskZoneModuleProvider)),
+  (ref) => _RiskZonesNotifier(ref.read(riskReportModuleProvider)),
 );
 
-class _RiskZonesNotifier
-    extends StateNotifier<AsyncValue<List<RiskZone>>> {
+class _RiskZonesNotifier extends StateNotifier<AsyncValue<List<RiskZone>>> {
   _RiskZonesNotifier(this._module) : super(const AsyncValue.loading());
 
-  final RiskZoneModule _module;
+  final RiskReportModule _module;
   double? _lat;
   double? _lng;
 

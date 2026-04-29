@@ -19,8 +19,7 @@ const double _kRadiusKm = 4.0;
 /// SDD §5.3.2.2
 class VendorTracker {
   VendorTracker({DatabaseReference? rtdbRef}) {
-    final ref =
-        rtdbRef ?? FirebaseDatabase.instance.ref('vendedores_activos');
+    final ref = rtdbRef ?? FirebaseDatabase.instance.ref('vendedores_activos');
     _init(ref.onValue.map(
       (event) => event.snapshot.value as Map<dynamic, dynamic>? ?? {},
     ));

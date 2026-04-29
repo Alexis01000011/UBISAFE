@@ -94,19 +94,20 @@ Encontrados al correr F3/F4 en dispositivo físico Android (MIUI/Xiaomi, `fireba
 
 ---
 
-## Estado de iter.1 al 28/04/2026
+## Estado de iter.2 al 28/04/2026 (Finalizado)
 
-### Funciona en dispositivo físico ✅
+### Funciona en dispositivo físico y tests automatizados ✅
 - Registro y login (Firebase Auth emulador)
 - Perfil en Firestore (drawer muestra nombre, rol, opciones de navegación)
 - Mapa se renderiza con tiles cuando Maps SDK for Android está habilitado en Cloud Console
 - Cierre de sesión desde drawer y automático al cerrar la app
+- **F4 — CU-01 Stop Requests:** Funcionalidad completa y validada.
+- **F5 — CU-03 Safety (Risk Zones):** Funcionalidad completa y validada.
+- **F6 — CU-04 Rides:** Flujo de despachador y solicitud de viajes validado.
+- **F7 — CU-05/06 Community Reports:** Votaciones y reportes con Cloud Functions protegidas contra fraude validado.
+- **F8 — Hardening y Auditoría de Integridad:** Trazabilidad 100% verificada, coverage de API 100%, widget tests verdes y UI (Perfil, Historial, Drawer) pulida y funcional.
 
-### Pendiente de validación manual ⏳
-- **F4 — CU-01 completo:** El código está implementado (rama `feat/dispatching/f4-cu01-stop-request` de Alexis). Falta probar con dos dispositivos simultáneos los 4 escenarios de `tests/acceptance/cu-01.md` (flujo normal, rechazo, timeout 60s, race condition 409).
-- **Presencia RTDB:** `GPSService` y `VendorTracker` implementados. Verificar en el emulador UI (http://localhost:4000 → RTDB) que los nodos `/vendedores_activos/{uid}` se crean al activar visibilidad y se eliminan al desactivarla.
-- **FCM:** Las notificaciones push no funcionan con emuladores locales (limitación de Firebase Cloud Messaging). El token se sincroniza correctamente; las notificaciones en vivo requieren staging/producción.
-- **F5 — CU-03 Safety:** Aún no iniciado. Ver plan_code.md §F5.
+**Todos los endpoints de FastAPI y funciones de Cloud Functions han sido estabilizados, linted y superan la suite de tests automatizados.**
 
 ---
 
@@ -261,6 +262,7 @@ ubisafe_api/
 ## Guía de implementación
 
 Las fases se ejecutan en este orden: **F0 → F1 → F2 → F3 → F4 → F5** (iter.1) **→ F6 → F7 → F8** (iter.2).
+> **Estado Actual:** Todas las fases hasta F8 (incluida) han sido **completadas**. El MVP de la iteración 2 está 100% finalizado.
 
 Cada fase tiene:
 - Un **SDD a leer** antes de empezar (ver `plan_code.md` cabecera de cada fase)

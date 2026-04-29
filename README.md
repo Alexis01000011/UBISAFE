@@ -337,7 +337,7 @@ FastAPI dependency `get_current_user` — validates the Firebase ID token from `
 | Tag | Status | Description |
 |---|---|---|
 | iter.1 | ✅ Structure | Core skeleton, auth, presence, dispatching (stop requests). |
-| iter.2 | 🏗 In progress | CU-04 Rides, CU-05/06 Community reports, FCM events. |
+| iter.2 | ✅ Completed | CU-04 Rides, CU-05/06 Community reports, FCM events, Hardening F8. |
 
 ---
 

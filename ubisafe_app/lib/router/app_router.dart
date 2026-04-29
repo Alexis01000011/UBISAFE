@@ -18,7 +18,13 @@ import '../features/identity/profile/screens/history_screen.dart';
 import '../features/identity/profile/screens/profile_screen.dart';
 
 /// Auth-guard paths — allowed without a session.
-const _authPaths = {'/splash', '/welcome', '/login', '/signup-data', '/signup-role'};
+const _authPaths = {
+  '/splash',
+  '/welcome',
+  '/login',
+  '/signup-data',
+  '/signup-role'
+};
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   final authState = ref.watch(authStateProvider);
@@ -50,7 +56,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/splash', builder: (_, __) => const SplashScreen()),
       GoRoute(path: '/welcome', builder: (_, __) => const WelcomeScreen()),
       GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
-      GoRoute(path: '/signup-data', builder: (_, __) => const SignupDataScreen()),
+      GoRoute(
+          path: '/signup-data', builder: (_, __) => const SignupDataScreen()),
       GoRoute(
         path: '/signup-role',
         builder: (_, state) {
@@ -70,7 +77,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
 
       // ── Dispatching ────────────────────────────────────────────────────
       GoRoute(path: '/home/buyer', builder: (_, __) => const MapScreenBuyer()),
-      GoRoute(path: '/home/vendor', builder: (_, __) => const MapScreenVendor()),
+      GoRoute(
+          path: '/home/vendor', builder: (_, __) => const MapScreenVendor()),
       GoRoute(
         path: '/tracking',
         builder: (_, state) {

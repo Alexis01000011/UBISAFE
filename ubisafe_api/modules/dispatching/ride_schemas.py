@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel
 
@@ -9,7 +9,7 @@ from modules.safety.schemas import GeoPoint
 _RIDE_TTL_SECONDS = 60
 
 
-class RideStatus(str, Enum):
+class RideStatus(StrEnum):
     pending = "pending"
     accepted = "accepted"
     in_progress = "in_progress"
@@ -50,9 +50,9 @@ class UpdateRideStatusBody(BaseModel):
 # Valid state-machine transitions: (from_status, to_status) → required_role
 RIDE_VALID_TRANSITIONS: dict[tuple[str, str], str] = {
     ("pending", "accepted"): "VENDOR",
-    ("pending", "rejected"): "VENDOR",    # manual reject or destination_too_far
-    ("pending", "expired"): "BUYER",      # client timer fired
+    ("pending", "rejected"): "VENDOR",  # manual reject or destination_too_far
+    ("pending", "expired"): "BUYER",  # client timer fired
     ("accepted", "in_progress"): "VENDOR",  # buyer boarded
-    ("accepted", "rejected"): "BUYER",    # buyer cancelled before pickup
+    ("accepted", "rejected"): "BUYER",  # buyer cancelled before pickup
     ("in_progress", "completed"): "VENDOR",
 }

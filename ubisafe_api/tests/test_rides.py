@@ -1,4 +1,5 @@
 """F6 — RideRouter tests: role validation, state machine, vendor_arrived."""
+
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -83,27 +84,35 @@ def as_other():
 
 def _buyer_profile():
     from modules.identity.schemas import UserProfile
+
     return UserProfile(uid=BUYER_UID, name="Buyer", role="BUYER", fcm_token="tok-b")
 
 
 def _vendor_profile(ride_enabled: bool = True):
     from modules.identity.schemas import UserProfile
+
     return UserProfile(
-        uid=VENDOR_UID, name="Vendor", role="VENDOR",
-        fcm_token="tok-v", ride_enabled=ride_enabled,
+        uid=VENDOR_UID,
+        name="Vendor",
+        role="VENDOR",
+        fcm_token="tok-v",
+        ride_enabled=ride_enabled,
     )
 
 
 def _other_profile():
     from modules.identity.schemas import UserProfile
+
     return UserProfile(uid=OTHER_UID, name="Other", role="BUYER")
 
 
 # ── POST /rides ──────────────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_create_ride_no_token(mock_firebase):
     from main import app
+
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         r = await c.post(
             "/rides",
@@ -119,10 +128,9 @@ async def test_create_ride_no_token(mock_firebase):
 @pytest.mark.asyncio
 async def test_create_ride_as_buyer(mock_firebase, as_buyer):
     from main import app
+
     with (
-        patch(_GET_USER, new_callable=AsyncMock, side_effect=[
-            _buyer_profile(), _vendor_profile()
-        ]),
+        patch(_GET_USER, new_callable=AsyncMock, side_effect=[_buyer_profile(), _vendor_profile()]),
         patch(_VENDOR_BUSY, new_callable=AsyncMock, return_value=False),
         patch(_CREATE_RIDE, new_callable=AsyncMock, return_value=_PENDING_RIDE),
         patch(_NOTIF_INCOMING, new_callable=AsyncMock),
@@ -145,6 +153,7 @@ async def test_create_ride_as_buyer(mock_firebase, as_buyer):
 @pytest.mark.asyncio
 async def test_create_ride_as_vendor_returns_403(mock_firebase, as_vendor):
     from main import app
+
     with patch(_GET_USER, new_callable=AsyncMock, return_value=_vendor_profile()):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.post(
@@ -162,10 +171,9 @@ async def test_create_ride_as_vendor_returns_403(mock_firebase, as_vendor):
 @pytest.mark.asyncio
 async def test_create_ride_vendor_not_available_returns_409(mock_firebase, as_buyer):
     from main import app
+
     with (
-        patch(_GET_USER, new_callable=AsyncMock, side_effect=[
-            _buyer_profile(), _vendor_profile()
-        ]),
+        patch(_GET_USER, new_callable=AsyncMock, side_effect=[_buyer_profile(), _vendor_profile()]),
         patch(_VENDOR_BUSY, new_callable=AsyncMock, return_value=True),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -184,9 +192,11 @@ async def test_create_ride_vendor_not_available_returns_409(mock_firebase, as_bu
 
 # ── GET /rides/{id} ──────────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_get_ride_as_buyer(mock_firebase, as_buyer):
     from main import app
+
     with patch(_GET_RIDE, new_callable=AsyncMock, return_value=_PENDING_RIDE):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.get(f"/rides/{RIDE_ID}", headers={"Authorization": "Bearer tok"})
@@ -196,6 +206,7 @@ async def test_get_ride_as_buyer(mock_firebase, as_buyer):
 @pytest.mark.asyncio
 async def test_get_ride_forbidden_for_unrelated_user(mock_firebase, as_other):
     from main import app
+
     with patch(_GET_RIDE, new_callable=AsyncMock, return_value=_PENDING_RIDE):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.get(f"/rides/{RIDE_ID}", headers={"Authorization": "Bearer tok"})
@@ -204,9 +215,11 @@ async def test_get_ride_forbidden_for_unrelated_user(mock_firebase, as_other):
 
 # ── PATCH /rides/{id}/status ─────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_vendor_accepts_pending_ride(mock_firebase, as_vendor):
     from main import app
+
     with (
         patch(_GET_RIDE, new_callable=AsyncMock, return_value=_PENDING_RIDE),
         patch(_GET_USER, new_callable=AsyncMock, return_value=_vendor_profile()),
@@ -226,6 +239,7 @@ async def test_vendor_accepts_pending_ride(mock_firebase, as_vendor):
 @pytest.mark.asyncio
 async def test_invalid_transition_returns_400(mock_firebase, as_vendor):
     from main import app
+
     with patch(_GET_RIDE, new_callable=AsyncMock, return_value=_ACCEPTED_RIDE):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.patch(
@@ -239,6 +253,7 @@ async def test_invalid_transition_returns_400(mock_firebase, as_vendor):
 @pytest.mark.asyncio
 async def test_buyer_cannot_accept_ride_returns_403(mock_firebase, as_buyer):
     from main import app
+
     with (
         patch(_GET_RIDE, new_callable=AsyncMock, return_value=_PENDING_RIDE),
         patch(_GET_USER, new_callable=AsyncMock, return_value=_buyer_profile()),
@@ -255,6 +270,7 @@ async def test_buyer_cannot_accept_ride_returns_403(mock_firebase, as_buyer):
 @pytest.mark.asyncio
 async def test_race_condition_buyer_expire_returns_409(mock_firebase, as_buyer):
     from main import app
+
     with (
         patch(_GET_RIDE, new_callable=AsyncMock, return_value=_PENDING_RIDE),
         patch(_GET_USER, new_callable=AsyncMock, return_value=_buyer_profile()),
@@ -271,9 +287,11 @@ async def test_race_condition_buyer_expire_returns_409(mock_firebase, as_buyer):
 
 # ── POST /rides/{id}/vendor_arrived ─────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_vendor_arrived_sends_fcm(mock_firebase, as_vendor):
     from main import app
+
     with (
         patch(_GET_USER, new_callable=AsyncMock, return_value=_vendor_profile()),
         patch(_GET_RIDE, new_callable=AsyncMock, return_value=_ACCEPTED_RIDE),
@@ -290,6 +308,7 @@ async def test_vendor_arrived_sends_fcm(mock_firebase, as_vendor):
 @pytest.mark.asyncio
 async def test_vendor_arrived_buyer_cannot_call(mock_firebase, as_buyer):
     from main import app
+
     with patch(_GET_USER, new_callable=AsyncMock, return_value=_buyer_profile()):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.post(

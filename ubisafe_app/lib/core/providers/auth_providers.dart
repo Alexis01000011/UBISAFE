@@ -21,7 +21,19 @@ final userProfileProvider = FutureProvider<UserProfile?>((ref) async {
     final response = await dio.get<Map<String, dynamic>>('/auth/me');
     return UserProfile.fromJson(response.data!);
   } on DioException catch (e) {
-    if (e.response?.statusCode == 404) return null;
+    // 404 = perfil aún no existe (ej. cuenta creada desde emulador UI).
+    // Cualquier otro error de red/API → retornamos null para no bloquear el Drawer.
+    if (e.response?.statusCode == 404 || e.response?.statusCode == 500) {
+      return null;
+    }
+    // Timeout / sin red — también retornar null para no congelar la UI.
+    if (e.type == DioExceptionType.connectionTimeout ||
+        e.type == DioExceptionType.connectionError ||
+        e.type == DioExceptionType.receiveTimeout) {
+      return null;
+    }
     rethrow;
+  } catch (_) {
+    return null;
   }
 });

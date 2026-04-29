@@ -27,7 +27,7 @@ service cloud.firestore {
       allow read: if isAuthenticated()
                   && (resource.data.buyer_uid == request.auth.uid
                       || resource.data.vendor_uid == request.auth.uid);
-      allow write: if isAuthenticated();
+      allow write: if false; // Solo Admin SDK (FastAPI)
     }
 
     // ─── COLECCIÓN: risk_zones ─────────────────────────────────────────────

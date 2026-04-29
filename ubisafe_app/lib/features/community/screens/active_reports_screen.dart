@@ -46,11 +46,13 @@ class ActiveReportsScreen extends ConsumerWidget {
                       : const Color(0xFF795548),
                 ),
                 title: Text(label),
-                subtitle: Text('${r.confirmCount} confirmaciones · $statusLabel'),
+                subtitle:
+                    Text('${r.confirmCount} confirmaciones · $statusLabel'),
                 trailing: r.isDuplicate
                     ? const Chip(label: Text('Agrupado'))
                     : const Icon(Icons.chevron_right),
-                onTap: () => context.push('/community/reports/detail', extra: r),
+                onTap: () =>
+                    context.push('/community/reports/detail', extra: r),
               );
             },
           );

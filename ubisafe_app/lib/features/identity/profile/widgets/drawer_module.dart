@@ -3,6 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/api/api_client.dart';
+import '../../../../core/design_system/colors.dart';
+import '../../../../core/design_system/spacing.dart';
+import '../../../../core/design_system/typography.dart';
 import '../../../../core/providers/auth_providers.dart';
 import '../../../presence/services/gps_service.dart';
 import '../../auth/auth_module.dart';
@@ -24,69 +27,240 @@ class _DrawerModuleState extends ConsumerState<DrawerModule> {
     final profileAsync = ref.watch(userProfileProvider);
 
     return Drawer(
+      backgroundColor: AppColors.background,
       child: profileAsync.maybeWhen(
         data: (profile) {
-          final isVendor = profile?.role == 'VENDOR';
-          // Init from profile on first build
+          final isVendor = profile?.role == 'vendor' || profile?.role == 'VENDOR';
           _rideEnabled ??= profile?.rideEnabled ?? false;
 
-          return ListView(
-            padding: EdgeInsets.zero,
+          final userName = profile?.name ?? 'UbiSafe User';
+          final userRole = profile?.role?.toUpperCase() ?? '';
+
+          return Column(
             children: [
-              UserAccountsDrawerHeader(
-                accountName: Text(profile?.name ?? 'UbiSafe'),
-                accountEmail: Text(profile?.role ?? ''),
-              ),
-              ListTile(
-                leading: const Icon(Icons.person),
-                title: const Text('Perfil'),
-                onTap: () {
-                  Navigator.pop(context);
-                  context.go('/profile');
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.history),
-                title: const Text('Historial'),
-                onTap: () {
-                  Navigator.pop(context);
-                  context.go('/history');
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.coronavirus_outlined),
-                title: const Text('Reportes activos'),
-                onTap: () {
-                  Navigator.pop(context);
-                  context.go('/community/reports');
-                },
-              ),
-              if (isVendor) ...[
-                const Divider(),
-                SwitchListTile(
-                  secondary: const Icon(Icons.electric_rickshaw_outlined),
-                  title: const Text('Ofrecer raites'),
-                  subtitle: const Text('Acepta solicitudes de raite de compradores'),
-                  value: _rideEnabled ?? false,
-                  onChanged: _rideToggling
-                      ? null
-                      : (val) => _toggleRideEnabled(profile!.uid, val),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.only(
+                  top: AppSpacing.xxl + 20, // To account for status bar
+                  bottom: AppSpacing.lg,
+                  left: AppSpacing.md,
+                  right: AppSpacing.md,
                 ),
-              ],
-              const Divider(),
-              ListTile(
-                leading: const Icon(Icons.logout),
-                title: const Text('Cerrar sesión'),
-                onTap: () async {
-                  Navigator.pop(context);
-                  await ref.read(authModuleProvider).signOut();
-                },
+                decoration: const BoxDecoration(
+                  color: AppColors.primary700,
+                  borderRadius: BorderRadius.only(
+                    bottomRight: Radius.circular(24),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    CircleAvatar(
+                      radius: 36,
+                      backgroundColor: Colors.white,
+                      child: Text(
+                        userName[0].toUpperCase(),
+                        style: AppTypography.heading1.copyWith(
+                          color: AppColors.primary700,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    Text(
+                      userName,
+                      style: AppTypography.heading2.copyWith(color: Colors.white),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (userRole.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: isVendor ? AppColors.secondary500 : Colors.white.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          userRole,
+                          style: AppTypography.caption.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ]
+                  ],
+                ),
               ),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+                  children: [
+                    _buildDrawerItem(
+                      icon: Icons.person_outline,
+                      title: 'Mi Perfil',
+                      onTap: () {
+                        Navigator.pop(context);
+                        context.go('/profile');
+                      },
+                    ),
+                    _buildDrawerItem(
+                      icon: Icons.history_outlined,
+                      title: 'Historial',
+                      onTap: () {
+                        Navigator.pop(context);
+                        context.go('/history');
+                      },
+                    ),
+                    _buildDrawerItem(
+                      icon: Icons.map_outlined,
+                      title: 'Reportes Activos',
+                      onTap: () {
+                        Navigator.pop(context);
+                        context.go('/community/reports');
+                      },
+                    ),
+                    if (isVendor) ...[
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
+                        child: Divider(color: AppColors.textSecondary.withOpacity(0.2)),
+                      ),
+                      SwitchListTile(
+                        activeColor: AppColors.primary700,
+                        secondary: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: AppColors.secondary500.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(Icons.electric_rickshaw_outlined, color: AppColors.secondary500),
+                        ),
+                        title: Text('Ofrecer Raites', style: AppTypography.body1.copyWith(fontWeight: FontWeight.bold)),
+                        subtitle: Text('Acepta solicitudes de raite', style: AppTypography.caption.copyWith(color: AppColors.textSecondary)),
+                        value: _rideEnabled ?? false,
+                        onChanged: _rideToggling
+                            ? null
+                            : (val) => _toggleRideEnabled(profile!.uid, val),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(AppSpacing.md),
+                child: ElevatedButton.icon(
+                  icon: const Icon(Icons.logout),
+                  label: const Text('Cerrar Sesión'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.danger500.withOpacity(0.1),
+                    foregroundColor: AppColors.danger500,
+                    elevation: 0,
+                    minimumSize: const Size.fromHeight(50),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppSpacing.sm),
+                    ),
+                  ),
+                  onPressed: () async {
+                    Navigator.pop(context);
+                    await ref.read(authModuleProvider).signOut();
+                  },
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
             ],
           );
         },
-        orElse: () => const SizedBox.shrink(),
+        orElse: () => const Center(child: CircularProgressIndicator()),
+        error: (_, __) => _buildFallbackDrawer(),
       ),
+    );
+  }
+
+  /// Drawer mínimo cuando el perfil no carga (sin red, emulador apagado, etc.)
+  Widget _buildFallbackDrawer() {
+    return Column(
+      children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.only(
+            top: AppSpacing.xxl + 20,
+            bottom: AppSpacing.lg,
+            left: AppSpacing.md,
+            right: AppSpacing.md,
+          ),
+          decoration: const BoxDecoration(
+            color: AppColors.primary700,
+            borderRadius: BorderRadius.only(bottomRight: Radius.circular(24)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const CircleAvatar(
+                radius: 36,
+                backgroundColor: Colors.white,
+                child: Icon(Icons.person, color: AppColors.primary700, size: 36),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Text(
+                'UbiSafe User',
+                style: AppTypography.heading2.copyWith(color: Colors.white),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+            children: [
+              _buildDrawerItem(
+                icon: Icons.person_outline,
+                title: 'Mi Perfil',
+                onTap: () { Navigator.pop(context); context.go('/profile'); },
+              ),
+              _buildDrawerItem(
+                icon: Icons.history_outlined,
+                title: 'Historial',
+                onTap: () { Navigator.pop(context); context.go('/history'); },
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          child: ElevatedButton.icon(
+            icon: const Icon(Icons.logout),
+            label: const Text('Cerrar Sesión'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger500.withOpacity(0.1),
+              foregroundColor: AppColors.danger500,
+              elevation: 0,
+              minimumSize: const Size.fromHeight(50),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppSpacing.sm),
+              ),
+            ),
+            onPressed: () async {
+              Navigator.pop(context);
+              await ref.read(authModuleProvider).signOut();
+            },
+          ),
+        ),
+        const SizedBox(height: AppSpacing.md),
+      ],
+    );
+  }
+
+  Widget _buildDrawerItem({
+    required IconData icon,
+    required String title,
+    required VoidCallback onTap,
+  }) {
+    return ListTile(
+      leading: Icon(icon, color: AppColors.textPrimary),
+      title: Text(title, style: AppTypography.body1),
+      contentPadding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: 4),
+      onTap: onTap,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppSpacing.sm)),
     );
   }
 
@@ -100,13 +274,10 @@ class _DrawerModuleState extends ConsumerState<DrawerModule> {
         '/auth/ride-enabled',
         data: {'ride_enabled': value},
       );
-      // Also update RTDB so buyer map reflects the change immediately
       if (ref.read(gpsServiceProvider).valueOrNull != null) {
-        // Only write if transmission is active (visible in RTDB)
         ref.read(gpsServiceInstanceProvider).updateRideEnabled(uid, value);
       }
     } catch (_) {
-      // Revert on failure
       setState(() => _rideEnabled = !value);
     } finally {
       setState(() => _rideToggling = false);

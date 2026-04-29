@@ -59,7 +59,9 @@ async def expire_risk_zone(
     if zone is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Zone not found")
     if zone.reporter_uid != current_user["uid"]:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the reporter can expire this zone")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Only the reporter can expire this zone"
+        )
     await FirestoreService.expire_risk_zone(zone_id)
 
 

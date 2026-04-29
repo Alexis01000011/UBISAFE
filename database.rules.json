@@ -16,6 +16,9 @@
         },
         "activo": {
           ".validate": "newData.isBoolean() && newData.val() === true"
+        },
+        "ride_enabled": {
+          ".validate": "newData.isBoolean()"
         }
       }
     }

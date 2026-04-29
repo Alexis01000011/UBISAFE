@@ -7,7 +7,11 @@ import '../../../core/api/api_client.dart';
 import '../models/community_report.dart';
 
 // Retry delays per SDD2_FASE4B §9.6.D: 2 s → 4 s → 8 s, max 3 attempts.
-const _retryDelays = [Duration(seconds: 2), Duration(seconds: 4), Duration(seconds: 8)];
+const _retryDelays = [
+  Duration(seconds: 2),
+  Duration(seconds: 4),
+  Duration(seconds: 8)
+];
 
 class CommunityReportModule {
   CommunityReportModule(this._dio);

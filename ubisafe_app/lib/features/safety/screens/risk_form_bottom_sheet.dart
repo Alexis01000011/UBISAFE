@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/design_system/colors.dart';
 import '../../../core/design_system/typography.dart';
-import '../services/risk_zone_module.dart';
+import '../services/risk_report_module.dart';
 
 /// W-17 — RiskFormBottomSheet (CU-03)
 /// Transversal to BUYER and VENDOR roles.
@@ -30,8 +30,7 @@ class RiskFormBottomSheet extends ConsumerStatefulWidget {
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
-        builder: (_) =>
-            RiskFormBottomSheet(currentLat: lat, currentLng: lng),
+        builder: (_) => RiskFormBottomSheet(currentLat: lat, currentLng: lng),
       );
 
   @override
@@ -78,7 +77,7 @@ class _RiskFormBottomSheetState extends ConsumerState<RiskFormBottomSheet> {
     if (_threatType == null) return;
     setState(() => _loading = true);
     try {
-      await ref.read(riskZoneModuleProvider).createRiskZone(
+      await ref.read(riskReportModuleProvider).createRiskZone(
             threatType: _threatType!,
             riskLevel: _resolveLevel(_threatType!),
             lat: widget.currentLat,
@@ -141,8 +140,7 @@ class _RiskFormBottomSheetState extends ConsumerState<RiskFormBottomSheet> {
           // Title
           Text(
             'Reportar zona de riesgo',
-            style: AppTypography.heading1
-                .copyWith(color: AppColors.neutral900),
+            style: AppTypography.heading1.copyWith(color: AppColors.neutral900),
           ),
           const Divider(height: 24),
           // Threat type dropdown (required)
@@ -155,7 +153,8 @@ class _RiskFormBottomSheetState extends ConsumerState<RiskFormBottomSheet> {
             initialValue: _threatType,
             hint: const Text('Selecciona...'),
             decoration: InputDecoration(
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
               contentPadding:
                   const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             ),
@@ -178,7 +177,8 @@ class _RiskFormBottomSheetState extends ConsumerState<RiskFormBottomSheet> {
             maxLength: 200,
             decoration: InputDecoration(
               hintText: 'Describe brevemente...',
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
               contentPadding:
                   const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             ),
@@ -197,8 +197,7 @@ class _RiskFormBottomSheetState extends ConsumerState<RiskFormBottomSheet> {
                 ),
               ),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: AppColors.secondary50,
                   borderRadius: BorderRadius.circular(12),

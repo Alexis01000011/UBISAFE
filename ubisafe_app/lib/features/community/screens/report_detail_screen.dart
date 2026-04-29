@@ -50,8 +50,9 @@ class _ReportDetailScreenState extends ConsumerState<ReportDetailScreen> {
     final currentUser = ref.watch(authStateProvider).valueOrNull;
     final currentUid = currentUser?.uid ?? '';
 
-    final typeLabel =
-        report.threatType == ThreatType.animalMuerto ? 'Animal muerto' : 'Zona sucia';
+    final typeLabel = report.threatType == ThreatType.animalMuerto
+        ? 'Animal muerto'
+        : 'Zona sucia';
     final iconColor = report.threatType == ThreatType.animalMuerto
         ? AppColors.neutral900
         : const Color(0xFF795548);
@@ -63,7 +64,8 @@ class _ReportDetailScreenState extends ConsumerState<ReportDetailScreen> {
     };
 
     final isReporter = report.reporterUid == currentUid;
-    final alreadyVoted = report.validations.any((v) => v['user_uid'] == currentUid);
+    final alreadyVoted =
+        report.validations.any((v) => v['user_uid'] == currentUid);
     final canVote = !isReporter &&
         !alreadyVoted &&
         report.status == ReportStatus.pendingValidation;
@@ -79,7 +81,8 @@ class _ReportDetailScreenState extends ConsumerState<ReportDetailScreen> {
               children: [
                 Icon(Icons.coronavirus_outlined, color: iconColor, size: 32),
                 const SizedBox(width: 12),
-                Text(typeLabel, style: Theme.of(context).textTheme.headlineSmall),
+                Text(typeLabel,
+                    style: Theme.of(context).textTheme.headlineSmall),
               ],
             ),
             const SizedBox(height: 12),

@@ -26,9 +26,7 @@ def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     dlng = math.radians(lng2 - lng1)
     a = (
         math.sin(dlat / 2) ** 2
-        + math.cos(math.radians(lat1))
-        * math.cos(math.radians(lat2))
-        * math.sin(dlng / 2) ** 2
+        + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlng / 2) ** 2
     )
     return _EARTH_RADIUS_KM * 2 * math.asin(math.sqrt(a))
 
@@ -145,9 +143,7 @@ async def update_ride_status(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Ride already in status '{updated.status}'",
             )
-        asyncio.ensure_future(
-            NotificationService.send_ride_expired(updated.vendor_uid, ride_id)
-        )
+        asyncio.ensure_future(NotificationService.send_ride_expired(updated.vendor_uid, ride_id))
         return updated
 
     extra: dict = {}
@@ -205,6 +201,4 @@ async def vendor_arrived(
     if ride.vendor_uid != current_user["uid"]:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
-    asyncio.ensure_future(
-        NotificationService.send_ride_vendor_arrived(ride.buyer_uid, ride_id)
-    )
+    asyncio.ensure_future(NotificationService.send_ride_vendor_arrived(ride.buyer_uid, ride_id))

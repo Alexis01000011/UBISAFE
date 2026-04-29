@@ -6,7 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/api_client.dart';
 import '../../community/services/community_report_module.dart';
 import '../../dispatching/models/stop_request.dart';
-import '../../safety/services/risk_zone_module.dart';
+import '../../safety/services/risk_report_module.dart';
 
 /// Background message handler — must be a top-level function.
 @pragma('vm:entry-point')
@@ -90,9 +90,8 @@ class NotificationHandler {
     await _messaging.requestPermission();
 
     try {
-      final token = await _messaging
-          .getToken()
-          .timeout(const Duration(seconds: 5));
+      final token =
+          await _messaging.getToken().timeout(const Duration(seconds: 5));
       if (token != null) {
         await _syncToken(token);
       }
@@ -205,13 +204,11 @@ final notificationHandlerProvider = Provider<NotificationHandler>((ref) {
         ref.read(incomingStopRequestProvider.notifier).state = data,
     setStopEvent: (event) =>
         ref.read(stopRequestEventProvider.notifier).state = event,
-    onRiskZoneAlert: () =>
-        ref.read(activeRiskZonesProvider.notifier).refresh(),
+    onRiskZoneAlert: () => ref.read(activeRiskZonesProvider.notifier).refresh(),
     onCommunityReportNearby: () =>
         ref.read(activeCommunityReportsProvider.notifier).refresh(),
     setIncomingRide: (data) =>
         ref.read(incomingRideProvider.notifier).state = data,
-    setRideEvent: (event) =>
-        ref.read(rideEventProvider.notifier).state = event,
+    setRideEvent: (event) => ref.read(rideEventProvider.notifier).state = event,
   );
 });

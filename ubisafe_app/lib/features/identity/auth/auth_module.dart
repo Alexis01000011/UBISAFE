@@ -17,8 +17,7 @@ class AuthModule {
   final FirebaseAuth _auth;
   final Dio _dio;
 
-  Future<String?> getCurrentToken() async =>
-      _auth.currentUser?.getIdToken();
+  Future<String?> getCurrentToken() async => _auth.currentUser?.getIdToken();
 
   /// Signs in and then syncs the profile timestamp + FCM token (SDD §8.4.B).
   Future<void> login({

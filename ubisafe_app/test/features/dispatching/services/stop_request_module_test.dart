@@ -51,9 +51,11 @@ void main() {
   group('createStopRequest', () {
     test('calls POST /stops/ and returns parsed StopRequest', () async {
       when(() => mockDio.post<Map<String, dynamic>>(
-            any(),
-            data: any(named: 'data'),
-          )).thenAnswer((_) async => _fakeResponse(_fakeStopJson(), statusCode: 201));
+                any(),
+                data: any(named: 'data'),
+              ))
+          .thenAnswer(
+              (_) async => _fakeResponse(_fakeStopJson(), statusCode: 201));
 
       final module = makeModule();
       final req = await module.createStopRequest(
@@ -69,9 +71,11 @@ void main() {
 
     test('timer is cancelled after cancelTimer()', () async {
       when(() => mockDio.post<Map<String, dynamic>>(
-            any(),
-            data: any(named: 'data'),
-          )).thenAnswer((_) async => _fakeResponse(_fakeStopJson(), statusCode: 201));
+                any(),
+                data: any(named: 'data'),
+              ))
+          .thenAnswer(
+              (_) async => _fakeResponse(_fakeStopJson(), statusCode: 201));
 
       final module = makeModule();
       await module.createStopRequest(

@@ -10,7 +10,7 @@ import 'package:ubisafe_app/features/dispatching/services/stop_request_module.da
 import 'package:ubisafe_app/features/presence/services/gps_service.dart';
 import 'package:ubisafe_app/features/presence/services/vendor_tracker.dart';
 import 'package:ubisafe_app/features/community/services/community_report_module.dart';
-import 'package:ubisafe_app/features/safety/services/risk_zone_module.dart';
+import 'package:ubisafe_app/features/safety/services/risk_report_module.dart';
 import 'package:ubisafe_app/features/shared/widgets/gps_required_empty_state.dart';
 
 class _MockDio extends Mock implements Dio {}
@@ -58,8 +58,8 @@ void main() {
         stopRequestModuleProvider.overrideWith(
           (ref) => StopRequestModule(mockDio, mockFirestore),
         ),
-        riskZoneModuleProvider.overrideWith(
-          (ref) => RiskZoneModule(mockDio),
+        riskReportModuleProvider.overrideWith(
+          (ref) => RiskReportModule(mockDio),
         ),
         communityReportModuleProvider.overrideWith(
           (ref) => CommunityReportModule(mockDio),
@@ -94,8 +94,8 @@ void main() {
             stopRequestModuleProvider.overrideWith(
               (ref) => StopRequestModule(mockDio, mockFirestore),
             ),
-            riskZoneModuleProvider.overrideWith(
-              (ref) => RiskZoneModule(mockDio),
+            riskReportModuleProvider.overrideWith(
+              (ref) => RiskReportModule(mockDio),
             ),
             communityReportModuleProvider.overrideWith(
               (ref) => CommunityReportModule(mockDio),
