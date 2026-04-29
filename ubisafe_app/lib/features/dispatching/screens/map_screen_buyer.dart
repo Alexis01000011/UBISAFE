@@ -217,7 +217,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
                   !r.isDuplicate &&
                   r.status != ReportStatus.expired &&
                   r.status != ReportStatus.dismissed)
-              .map((r) => _communityReportToMarker(r))
+              .map((r) => _communityReportToMarker(r, context))
               .toSet();
 
           return Stack(
@@ -411,8 +411,8 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
     );
   }
 
-  // Flujo 9.6.C: duplicates are hidden; canonical pin shows as-is.
-  static Marker _communityReportToMarker(CommunityReport report) {
+  // Flujo 9.6.C: duplicates are hidden; canonical pin opens ReportDetailScreen.
+  Marker _communityReportToMarker(CommunityReport report, BuildContext context) {
     final hue = report.threatType == ThreatType.animalMuerto
         ? BitmapDescriptor.hueRose // closest to black in Maps SDK hues
         : BitmapDescriptor.hueOrange; // café approximation
@@ -427,6 +427,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
       position: LatLng(report.latitude, report.longitude),
       icon: BitmapDescriptor.defaultMarkerWithHue(hue),
       infoWindow: InfoWindow(title: label, snippet: statusLabel),
+      onTap: () => context.push('/community/reports/detail', extra: report),
     );
   }
 

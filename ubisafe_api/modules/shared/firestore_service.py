@@ -242,11 +242,12 @@ class FirestoreService:
         validations = []
         for v in raw.get("validations", []):
             ts = v.get("timestamp")
+            ts_str = ts.isoformat() if hasattr(ts, "isoformat") else str(ts) if ts else None
             validations.append(
                 Validation(
                     user_uid=v.get("user_uid", ""),
                     verdict=v.get("verdict", "confirm"),
-                    timestamp=ts.isoformat() if hasattr(ts, "isoformat") else str(ts) if ts else None,
+                    timestamp=ts_str,
                 )
             )
         raw["validations"] = [v.model_dump() for v in validations]

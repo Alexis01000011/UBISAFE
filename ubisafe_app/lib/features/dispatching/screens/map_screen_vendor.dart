@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../core/design_system/colors.dart';
@@ -181,7 +182,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
                   !r.isDuplicate &&
                   r.status != ReportStatus.expired &&
                   r.status != ReportStatus.dismissed)
-              .map((r) => _communityReportToMarker(r))
+              .map((r) => _communityReportToMarker(r, context))
               .toSet();
 
           return Stack(
@@ -662,7 +663,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
     );
   }
 
-  static Marker _communityReportToMarker(CommunityReport report) {
+  Marker _communityReportToMarker(CommunityReport report, BuildContext context) {
     final hue = report.threatType == ThreatType.animalMuerto
         ? BitmapDescriptor.hueRose
         : BitmapDescriptor.hueOrange;
@@ -677,6 +678,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
       position: LatLng(report.latitude, report.longitude),
       icon: BitmapDescriptor.defaultMarkerWithHue(hue),
       infoWindow: InfoWindow(title: label, snippet: statusLabel),
+      onTap: () => context.push('/community/reports/detail', extra: report),
     );
   }
 

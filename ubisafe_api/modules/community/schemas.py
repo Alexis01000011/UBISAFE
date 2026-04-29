@@ -1,25 +1,25 @@
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel
 
 from modules.safety.schemas import GeoPoint
 
 
-class ThreatType(str, Enum):
+class ThreatType(StrEnum):
     animal_muerto = "animal_muerto"
     zona_sucia = "zona_sucia"
 
 
-class ReportStatus(str, Enum):
+class ReportStatus(StrEnum):
     pending_validation = "pending_validation"
     confirmed = "confirmed"
     dismissed = "dismissed"
     expired = "expired"
 
 
-class ValidationVerdict(str, Enum):
+class ValidationVerdict(StrEnum):
     confirm = "confirm"
     dismiss = "dismiss"
 
