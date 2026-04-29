@@ -18,7 +18,8 @@
       "Bash(python -m pytest -v)",
       "Bash(flutter test *)",
       "Bash(git add *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(git checkout *)"
     ]
   }
 }
