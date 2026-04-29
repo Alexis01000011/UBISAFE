@@ -13,6 +13,7 @@ from modules.community.schemas import (
     Validation,
 )
 from modules.dispatching.schemas import CreateStopRequestBody, StopRequest
+from modules.dispatching.ride_schemas import CreateRideBody, Ride
 from modules.identity.schemas import SyncProfileRequest, UserProfile
 from modules.safety.schemas import CreateRiskZoneBody, RiskZone
 from modules.shared.firebase_admin_init import FirebaseAdminInit
@@ -329,3 +330,110 @@ class FirestoreService:
         if not doc.exists:
             return None
         return cls._doc_to_community_report(doc)
+
+    # ------------------------------------------------------------------ rides
+    @classmethod
+    def _doc_to_ride(cls, doc: Any) -> Ride:
+        raw = doc.to_dict() or {}
+        timestamp_fields = (
+            "created_at", "updated_at", "accepted_at",
+            "started_at", "completed_at", "expires_at",
+        )
+        for field in timestamp_fields:
+            val = raw.get(field)
+            if val is None:
+                continue
+            if hasattr(val, "isoformat"):
+                raw[field] = val.isoformat()
+            elif hasattr(val, "timestamp"):
+                raw[field] = datetime.fromtimestamp(val.timestamp(), tz=UTC).isoformat()
+        for geo_field in ("pickup_location", "destination"):
+            loc = raw.get(geo_field)
+            if loc is not None and hasattr(loc, "latitude"):
+                raw[geo_field] = {"lat": loc.latitude, "lng": loc.longitude}
+        return Ride(id=doc.id, **raw)
+
+    @classmethod
+    async def vendor_has_active_requests(cls, vendor_uid: str) -> bool:
+        """Return True if vendor has pending/accepted/in_progress rides or stop_requests."""
+        active_ride_statuses = ["pending", "accepted", "in_progress"]
+        ride_docs = (
+            cls._db()
+            .collection("rides")
+            .where("vendor_uid", "==", vendor_uid)
+            .where("status", "in", active_ride_statuses)
+            .limit(1)
+            .stream()
+        )
+        if any(True for _ in ride_docs):
+            return True
+        stop_docs = (
+            cls._db()
+            .collection("stop_requests")
+            .where("vendor_uid", "==", vendor_uid)
+            .where("status", "in", ["pending", "accepted"])
+            .limit(1)
+            .stream()
+        )
+        return any(True for _ in stop_docs)
+
+    @classmethod
+    async def create_ride(cls, buyer_uid: str, body: CreateRideBody) -> Ride:
+        from modules.dispatching.ride_schemas import _RIDE_TTL_SECONDS
+        expires_at = (
+            datetime.now(tz=UTC) + timedelta(seconds=_RIDE_TTL_SECONDS)
+        ).isoformat()
+        data = body.model_dump()
+        data["buyer_uid"] = buyer_uid
+        data["status"] = "pending"
+        data["created_at"] = SERVER_TIMESTAMP
+        data["updated_at"] = SERVER_TIMESTAMP
+        data["expires_at"] = expires_at
+        _, ref = cls._db().collection("rides").add(data)
+        doc = ref.get()
+        return cls._doc_to_ride(doc)
+
+    @classmethod
+    async def get_ride(cls, ride_id: str) -> Ride | None:
+        doc = cls._db().collection("rides").document(ride_id).get()
+        if not doc.exists:
+            return None
+        return cls._doc_to_ride(doc)
+
+    @classmethod
+    async def update_ride_status(cls, ride_id: str, new_status: str, extra: dict) -> Ride | None:
+        ref = cls._db().collection("rides").document(ride_id)
+        doc = ref.get()
+        if not doc.exists:
+            return None
+        update_data: dict[str, Any] = {"status": new_status, "updated_at": SERVER_TIMESTAMP}
+        for key, val in extra.items():
+            update_data[key] = SERVER_TIMESTAMP if val is True else val
+        ref.update(update_data)
+        doc = ref.get()
+        return cls._doc_to_ride(doc)
+
+    @classmethod
+    async def update_ride_status_if_pending(
+        cls, ride_id: str, new_status: str, rejected_reason: str | None = None
+    ) -> tuple[Ride | None, bool]:
+        """Update status only if current status is 'pending'. Returns (doc, was_updated)."""
+        ref = cls._db().collection("rides").document(ride_id)
+        doc = ref.get()
+        if not doc.exists:
+            return None, False
+        current = doc.to_dict() or {}
+        if current.get("status") != "pending":
+            return cls._doc_to_ride(doc), False
+        update_data: dict[str, Any] = {"status": new_status, "updated_at": SERVER_TIMESTAMP}
+        if rejected_reason:
+            update_data["rejected_reason"] = rejected_reason
+        ref.update(update_data)
+        doc = ref.get()
+        return cls._doc_to_ride(doc), True
+
+    @classmethod
+    async def update_ride_enabled(cls, uid: str, value: bool) -> None:
+        cls._db().collection("users").document(uid).set(
+            {"ride_enabled": value, "updated_at": SERVER_TIMESTAMP}, merge=True
+        )

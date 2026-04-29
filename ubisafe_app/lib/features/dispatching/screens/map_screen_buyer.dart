@@ -17,9 +17,11 @@ import '../../safety/services/risk_zone_module.dart';
 import '../../shared/notifications/notification_handler.dart';
 import '../../shared/widgets/gps_required_empty_state.dart';
 import '../models/stop_request.dart';
+import '../services/ride_request_module.dart';
 import '../services/stop_request_module.dart';
+import '../widgets/destination_picker.dart';
 
-enum _BuyerMapState { idle, waiting }
+enum _BuyerMapState { idle, waiting, waitingRide }
 
 /// Main map screen for buyers — vendor markers, stop-request flow (CU-01).
 class MapScreenBuyer extends ConsumerStatefulWidget {
@@ -32,6 +34,7 @@ class MapScreenBuyer extends ConsumerStatefulWidget {
 class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
   _BuyerMapState _mapState = _BuyerMapState.idle;
   String? _activeStopId;
+  String? _activeRideId;
   bool _riskZonesLoaded = false;
   bool _communityReportsLoaded = false;
   bool _speedDialOpen = false;
@@ -74,6 +77,66 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
       }
     });
 
+    // Listen for ride FCM events (accepted/rejected/expired/vendor_arrived)
+    ref.listen<RideEvent?>(rideEventProvider, (_, event) {
+      if (event == null) return;
+      if (_activeRideId != null && event.rideId != _activeRideId) return;
+      switch (event.type) {
+        case RideEventType.accepted:
+          ref.read(rideRequestModuleProvider).cancelExpiryTimer();
+          final rideId = _activeRideId;
+          setState(() {
+            _mapState = _BuyerMapState.idle;
+            _activeRideId = null;
+          });
+          ref.read(rideEventProvider.notifier).state = null;
+          if (rideId != null && context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('¡El vendedor aceptó tu raite! Se está acercando.')),
+            );
+          }
+        case RideEventType.rejected:
+        case RideEventType.expired:
+          ref.read(rideRequestModuleProvider).cancelExpiryTimer();
+          setState(() {
+            _mapState = _BuyerMapState.idle;
+            _activeRideId = null;
+          });
+          ref.read(rideEventProvider.notifier).state = null;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                event.type == RideEventType.expired
+                    ? 'Tiempo agotado. El vendedor no respondió.'
+                    : 'El vendedor no pudo llevarte.',
+              ),
+            ),
+          );
+        case RideEventType.vendorArrived:
+          ref.read(rideEventProvider.notifier).state = null;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('¡El vendedor llegó al punto de recogida!'),
+              backgroundColor: AppColors.success500,
+            ),
+          );
+        case RideEventType.completed:
+          setState(() {
+            _mapState = _BuyerMapState.idle;
+            _activeRideId = null;
+          });
+          ref.read(rideEventProvider.notifier).state = null;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('¡Raite completado! Que te vaya bien.'),
+              backgroundColor: AppColors.success500,
+            ),
+          );
+        case RideEventType.cancelledByBuyer:
+          break;
+      }
+    });
+
     return Scaffold(
       drawer: const DrawerModule(),
       appBar: AppBar(title: const Text('UbiSafe — Mapa')),
@@ -111,6 +174,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
                     onTap: () => _onVendorTap(
                       context,
                       vendorUid: v.uid,
+                      rideEnabled: v.rideEnabled,
                       buyerLat: position.latitude,
                       buyerLng: position.longitude,
                     ),
@@ -167,6 +231,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
               ),
               if (_mapState == _BuyerMapState.waiting)
                 _WaitingOverlay(
+                  label: 'Esperando respuesta del vendedor…',
                   onCancel: () async {
                     final stopId = _activeStopId;
                     if (stopId == null) return;
@@ -181,6 +246,26 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
                     } catch (_) {}
                   },
                 ),
+              if (_mapState == _BuyerMapState.waitingRide)
+                _WaitingOverlay(
+                  label: 'Esperando que el vendedor acepte tu raite…',
+                  onCancel: () async {
+                    final rideId = _activeRideId;
+                    ref.read(rideRequestModuleProvider).cancelExpiryTimer();
+                    setState(() {
+                      _mapState = _BuyerMapState.idle;
+                      _activeRideId = null;
+                    });
+                    if (rideId != null) {
+                      try {
+                        await ref
+                            .read(rideRequestModuleProvider)
+                            .updateStatus(rideId, 'rejected',
+                                rejectedReason: 'buyer_cancelled');
+                      } catch (_) {}
+                    }
+                  },
+                ),
             ],
           );
         },
@@ -193,26 +278,43 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
   Future<void> _onVendorTap(
     BuildContext context, {
     required String vendorUid,
+    required bool rideEnabled,
     required double buyerLat,
     required double buyerLng,
   }) async {
     if (_mapState != _BuyerMapState.idle) return;
 
-    final confirmed = await showModalBottomSheet<bool>(
+    final result = await showModalBottomSheet<String>(
       context: context,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (_) => _VendorBottomSheet(vendorUid: vendorUid),
+      builder: (_) => _VendorBottomSheet(
+        vendorUid: vendorUid,
+        rideEnabled: rideEnabled,
+      ),
     );
 
-    if (confirmed != true || !context.mounted) return;
+    if (result == null || !context.mounted) return;
 
+    if (result == 'stop') {
+      await _requestStop(context,
+          vendorUid: vendorUid, buyerLat: buyerLat, buyerLng: buyerLng);
+    } else if (result == 'ride') {
+      await _requestRide(context,
+          vendorUid: vendorUid, buyerLat: buyerLat, buyerLng: buyerLng);
+    }
+  }
+
+  Future<void> _requestStop(
+    BuildContext context, {
+    required String vendorUid,
+    required double buyerLat,
+    required double buyerLng,
+  }) async {
     final profile = ref.read(userProfileProvider).valueOrNull;
     if (profile == null) return;
-
     setState(() => _mapState = _BuyerMapState.waiting);
-
     final messenger = ScaffoldMessenger.of(context);
     try {
       final stop = await ref.read(stopRequestModuleProvider).createStopRequest(
@@ -227,6 +329,52 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
       setState(() => _mapState = _BuyerMapState.idle);
       messenger.showSnackBar(
         SnackBar(content: Text('Error al solicitar parada: $e')),
+      );
+    }
+  }
+
+  Future<void> _requestRide(
+    BuildContext context, {
+    required String vendorUid,
+    required double buyerLat,
+    required double buyerLng,
+  }) async {
+    if (!context.mounted) return;
+    final destination = await DestinationPicker.show(
+      context,
+      LatLng(buyerLat, buyerLng),
+    );
+    if (destination == null || !context.mounted) return;
+
+    setState(() => _mapState = _BuyerMapState.waitingRide);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final ride = await ref.read(rideRequestModuleProvider).createRide(
+            vendorUid: vendorUid,
+            pickupLat: buyerLat,
+            pickupLng: buyerLng,
+            destinationLat: destination.latitude,
+            destinationLng: destination.longitude,
+          );
+      _activeRideId = ride.id;
+      ref.read(rideRequestModuleProvider).startExpiryTimer(
+        ride.id,
+        onExpired: () {
+          if (!mounted) return;
+          setState(() {
+            _mapState = _BuyerMapState.idle;
+            _activeRideId = null;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Tiempo agotado. El vendedor no respondió.')),
+          );
+        },
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _mapState = _BuyerMapState.idle);
+      messenger.showSnackBar(
+        SnackBar(content: Text('Error al solicitar raite: $e')),
       );
     }
   }
@@ -404,9 +552,10 @@ class _MiniAction extends StatelessWidget {
 }
 
 class _WaitingOverlay extends StatelessWidget {
-  const _WaitingOverlay({required this.onCancel});
+  const _WaitingOverlay({required this.onCancel, required this.label});
 
   final VoidCallback onCancel;
+  final String label;
 
   @override
   Widget build(BuildContext context) {
@@ -432,9 +581,10 @@ class _WaitingOverlay extends StatelessWidget {
           children: [
             const CircularProgressIndicator(),
             const SizedBox(height: 16),
-            const Text(
-              'Esperando respuesta del vendedor…',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+            Text(
+              label,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+              textAlign: TextAlign.center,
             ),
             const SizedBox(height: 8),
             const Text(
@@ -454,9 +604,10 @@ class _WaitingOverlay extends StatelessWidget {
 }
 
 class _VendorBottomSheet extends StatelessWidget {
-  const _VendorBottomSheet({required this.vendorUid});
+  const _VendorBottomSheet({required this.vendorUid, required this.rideEnabled});
 
   final String vendorUid;
+  final bool rideEnabled;
 
   @override
   Widget build(BuildContext context) {
@@ -478,27 +629,41 @@ class _VendorBottomSheet extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           const Text(
-            'Solicitar parada',
+            'Vendedor cercano',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
           const Text(
-            'Vendedor cercano disponible',
+            'Elige qué tipo de servicio quieres solicitar.',
             style: TextStyle(color: AppColors.textSecondary),
           ),
           const SizedBox(height: 24),
-          ElevatedButton(
+          ElevatedButton.icon(
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary700,
               foregroundColor: AppColors.surface,
-              padding: const EdgeInsets.symmetric(vertical: 16),
+              padding: const EdgeInsets.symmetric(vertical: 14),
             ),
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Solicitar Parada'),
+            icon: const Icon(Icons.pan_tool_outlined),
+            label: const Text('Solicitar Parada'),
+            onPressed: () => Navigator.of(context).pop('stop'),
           ),
+          if (rideEnabled) ...[
+            const SizedBox(height: 10),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.success500,
+                foregroundColor: AppColors.surface,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+              icon: const Icon(Icons.electric_rickshaw_outlined),
+              label: const Text('Solicitar Raite'),
+              onPressed: () => Navigator.of(context).pop('ride'),
+            ),
+          ],
           const SizedBox(height: 8),
           TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
+            onPressed: () => Navigator.of(context).pop(null),
             child: const Text('Cancelar'),
           ),
         ],

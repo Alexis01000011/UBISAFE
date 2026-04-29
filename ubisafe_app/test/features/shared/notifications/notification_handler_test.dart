@@ -48,6 +48,8 @@ void main() {
         setStopEvent: onEvent ?? (_) {},
         onRiskZoneAlert: () {},
         onCommunityReportNearby: () {},
+        setIncomingRide: (_) {},
+        setRideEvent: (_) {},
       );
 
   group('NotificationHandler.init', () {

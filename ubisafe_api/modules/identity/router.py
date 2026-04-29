@@ -1,7 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from dependencies import get_current_user
-from modules.identity.schemas import DeviceTokenRequest, SyncProfileRequest, UserProfile
+from modules.identity.schemas import (
+    DeviceTokenRequest,
+    SyncProfileRequest,
+    UpdateRideEnabledRequest,
+    UserProfile,
+)
 from modules.shared.firestore_service import FirestoreService
 
 router = APIRouter()
@@ -42,3 +47,18 @@ async def register_device_token(
     current_user: dict = Depends(get_current_user),
 ):
     await FirestoreService.update_device_token(current_user["uid"], body.token)
+
+
+@router.patch("/ride-enabled", status_code=status.HTTP_204_NO_CONTENT)
+async def update_ride_enabled(
+    body: UpdateRideEnabledRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    uid = current_user["uid"]
+    profile = await FirestoreService.get_user(uid)
+    if not profile or profile.role != "VENDOR":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only VENDOR users can update ride_enabled.",
+        )
+    await FirestoreService.update_ride_enabled(uid, body.ride_enabled)

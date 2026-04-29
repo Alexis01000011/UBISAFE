@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:dio/dio.dart';
@@ -17,6 +18,8 @@ import '../../safety/screens/risk_form_bottom_sheet.dart';
 import '../../safety/services/risk_zone_module.dart';
 import '../../shared/notifications/notification_handler.dart';
 import '../../shared/widgets/gps_required_empty_state.dart';
+import '../models/ride.dart';
+import '../services/ride_request_module.dart';
 import '../services/stop_request_module.dart';
 
 // Replace via --dart-define=MAPS_API_KEY=<key> at build/run time.
@@ -37,7 +40,12 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
   bool _communityReportsLoaded = false;
   bool _speedDialOpen = false;
   String? _activeStopId;
+  String? _activeRideId;
+  // 1 = going to pickup, 2 = ride in progress (passenger aboard)
+  int _ridePhase = 0;
   List<LatLng> _routePolyline = [];
+
+  StreamSubscription<Ride?>? _rideSub;
 
   @override
   Widget build(BuildContext context) {
@@ -54,6 +62,48 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
         buyerLat: data['buyer_lat'] as String? ?? '0',
         buyerLng: data['buyer_lng'] as String? ?? '0',
       );
+    });
+
+    // Listen for incoming ride requests and ride events (vendor receives FCM)
+    ref.listen<Map<String, dynamic>?>(incomingRideProvider, (_, data) {
+      if (data == null) return;
+      final type = data['type'] as String? ?? '';
+      if (type == 'ride_destination_too_far') {
+        final rideId = data['ride_id'] as String? ?? '';
+        final distKm = data['distance_km'] as String? ?? '?';
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          ref.read(incomingRideProvider.notifier).state = null;
+        });
+        _showRideTooFarDialog(context, rideId: rideId, distanceKm: distKm);
+      } else {
+        _showIncomingRideDialog(
+          context,
+          rideId: data['ride_id'] as String? ?? '',
+          pickupLat: data['pickup_lat'] as String? ?? '0',
+          pickupLng: data['pickup_lng'] as String? ?? '0',
+          destinationLat: data['destination_lat'] as String? ?? '0',
+          destinationLng: data['destination_lng'] as String? ?? '0',
+        );
+      }
+    });
+
+    ref.listen<RideEvent?>(rideEventProvider, (_, event) {
+      if (event == null) return;
+      if (_activeRideId != null && event.rideId != _activeRideId) return;
+      if (event.type == RideEventType.cancelledByBuyer) {
+        _rideSub?.cancel();
+        _rideSub = null;
+        setState(() {
+          _activeRideId = null;
+          _ridePhase = 0;
+          _routePolyline = [];
+          _isNavigating = false;
+        });
+        ref.read(rideEventProvider.notifier).state = null;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('El pasajero canceló el raite.')),
+        );
+      }
     });
 
     return Scaffold(
@@ -151,14 +201,40 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
                 right: 0,
                 child: Center(child: _buildToggle(context, position)),
               ),
-              // Confirm delivery bottom sheet when navigating
-              if (_isNavigating)
+              // Confirm delivery bottom sheet when navigating to stop buyer
+              if (_isNavigating && _activeRideId == null)
                 Positioned(
                   bottom: 0,
                   left: 0,
                   right: 0,
                   child: _ConfirmDeliverySheet(
                     onConfirm: () => _confirmDelivery(context),
+                  ),
+                ),
+              // Ride phase 1: vendor heading to pickup
+              if (_ridePhase == 1)
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: _RideActionSheet(
+                    label: 'Dirígete al punto de recogida del pasajero.',
+                    buttonText: 'Llegué al punto de recogida',
+                    buttonColor: AppColors.primary700,
+                    onAction: () => _signalVendorArrived(context),
+                  ),
+                ),
+              // Ride phase 2: passenger aboard
+              if (_ridePhase == 2)
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: _RideActionSheet(
+                    label: 'Pasajero a bordo. Dirígete al destino.',
+                    buttonText: 'Completar raite',
+                    buttonColor: AppColors.success500,
+                    onAction: () => _completeRide(context),
                   ),
                 ),
             ],
@@ -383,6 +459,175 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
         ),
       );
     }
+  }
+
+  void _showIncomingRideDialog(
+    BuildContext context, {
+    required String rideId,
+    required String pickupLat,
+    required String pickupLng,
+    required String destinationLat,
+    required String destinationLng,
+  }) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(incomingRideProvider.notifier).state = null;
+    });
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _IncomingRideDialog(
+        pickupLat: double.tryParse(pickupLat) ?? 0,
+        pickupLng: double.tryParse(pickupLng) ?? 0,
+        destinationLat: double.tryParse(destinationLat) ?? 0,
+        destinationLng: double.tryParse(destinationLng) ?? 0,
+        onAccept: () async {
+          Navigator.of(context).pop();
+          await _acceptRide(context, rideId,
+              pickupLat: pickupLat, pickupLng: pickupLng);
+        },
+        onReject: () async {
+          Navigator.of(context).pop();
+          try {
+            await ref.read(rideRequestModuleProvider).updateStatus(
+                  rideId, 'rejected',
+                  rejectedReason: 'vendor_rejected');
+          } catch (_) {}
+        },
+      ),
+    );
+  }
+
+  void _showRideTooFarDialog(
+    BuildContext context, {
+    required String rideId,
+    required String distanceKm,
+  }) {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        title: const Text('Destino fuera de rango'),
+        content: Text(
+          'El destino del pasajero está a $distanceKm km, que supera el límite de 4 km. '
+          'Debes rechazar este raite.',
+        ),
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger500,
+              foregroundColor: AppColors.surface,
+            ),
+            onPressed: () async {
+              Navigator.of(context).pop();
+              try {
+                await ref.read(rideRequestModuleProvider).updateStatus(
+                      rideId, 'rejected',
+                      rejectedReason: 'destination_too_far');
+              } catch (_) {}
+            },
+            child: const Text('Rechazar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _acceptRide(
+    BuildContext context,
+    String rideId, {
+    required String pickupLat,
+    required String pickupLng,
+  }) async {
+    final position = ref.read(gpsServiceProvider).valueOrNull;
+    if (position == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('GPS no disponible. Activa el GPS para aceptar.')),
+      );
+      return;
+    }
+    try {
+      await ref.read(rideRequestModuleProvider).updateStatus(rideId, 'accepted');
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error al aceptar raite: $e')),
+      );
+      return;
+    }
+    setState(() {
+      _activeRideId = rideId;
+      _ridePhase = 1;
+    });
+
+    // Watch the ride for status changes (in_progress triggered by vendor action)
+    await _rideSub?.cancel();
+    _rideSub = ref.read(rideRequestModuleProvider).watchRide(rideId).listen((ride) {
+      if (ride == null) return;
+      if (ride.status == RideStatus.inProgress && _ridePhase == 1) {
+        setState(() => _ridePhase = 2);
+      } else if (ride.status == RideStatus.completed ||
+          ride.status == RideStatus.rejected ||
+          ride.status == RideStatus.expired) {
+        _rideSub?.cancel();
+        _rideSub = null;
+        setState(() {
+          _activeRideId = null;
+          _ridePhase = 0;
+          _routePolyline = [];
+        });
+      }
+    });
+  }
+
+  Future<void> _signalVendorArrived(BuildContext context) async {
+    final rideId = _activeRideId;
+    if (rideId == null) return;
+    try {
+      await ref.read(rideRequestModuleProvider).vendorArrived(rideId);
+      // Transition to in_progress (passenger boards)
+      await ref.read(rideRequestModuleProvider).updateStatus(rideId, 'in_progress');
+      setState(() => _ridePhase = 2);
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
+    }
+  }
+
+  Future<void> _completeRide(BuildContext context) async {
+    final rideId = _activeRideId;
+    if (rideId == null) return;
+    try {
+      await ref.read(rideRequestModuleProvider).updateStatus(rideId, 'completed');
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error al completar raite: $e')),
+      );
+      return;
+    }
+    await _rideSub?.cancel();
+    _rideSub = null;
+    setState(() {
+      _activeRideId = null;
+      _ridePhase = 0;
+      _routePolyline = [];
+    });
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('¡Raite completado!'),
+          backgroundColor: AppColors.success500,
+        ),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _rideSub?.cancel();
+    super.dispose();
   }
 
   void _onFabPressed(dynamic position) {
@@ -761,6 +1006,116 @@ class _ConfirmDeliverySheet extends StatelessWidget {
             ),
             onPressed: onConfirm,
             child: const Text('Confirmar Entrega'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _IncomingRideDialog extends StatelessWidget {
+  const _IncomingRideDialog({
+    required this.pickupLat,
+    required this.pickupLng,
+    required this.destinationLat,
+    required this.destinationLng,
+    required this.onAccept,
+    required this.onReject,
+  });
+
+  final double pickupLat;
+  final double pickupLng;
+  final double destinationLat;
+  final double destinationLng;
+  final VoidCallback onAccept;
+  final VoidCallback onReject;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Nueva solicitud de raite'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Un pasajero quiere un raite a:'),
+          const SizedBox(height: 8),
+          Text(
+            'Recogida: ${pickupLat.toStringAsFixed(4)}, ${pickupLng.toStringAsFixed(4)}',
+            style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+          ),
+          Text(
+            'Destino: ${destinationLat.toStringAsFixed(4)}, ${destinationLng.toStringAsFixed(4)}',
+            style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+          ),
+        ],
+      ),
+      actions: [
+        OutlinedButton(
+          style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger500),
+          onPressed: onReject,
+          child: const Text('Rechazar'),
+        ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.success500,
+            foregroundColor: AppColors.surface,
+          ),
+          onPressed: onAccept,
+          child: const Text('Aceptar'),
+        ),
+      ],
+    );
+  }
+}
+
+class _RideActionSheet extends StatelessWidget {
+  const _RideActionSheet({
+    required this.label,
+    required this.buttonText,
+    required this.buttonColor,
+    required this.onAction,
+  });
+
+  final String label;
+  final String buttonText;
+  final Color buttonColor;
+  final VoidCallback onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 8,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.electric_rickshaw_outlined, size: 32),
+          const SizedBox(height: 8),
+          Text(
+            label,
+            style: const TextStyle(color: AppColors.textSecondary),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: buttonColor,
+              foregroundColor: AppColors.surface,
+              minimumSize: const Size.fromHeight(48),
+            ),
+            onPressed: onAction,
+            child: Text(buttonText),
           ),
         ],
       ),

@@ -1,60 +1,94 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/api/api_client.dart';
 import '../models/ride.dart';
 
-/// ☆ [iter.2] CU-04 — Full ride-request lifecycle.
-///
-/// Handles creating, accepting, completing and cancelling rides.
-class RideRequestModule {
-  RideRequestModule(this._firestore);
+const _kRideTtlSeconds = 60;
 
+class RideRequestModule {
+  RideRequestModule(this._dio, this._firestore);
+
+  final Dio _dio;
   final FirebaseFirestore _firestore;
 
-  CollectionReference<Map<String, dynamic>> get _col =>
-      _firestore.collection('rides');
+  Timer? _expiryTimer;
 
-  /// Buyer requests a ride to [destinationLat]/[destinationLng].
-  Future<String> requestRide({
-    required String buyerUid,
+  Future<Ride> createRide({
     required String vendorUid,
+    required double pickupLat,
+    required double pickupLng,
     required double destinationLat,
     required double destinationLng,
+    String? routePolyline,
   }) async {
-    final ride = Ride(
-      id: '',
-      buyerUid: buyerUid,
-      vendorUid: vendorUid,
-      status: RideStatus.pending,
-      destinationLat: destinationLat,
-      destinationLng: destinationLng,
-      createdAt: DateTime.now(),
+    final res = await _dio.post<Map<String, dynamic>>(
+      '/rides',
+      data: {
+        'vendor_uid': vendorUid,
+        'pickup_location': {'lat': pickupLat, 'lng': pickupLng},
+        'destination': {'lat': destinationLat, 'lng': destinationLng},
+        if (routePolyline != null) 'route_polyline': routePolyline,
+      },
     );
-    final doc = await _col.add(ride.toMap());
-    return doc.id;
+    return Ride.fromJson(res.data!);
   }
 
-  /// Vendor accepts an incoming ride.
-  Future<void> acceptRide(String rideId) =>
-      _col.doc(rideId).update({'status': RideStatus.accepted.name});
+  Future<Ride> updateStatus(
+    String rideId,
+    String status, {
+    String? rejectedReason,
+  }) async {
+    final res = await _dio.patch<Map<String, dynamic>>(
+      '/rides/$rideId/status',
+      data: {
+        'status': status,
+        if (rejectedReason != null) 'rejected_reason': rejectedReason,
+      },
+    );
+    return Ride.fromJson(res.data!);
+  }
 
-  /// Marks a ride as completed.
-  Future<void> completeRide(String rideId) => _col.doc(rideId).update({
-        'status': RideStatus.completed.name,
-        'completed_at': FieldValue.serverTimestamp(),
-      });
+  Future<void> vendorArrived(String rideId) async {
+    await _dio.post<void>('/rides/$rideId/vendor_arrived');
+  }
 
-  /// Either party can cancel a pending/accepted ride.
-  Future<void> cancelRide(String rideId) =>
-      _col.doc(rideId).update({'status': RideStatus.cancelled.name});
+  Future<void> expireRide(String rideId) async {
+    try {
+      await updateStatus(rideId, 'expired');
+    } catch (_) {}
+  }
 
-  /// Watch a single ride in real time.
-  Stream<Ride?> watchRide(String rideId) => _col
+  /// Starts a 60-second timer that marks the ride as expired if not answered.
+  void startExpiryTimer(String rideId, {required void Function() onExpired}) {
+    cancelExpiryTimer();
+    _expiryTimer = Timer(
+      const Duration(seconds: _kRideTtlSeconds),
+      () async {
+        await expireRide(rideId);
+        onExpired();
+      },
+    );
+  }
+
+  void cancelExpiryTimer() {
+    _expiryTimer?.cancel();
+    _expiryTimer = null;
+  }
+
+  Stream<Ride?> watchRide(String rideId) => _firestore
+      .collection('rides')
       .doc(rideId)
       .snapshots()
       .map((s) => s.exists ? Ride.fromMap(s.id, s.data()!) : null);
 }
 
 final rideRequestModuleProvider = Provider<RideRequestModule>((ref) {
-  return RideRequestModule(FirebaseFirestore.instance);
+  return RideRequestModule(
+    ref.read(apiClientProvider),
+    FirebaseFirestore.instance,
+  );
 });

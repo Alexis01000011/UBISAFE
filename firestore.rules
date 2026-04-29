@@ -51,8 +51,17 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // ─── iter.2: rides ────────────────────────────────────────────────────
-    // Se añade en F6.
+    // ─── COLECCIÓN: rides [iter.2 — CU-04] ───────────────────────────────
+    // Buyer y vendor pueden leer su propia ride.
+    // La lógica de negocio (rol, máquina de estados, distancia) la aplica
+    // FastAPI con Admin SDK. El cliente solo lee para la TrackingScreen
+    // via Firestore listener (status, vendor_location updates).
+    match /rides/{rideId} {
+      allow read: if isAuthenticated()
+                  && (resource.data.buyer_uid == request.auth.uid
+                      || resource.data.vendor_uid == request.auth.uid);
+      allow write: if false;  // solo Admin SDK (FastAPI)
+    }
 
   }
 }

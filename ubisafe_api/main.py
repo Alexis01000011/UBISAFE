@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from modules.community.report_router import router as community_reports_router
+from modules.dispatching.ride_router import router as rides_router
 from modules.dispatching.router import router as stops_router
 from modules.identity.router import router as auth_router
 from modules.safety.router import router as risk_zones_router
@@ -47,5 +48,6 @@ app.add_middleware(
 
 app.include_router(auth_router, prefix="/auth", tags=["auth"])
 app.include_router(stops_router, prefix="/stops", tags=["stops"])
+app.include_router(rides_router, prefix="/rides", tags=["rides"])
 app.include_router(risk_zones_router, prefix="/risk-zones", tags=["risk-zones"])
 app.include_router(community_reports_router, prefix="/community-reports", tags=["community-reports"])

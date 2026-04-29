@@ -120,6 +120,105 @@ class NotificationService:
             except Exception as exc:
                 logger.error("FCM community_report_nearby multicast failed: %s", exc)
 
+    # ------------------------------------------------------------------ rides
+    @staticmethod
+    async def send_ride_incoming(
+        vendor_uid: str,
+        ride_id: str,
+        pickup_lat: float,
+        pickup_lng: float,
+        destination_lat: float,
+        destination_lng: float,
+    ) -> None:
+        await NotificationService.send_to_user(
+            uid=vendor_uid,
+            title="Nueva solicitud de raite",
+            body="Un pasajero te solicita un raite.",
+            data={
+                "type": "ride_request_incoming",
+                "ride_id": ride_id,
+                "pickup_lat": str(pickup_lat),
+                "pickup_lng": str(pickup_lng),
+                "destination_lat": str(destination_lat),
+                "destination_lng": str(destination_lng),
+            },
+        )
+
+    @staticmethod
+    async def send_ride_destination_too_far(
+        vendor_uid: str, ride_id: str, distance_km: float
+    ) -> None:
+        await NotificationService.send_to_user(
+            uid=vendor_uid,
+            title="Destino fuera de rango",
+            body=f"El destino está a {distance_km} km. Debes rechazar este raite.",
+            data={
+                "type": "ride_destination_too_far",
+                "ride_id": ride_id,
+                "distance_km": str(distance_km),
+            },
+        )
+
+    @staticmethod
+    async def send_ride_accepted(buyer_uid: str, ride_id: str) -> None:
+        await NotificationService.send_to_user(
+            uid=buyer_uid,
+            title="¡El vendedor aceptó tu raite!",
+            body="El vendedor se dirige hacia tu punto de recogida.",
+            data={"type": "ride_request_accepted", "ride_id": ride_id},
+        )
+
+    @staticmethod
+    async def send_ride_rejected(buyer_uid: str, ride_id: str, reason: str) -> None:
+        await NotificationService.send_to_user(
+            uid=buyer_uid,
+            title="El vendedor no pudo llevarte",
+            body="Intenta con otro vendedor cercano.",
+            data={"type": "ride_request_rejected", "ride_id": ride_id, "reason": reason},
+        )
+
+    @staticmethod
+    async def send_ride_completed(buyer_uid: str, vendor_uid: str, ride_id: str) -> None:
+        await NotificationService.send_to_user(
+            uid=buyer_uid,
+            title="¡Raite completado!",
+            body="Llegaste a tu destino. ¡Que te vaya bien!",
+            data={"type": "ride_completed", "ride_id": ride_id},
+        )
+        await NotificationService.send_to_user(
+            uid=vendor_uid,
+            title="Raite completado",
+            body="El viaje terminó exitosamente.",
+            data={"type": "ride_completed", "ride_id": ride_id},
+        )
+
+    @staticmethod
+    async def send_ride_vendor_arrived(buyer_uid: str, ride_id: str) -> None:
+        await NotificationService.send_to_user(
+            uid=buyer_uid,
+            title="¡El vendedor llegó!",
+            body="El vendedor está esperándote en el punto de recogida.",
+            data={"type": "ride_vendor_arrived", "ride_id": ride_id},
+        )
+
+    @staticmethod
+    async def send_ride_cancelled_by_buyer(vendor_uid: str, ride_id: str) -> None:
+        await NotificationService.send_to_user(
+            uid=vendor_uid,
+            title="Raite cancelado",
+            body="El pasajero canceló el raite.",
+            data={"type": "ride_cancelled_by_buyer", "ride_id": ride_id},
+        )
+
+    @staticmethod
+    async def send_ride_expired(vendor_uid: str, ride_id: str) -> None:
+        await NotificationService.send_to_user(
+            uid=vendor_uid,
+            title="Solicitud expirada",
+            body="La solicitud de raite expiró sin respuesta.",
+            data={"type": "ride_request_expired", "ride_id": ride_id},
+        )
+
     @staticmethod
     async def send_risk_zone_alert(
         tokens: list[str],

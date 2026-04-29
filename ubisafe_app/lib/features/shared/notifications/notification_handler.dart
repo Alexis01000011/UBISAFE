@@ -28,6 +28,28 @@ class StopEvent {
   final StopRequestStatus status;
 }
 
+/// Incoming ride request data for a vendor (ride_request_incoming FCM event).
+final incomingRideProvider =
+    StateProvider<Map<String, dynamic>?>((ref) => null);
+
+/// Ride lifecycle event for buyer/vendor screens.
+final rideEventProvider = StateProvider<RideEvent?>((ref) => null);
+
+class RideEvent {
+  const RideEvent(this.rideId, this.type);
+  final String rideId;
+  final RideEventType type;
+}
+
+enum RideEventType {
+  accepted,
+  rejected,
+  expired,
+  vendorArrived,
+  cancelledByBuyer,
+  completed,
+}
+
 /// Handles all FCM push-notification events for UbiSafe.
 class NotificationHandler {
   NotificationHandler(
@@ -37,10 +59,14 @@ class NotificationHandler {
     required void Function(StopEvent?) setStopEvent,
     required void Function() onRiskZoneAlert,
     required void Function() onCommunityReportNearby,
+    required void Function(Map<String, dynamic>?) setIncomingRide,
+    required void Function(RideEvent?) setRideEvent,
   })  : _setIncomingStop = setIncomingStop,
         _setStopEvent = setStopEvent,
         _onRiskZoneAlert = onRiskZoneAlert,
-        _onCommunityReportNearby = onCommunityReportNearby;
+        _onCommunityReportNearby = onCommunityReportNearby,
+        _setIncomingRide = setIncomingRide,
+        _setRideEvent = setRideEvent;
 
   final FirebaseMessaging _messaging;
   final Dio _dio;
@@ -48,6 +74,8 @@ class NotificationHandler {
   final void Function(StopEvent?) _setStopEvent;
   final void Function() _onRiskZoneAlert;
   final void Function() _onCommunityReportNearby;
+  final void Function(Map<String, dynamic>?) _setIncomingRide;
+  final void Function(RideEvent?) _setRideEvent;
   bool _initialized = false;
 
   /// Must be called once before runApp() — cannot be in init() because
@@ -93,6 +121,7 @@ class NotificationHandler {
   void _dispatchData(Map<String, dynamic> data) {
     final type = data['type'] as String?;
     final stopId = data['stop_id'] as String?;
+    final rideId = data['ride_id'] as String?;
 
     switch (type) {
       case 'stop_request_incoming':
@@ -119,6 +148,44 @@ class NotificationHandler {
       case 'community_report_nearby':
         _onCommunityReportNearby();
 
+      case 'ride_request_incoming':
+        _setIncomingRide(Map<String, dynamic>.from(data));
+
+      case 'ride_destination_too_far':
+        if (rideId != null) {
+          _setIncomingRide(Map<String, dynamic>.from(data));
+        }
+
+      case 'ride_request_accepted':
+        if (rideId != null) {
+          _setRideEvent(RideEvent(rideId, RideEventType.accepted));
+        }
+
+      case 'ride_request_rejected':
+        if (rideId != null) {
+          _setRideEvent(RideEvent(rideId, RideEventType.rejected));
+        }
+
+      case 'ride_request_expired':
+        if (rideId != null) {
+          _setRideEvent(RideEvent(rideId, RideEventType.expired));
+        }
+
+      case 'ride_vendor_arrived':
+        if (rideId != null) {
+          _setRideEvent(RideEvent(rideId, RideEventType.vendorArrived));
+        }
+
+      case 'ride_cancelled_by_buyer':
+        if (rideId != null) {
+          _setRideEvent(RideEvent(rideId, RideEventType.cancelledByBuyer));
+        }
+
+      case 'ride_completed':
+        if (rideId != null) {
+          _setRideEvent(RideEvent(rideId, RideEventType.completed));
+        }
+
       default:
         debugPrint('FCM unhandled type [$type]');
     }
@@ -142,5 +209,9 @@ final notificationHandlerProvider = Provider<NotificationHandler>((ref) {
         ref.read(activeRiskZonesProvider.notifier).refresh(),
     onCommunityReportNearby: () =>
         ref.read(activeCommunityReportsProvider.notifier).refresh(),
+    setIncomingRide: (data) =>
+        ref.read(incomingRideProvider.notifier).state = data,
+    setRideEvent: (event) =>
+        ref.read(rideEventProvider.notifier).state = event,
   );
 });

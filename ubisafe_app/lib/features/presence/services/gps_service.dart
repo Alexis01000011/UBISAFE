@@ -165,6 +165,12 @@ class GPSService {
     });
   }
 
+  /// Updates the `ride_enabled` flag on the RTDB node if transmission is active.
+  void updateRideEnabled(String vendorUid, bool value) {
+    if (_activeUid != vendorUid) return;
+    _rtdbRefFactory(vendorUid).update({'ride_enabled': value});
+  }
+
   void dispose() {
     _posSub?.cancel();
     _retryTimer?.cancel();
