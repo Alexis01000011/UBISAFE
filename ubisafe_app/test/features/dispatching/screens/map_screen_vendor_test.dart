@@ -11,6 +11,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
 
+import 'package:ubisafe_app/core/providers/auth_providers.dart';
 import 'package:ubisafe_app/features/dispatching/screens/map_screen_vendor.dart';
 import 'package:ubisafe_app/features/presence/services/gps_service.dart';
 import 'package:ubisafe_app/features/presence/services/vendor_tracker.dart';
@@ -37,7 +38,7 @@ Position _fakePosition({double lat = 19.43, double lng = -99.13}) =>
 /// Construye MapScreenVendor con providers mínimos para unit testing.
 Widget _buildVendorScreen({
   Position? gpsPosition,
-  Map<String, dynamic>? incomingStopData,
+  UserProfile? userProfile = const UserProfile(uid: 'vendor-test'),
 }) {
   return ProviderScope(
     overrides: [
@@ -47,8 +48,9 @@ Widget _buildVendorScreen({
       vendorMarkersProvider.overrideWith(
         (ref) => Stream.value([]),
       ),
-      // StateProvider<Map<String,dynamic>?> — overrideWith retorna el valor inicial
-      incomingStopRequestProvider.overrideWith((ref) => incomingStopData),
+      userProfileProvider.overrideWith((ref) => userProfile),
+      // En tests de diálogo entrante se actualiza este provider después del primer pump.
+      incomingStopRequestProvider.overrideWith((ref) => null),
       activeRiskZonesProvider.overrideWith((ref, _) => Future.value([])),
     ],
     child: const MaterialApp(
@@ -105,7 +107,7 @@ void main() {
       await tester.pumpWidget(
         _buildVendorScreen(gpsPosition: _fakePosition()),
       );
-      await tester.pump();
+      await tester.pumpAndSettle();
 
       await tester.tap(find.text('Activar Visibilidad'));
       await tester.pumpAndSettle();
@@ -123,7 +125,7 @@ void main() {
       await tester.pumpWidget(
         _buildVendorScreen(gpsPosition: _fakePosition()),
       );
-      await tester.pump();
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Activar Visibilidad'));
       await tester.pumpAndSettle();
 
@@ -147,12 +149,14 @@ void main() {
       await tester.pumpWidget(
         _buildVendorScreen(
           gpsPosition: _fakePosition(),
-          incomingStopData: incomingData,
         ),
       );
-      // primer frame para trigger listener → postFrameCallback → dialog
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(MapScreenVendor)),
+      );
+      container.read(incomingStopRequestProvider.notifier).state = incomingData;
+
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
       await tester.pumpAndSettle();
 
       expect(find.text('Nueva solicitud de parada'), findsOneWidget);
@@ -169,11 +173,13 @@ void main() {
       await tester.pumpWidget(
         _buildVendorScreen(
           gpsPosition: _fakePosition(),
-          incomingStopData: incomingData,
         ),
       );
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(MapScreenVendor)),
+      );
+      container.read(incomingStopRequestProvider.notifier).state = incomingData;
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
       await tester.pumpAndSettle();
 
       expect(find.text('Aceptar'), findsOneWidget);
@@ -189,11 +195,13 @@ void main() {
       await tester.pumpWidget(
         _buildVendorScreen(
           gpsPosition: _fakePosition(),
-          incomingStopData: incomingData,
         ),
       );
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(MapScreenVendor)),
+      );
+      container.read(incomingStopRequestProvider.notifier).state = incomingData;
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
       await tester.pumpAndSettle();
 
       // rejectStopRequest lanzará DioException (sin API real) — se captura en _showIncomingDialog

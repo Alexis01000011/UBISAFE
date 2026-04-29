@@ -17,8 +17,6 @@ import 'package:ubisafe_app/features/safety/services/risk_zone_service.dart';
 
 class MockDio extends Mock implements Dio {}
 
-class FakeRequestOptions extends Fake implements RequestOptions {}
-
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
 Map<String, dynamic> _riskZoneJson({
@@ -42,10 +40,6 @@ Map<String, dynamic> _riskZoneJson({
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 void main() {
-  setUpAll(() {
-    registerFallbackValue(FakeRequestOptions());
-  });
-
   group('activeRiskZonesProvider — llamada a GET /risk-zones', () {
     test('devuelve lista de RiskZone mapeada correctamente', () async {
       final mockDio = MockDio();
@@ -62,7 +56,7 @@ void main() {
         (_) async => Response(
           data: responseData,
           statusCode: 200,
-          requestOptions: FakeRequestOptions(),
+          requestOptions: RequestOptions(path: '/risk-zones'),
         ),
       );
 
@@ -97,7 +91,7 @@ void main() {
         (_) async => Response(
           data: responseData,
           statusCode: 200,
-          requestOptions: FakeRequestOptions(),
+          requestOptions: RequestOptions(path: '/risk-zones'),
         ),
       );
 
@@ -121,12 +115,12 @@ void main() {
             queryParameters: any(named: 'queryParameters'),
           )).thenThrow(
         DioException(
-          requestOptions: FakeRequestOptions(),
+          requestOptions: RequestOptions(path: '/risk-zones'),
           type: DioExceptionType.badResponse,
           response: Response(
             data: {'detail': 'Internal Server Error'},
             statusCode: 500,
-            requestOptions: FakeRequestOptions(),
+            requestOptions: RequestOptions(path: '/risk-zones'),
           ),
         ),
       );
@@ -183,7 +177,7 @@ void main() {
         return Response(
           data: <dynamic>[],
           statusCode: 200,
-          requestOptions: FakeRequestOptions(),
+          requestOptions: RequestOptions(path: '/risk-zones'),
         );
       });
 

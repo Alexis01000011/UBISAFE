@@ -17,8 +17,6 @@ import 'package:ubisafe_app/features/safety/screens/risk_form_bottom_sheet.dart'
 
 class MockDio extends Mock implements Dio {}
 
-class FakeRequestOptions extends Fake implements RequestOptions {}
-
 // ─── Helper ──────────────────────────────────────────────────────────────────
 
 /// Mounts RiskFormBottomSheet inside a ProviderScope + MaterialApp + Scaffold
@@ -52,10 +50,6 @@ Future<void> _pumpBottomSheet(
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 void main() {
-  setUpAll(() {
-    registerFallbackValue(FakeRequestOptions());
-  });
-
   group('RiskFormBottomSheet — renderizado inicial', () {
     testWidgets('muestra título "Reportar zona de riesgo"', (tester) async {
       final mockDio = MockDio();
@@ -149,7 +143,7 @@ void main() {
         (_) async => Response(
           data: {'id': 'new-zone'},
           statusCode: 201,
-          requestOptions: FakeRequestOptions(),
+          requestOptions: RequestOptions(path: '/risk-zones'),
         ),
       );
 
@@ -178,12 +172,12 @@ void main() {
             data: any(named: 'data'),
           )).thenThrow(
         DioException(
-          requestOptions: FakeRequestOptions(),
+          requestOptions: RequestOptions(path: '/risk-zones'),
           type: DioExceptionType.badResponse,
           response: Response(
             data: {'detail': 'Duplicate risk zone'},
             statusCode: 409,
-            requestOptions: FakeRequestOptions(),
+            requestOptions: RequestOptions(path: '/risk-zones'),
           ),
         ),
       );
@@ -215,12 +209,12 @@ void main() {
             data: any(named: 'data'),
           )).thenThrow(
         DioException(
-          requestOptions: FakeRequestOptions(),
+          requestOptions: RequestOptions(path: '/risk-zones'),
           type: DioExceptionType.badResponse,
           response: Response(
             data: {'detail': 'Duplicate'},
             statusCode: 409,
-            requestOptions: FakeRequestOptions(),
+            requestOptions: RequestOptions(path: '/risk-zones'),
           ),
         ),
       );
@@ -250,12 +244,12 @@ void main() {
             data: any(named: 'data'),
           )).thenThrow(
         DioException(
-          requestOptions: FakeRequestOptions(),
+          requestOptions: RequestOptions(path: '/risk-zones'),
           type: DioExceptionType.badResponse,
           response: Response(
             data: {'detail': 'Internal Server Error'},
             statusCode: 500,
-            requestOptions: FakeRequestOptions(),
+            requestOptions: RequestOptions(path: '/risk-zones'),
           ),
         ),
       );
