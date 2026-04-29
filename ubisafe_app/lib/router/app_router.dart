@@ -2,7 +2,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/providers/auth_providers.dart';
-import '../features/community/screens/community_reports_history_screen.dart';
+import '../features/community/models/community_report.dart';
+import '../features/community/screens/active_reports_screen.dart';
+import '../features/community/screens/report_detail_screen.dart';
 import '../features/dispatching/screens/map_screen_buyer.dart';
 import '../features/dispatching/screens/map_screen_vendor.dart';
 import '../features/dispatching/screens/tracking_screen.dart';
@@ -81,7 +83,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       // ── Community [iter.2] ─────────────────────────────────────────────
       GoRoute(
         path: '/community/reports',
-        builder: (_, __) => const CommunityReportsHistoryScreen(),
+        builder: (_, __) => const ActiveReportsScreen(),
+      ),
+      GoRoute(
+        path: '/community/reports/detail',
+        builder: (_, state) {
+          final report = state.extra as CommunityReport;
+          return ReportDetailScreen(report: report);
+        },
       ),
     ],
   );

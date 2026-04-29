@@ -51,3 +51,7 @@ class CreateCommunityReportBody(BaseModel):
     threat_type: ThreatType
     location: GeoPoint
     # radius_meters is always 15 — not accepted from client
+
+
+class VoteBody(BaseModel):
+    vote: ValidationVerdict

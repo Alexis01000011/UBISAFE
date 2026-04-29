@@ -11,9 +11,10 @@ from modules.community.schemas import (
     CreateCommunityReportBody,
     ReportStatus,
     Validation,
+    ValidationVerdict,
 )
-from modules.dispatching.schemas import CreateStopRequestBody, StopRequest
 from modules.dispatching.ride_schemas import CreateRideBody, Ride
+from modules.dispatching.schemas import CreateStopRequestBody, StopRequest
 from modules.identity.schemas import SyncProfileRequest, UserProfile
 from modules.safety.schemas import CreateRiskZoneBody, RiskZone
 from modules.shared.firebase_admin_init import FirebaseAdminInit
@@ -330,6 +331,40 @@ class FirestoreService:
         if not doc.exists:
             return None
         return cls._doc_to_community_report(doc)
+
+    @classmethod
+    async def vote_community_report(
+        cls, report_id: str, voter_uid: str, verdict: str
+    ) -> CommunityReport:
+        """Append a vote, increment the counter, and promote status if threshold reached."""
+        from google.cloud.firestore import ArrayUnion, Increment  # noqa: PLC0415
+
+        ref = cls._db().collection("community_reports").document(report_id)
+        doc = ref.get()
+        data = doc.to_dict() or {}
+
+        vote_entry = {
+            "user_uid": voter_uid,
+            "verdict": verdict,
+            "timestamp": datetime.now(tz=UTC).isoformat(),
+        }
+
+        update: dict[str, Any] = {
+            "validations": ArrayUnion([vote_entry]),
+            "updated_at": SERVER_TIMESTAMP,
+        }
+
+        if verdict == ValidationVerdict.confirm.value:
+            update["confirm_count"] = Increment(1)
+            if (data.get("confirm_count") or 0) + 1 >= 3:
+                update["status"] = ReportStatus.confirmed.value
+        else:
+            update["dismiss_count"] = Increment(1)
+            if (data.get("dismiss_count") or 0) + 1 >= 3:
+                update["status"] = ReportStatus.dismissed.value
+
+        ref.update(update)
+        return cls._doc_to_community_report(ref.get())
 
     # ------------------------------------------------------------------ rides
     @classmethod

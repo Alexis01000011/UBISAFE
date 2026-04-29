@@ -1,48 +1,31 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-enum VoteType { confirm, dismiss }
+import '../../../core/api/api_client.dart';
+import '../models/community_report.dart';
 
-/// ☆ [iter.2] CU-06 — Vote to confirm or dismiss a community report.
+/// CU-06 — Validation service: calls PATCH /community-reports/{id}/validations.
+/// Rules enforced by the API: no self-vote, no double-vote, only pending_validation.
 class ReportValidationModule {
-  ReportValidationModule(this._firestore);
+  ReportValidationModule(this._dio);
 
-  final FirebaseFirestore _firestore;
+  final Dio _dio;
 
-  CollectionReference<Map<String, dynamic>> get _reports =>
-      _firestore.collection('community_reports');
-
-  CollectionReference<Map<String, dynamic>> _votes(String reportId) =>
-      _reports.doc(reportId).collection('votes');
-
-  /// Cast or update a vote on [reportId] by [voterUid].
-  Future<void> vote({
+  /// Cast a [vote] ("confirm" or "dismiss") on [reportId].
+  /// Returns the updated [CommunityReport] on success.
+  /// Throws [DioException] on 403 (self-vote), 409 (already voted / wrong status).
+  Future<CommunityReport> vote({
     required String reportId,
-    required String voterUid,
-    required VoteType voteType,
+    required String vote,
   }) async {
-    final batch = _firestore.batch();
-
-    final voteRef = _votes(reportId).doc(voterUid);
-    batch.set(voteRef, {
-      'voter_uid': voterUid,
-      'vote': voteType.name,
-      'voted_at': FieldValue.serverTimestamp(),
-    });
-
-    // Increment the appropriate counter atomically.
-    final reportRef = _reports.doc(reportId);
-    if (voteType == VoteType.confirm) {
-      batch.update(reportRef, {'votes': FieldValue.increment(1)});
-    } else {
-      batch.update(reportRef, {'dismiss_votes': FieldValue.increment(1)});
-    }
-
-    await batch.commit();
+    final res = await _dio.patch<Map<String, dynamic>>(
+      '/community-reports/$reportId/validations',
+      data: {'vote': vote},
+    );
+    return CommunityReport.fromJson(res.data!);
   }
 }
 
-final reportValidationModuleProvider =
-    Provider<ReportValidationModule>((ref) {
-  return ReportValidationModule(FirebaseFirestore.instance);
-});
+final reportValidationModuleProvider = Provider<ReportValidationModule>(
+  (ref) => ReportValidationModule(ref.read(apiClientProvider)),
+);
