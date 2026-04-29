@@ -45,8 +45,8 @@ async def create_stop(
         NotificationService.send_stop_incoming(
             vendor_uid=body.vendor_uid,
             stop_id=doc.id,
-            buyer_lat=body.location.lat,
-            buyer_lng=body.location.lng,
+            buyer_lat=body.buyer_location.lat,
+            buyer_lng=body.buyer_location.lng,
         )
     )
     return doc

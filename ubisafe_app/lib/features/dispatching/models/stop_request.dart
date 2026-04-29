@@ -41,7 +41,7 @@ class StopRequest {
   // ─── Firestore deserialization ─────────────────────────────────────────────
 
   factory StopRequest.fromMap(String id, Map<String, dynamic> map) {
-    final raw = map['location'];
+    final raw = map['buyer_location'];
     double lat;
     double lng;
     if (raw is GeoPoint) {
@@ -72,7 +72,7 @@ class StopRequest {
   // ─── REST/JSON deserialization (respuesta FastAPI) ─────────────────────────
 
   factory StopRequest.fromJson(Map<String, dynamic> json) {
-    final loc = json['location'] as Map<String, dynamic>;
+    final loc = json['buyer_location'] as Map<String, dynamic>;
     return StopRequest(
       id: json['id'] as String,
       buyerUid: json['buyer_uid'] as String,
@@ -104,7 +104,7 @@ class StopRequest {
         'buyer_uid': buyerUid,
         if (vendorUid != null) 'vendor_uid': vendorUid,
         'status': status.name,
-        'location': GeoPoint(buyerLat, buyerLng),
+        'buyer_location': GeoPoint(buyerLat, buyerLng),
         'created_at': FieldValue.serverTimestamp(),
       };
 

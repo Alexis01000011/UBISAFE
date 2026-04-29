@@ -23,10 +23,10 @@ class StopRequestModule {
     required double buyerLng,
   }) async {
     final res = await _dio.post<Map<String, dynamic>>(
-      '/stops/',
+      '/stops',
       data: {
         'vendor_uid': vendorUid,
-        'location': {'lat': buyerLat, 'lng': buyerLng},
+        'buyer_location': {'lat': buyerLat, 'lng': buyerLng},
       },
     );
     final req = StopRequest.fromJson(res.data!);
