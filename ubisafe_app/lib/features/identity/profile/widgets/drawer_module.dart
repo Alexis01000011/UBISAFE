@@ -42,6 +42,14 @@ class DrawerModule extends ConsumerWidget {
                 context.go('/history');
               },
             ),
+            ListTile(
+              leading: const Icon(Icons.coronavirus_outlined),
+              title: const Text('Reportes activos'),
+              onTap: () {
+                Navigator.pop(context);
+                context.go('/community/reports');
+              },
+            ),
             const Divider(),
             ListTile(
               leading: const Icon(Icons.logout),

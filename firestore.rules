@@ -40,8 +40,19 @@ service cloud.firestore {
                             && resource.data.reporter_uid == request.auth.uid;
     }
 
-    // ─── iter.2: rides, community_reports ─────────────────────────────────
-    // Se añaden en F6 y F7 respectivamente.
+    // ─── COLECCIÓN: community_reports [iter. 2 — CU-05/CU-06] ───────────
+    // Lectura pública para autenticados (mapa muestra reportes a todos).
+    // Validaciones de negocio (distancia, doble voto, voto propio, umbrales)
+    // las aplica FastAPI con Admin SDK antes de escribir.
+    match /community_reports/{reportId} {
+      allow read:   if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if false;
+    }
+
+    // ─── iter.2: rides ────────────────────────────────────────────────────
+    // Se añade en F6.
 
   }
 }

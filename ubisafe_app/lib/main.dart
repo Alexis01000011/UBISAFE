@@ -29,7 +29,7 @@ Future<void> _connectToEmulators() async {
   const host = 'localhost';
   await FirebaseAuth.instance.useAuthEmulator(host, 9099,
       automaticHostMapping: false);
-  FirebaseFirestore.instance.useFirestoreEmulator(host, 8080);
+  FirebaseFirestore.instance.useFirestoreEmulator(host, 8082);
   FirebaseDatabase.instance.useDatabaseEmulator(host, 9000);
 }
 

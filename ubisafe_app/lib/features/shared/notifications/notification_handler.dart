@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_client.dart';
+import '../../community/services/community_report_module.dart';
 import '../../dispatching/models/stop_request.dart';
 import '../../safety/services/risk_zone_module.dart';
 
@@ -35,15 +36,18 @@ class NotificationHandler {
     required void Function(Map<String, dynamic>?) setIncomingStop,
     required void Function(StopEvent?) setStopEvent,
     required void Function() onRiskZoneAlert,
+    required void Function() onCommunityReportNearby,
   })  : _setIncomingStop = setIncomingStop,
         _setStopEvent = setStopEvent,
-        _onRiskZoneAlert = onRiskZoneAlert;
+        _onRiskZoneAlert = onRiskZoneAlert,
+        _onCommunityReportNearby = onCommunityReportNearby;
 
   final FirebaseMessaging _messaging;
   final Dio _dio;
   final void Function(Map<String, dynamic>?) _setIncomingStop;
   final void Function(StopEvent?) _setStopEvent;
   final void Function() _onRiskZoneAlert;
+  final void Function() _onCommunityReportNearby;
   bool _initialized = false;
 
   /// Must be called once before runApp() — cannot be in init() because
@@ -112,6 +116,9 @@ class NotificationHandler {
       case 'risk_zone_alert':
         _onRiskZoneAlert();
 
+      case 'community_report_nearby':
+        _onCommunityReportNearby();
+
       default:
         debugPrint('FCM unhandled type [$type]');
     }
@@ -133,5 +140,7 @@ final notificationHandlerProvider = Provider<NotificationHandler>((ref) {
         ref.read(stopRequestEventProvider.notifier).state = event,
     onRiskZoneAlert: () =>
         ref.read(activeRiskZonesProvider.notifier).refresh(),
+    onCommunityReportNearby: () =>
+        ref.read(activeCommunityReportsProvider.notifier).refresh(),
   );
 });

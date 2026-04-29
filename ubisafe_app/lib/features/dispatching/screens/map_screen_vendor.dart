@@ -7,6 +7,9 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../core/design_system/colors.dart';
 import '../../../core/providers/auth_providers.dart';
+import '../../community/models/community_report.dart';
+import '../../community/screens/community_form_bottom_sheet.dart';
+import '../../community/services/community_report_module.dart';
 import '../../identity/profile/widgets/drawer_module.dart';
 import '../../presence/services/gps_service.dart';
 import '../../safety/models/risk_zone.dart';
@@ -31,6 +34,8 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
   bool _isVisible = false;
   bool _isNavigating = false;
   bool _riskZonesLoaded = false;
+  bool _communityReportsLoaded = false;
+  bool _speedDialOpen = false;
   String? _activeStopId;
   List<LatLng> _routePolyline = [];
 
@@ -38,6 +43,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
   Widget build(BuildContext context) {
     final positionAsync = ref.watch(gpsServiceProvider);
     final riskZonesAsync = ref.watch(activeRiskZonesProvider);
+    final communityReportsAsync = ref.watch(activeCommunityReportsProvider);
 
     // Listen for incoming stop requests (vendor receives FCM)
     ref.listen<Map<String, dynamic>?>(incomingStopRequestProvider, (_, data) {
@@ -61,12 +67,17 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: AppColors.warning700,
-        foregroundColor: AppColors.surface,
-        tooltip: 'Reportar zona de riesgo',
-        onPressed: () => _onFabPressed(positionAsync.valueOrNull),
-        child: const Icon(Icons.add),
+      floatingActionButton: _VendorSpeedDial(
+        open: _speedDialOpen,
+        onToggle: () => setState(() => _speedDialOpen = !_speedDialOpen),
+        onRiskZone: () {
+          setState(() => _speedDialOpen = false);
+          _onFabPressed(positionAsync.valueOrNull);
+        },
+        onCommunityReport: () {
+          setState(() => _speedDialOpen = false);
+          _onCommunityFabPressed(positionAsync.valueOrNull);
+        },
       ),
       body: positionAsync.when(
         data: (position) {
@@ -99,10 +110,29 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
             });
           }
 
+          // Load community reports once
+          if (!_communityReportsLoaded) {
+            _communityReportsLoaded = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              ref.read(activeCommunityReportsProvider.notifier).load(
+                    lat: position.latitude,
+                    lng: position.longitude,
+                  );
+            });
+          }
+
           final riskCircles = riskZonesAsync.valueOrNull
                   ?.map((z) => _riskZoneToCircle(z))
                   .toSet() ??
               <Circle>{};
+
+          final communityMarkers = (communityReportsAsync.valueOrNull ?? [])
+              .where((r) =>
+                  !r.isDuplicate &&
+                  r.status != ReportStatus.expired &&
+                  r.status != ReportStatus.dismissed)
+              .map((r) => _communityReportToMarker(r))
+              .toSet();
 
           return Stack(
             children: [
@@ -112,6 +142,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
                 myLocationButtonEnabled: true,
                 polylines: polylines,
                 circles: riskCircles,
+                markers: communityMarkers,
               ),
               // Visibility toggle button
               Positioned(
@@ -370,6 +401,40 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
     );
   }
 
+  void _onCommunityFabPressed(dynamic position) {
+    final gpsStatus = ref.read(gpsStatusProvider).valueOrNull;
+    if (gpsStatus != GpsStatus.ready || position == null) {
+      showModalBottomSheet<void>(
+        context: context,
+        builder: (_) => const GpsRequiredEmptyState(),
+      );
+      return;
+    }
+    CommunityFormBottomSheet.show(
+      context,
+      lat: position.latitude,
+      lng: position.longitude,
+    );
+  }
+
+  static Marker _communityReportToMarker(CommunityReport report) {
+    final hue = report.threatType == ThreatType.animalMuerto
+        ? BitmapDescriptor.hueRose
+        : BitmapDescriptor.hueOrange;
+    final label = report.threatType == ThreatType.animalMuerto
+        ? 'Animal muerto'
+        : 'Zona sucia';
+    final statusLabel = report.status == ReportStatus.confirmed
+        ? ' · Validado'
+        : ' · Pendiente';
+    return Marker(
+      markerId: MarkerId('cr_${report.id}'),
+      position: LatLng(report.latitude, report.longitude),
+      icon: BitmapDescriptor.defaultMarkerWithHue(hue),
+      infoWindow: InfoWindow(title: label, snippet: statusLabel),
+    );
+  }
+
   /// Returns true if [zone] is within [radiusMeters]+50 m of the route segment.
   static bool _isNearRoute({
     required double originLat,
@@ -442,6 +507,102 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
       fillColor: fill,
       strokeColor: stroke,
       strokeWidth: 2,
+    );
+  }
+}
+
+// ── SpeedDial FAB — CU-03 + CU-05 (vendor map) ───────────────────────────────
+class _VendorSpeedDial extends StatelessWidget {
+  const _VendorSpeedDial({
+    required this.open,
+    required this.onToggle,
+    required this.onRiskZone,
+    required this.onCommunityReport,
+  });
+
+  final bool open;
+  final VoidCallback onToggle;
+  final VoidCallback onRiskZone;
+  final VoidCallback onCommunityReport;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        if (open) ...[
+          _VendorMiniAction(
+            icon: Icons.coronavirus_outlined,
+            label: 'Foco de infección',
+            color: const Color(0xFF795548),
+            onTap: onCommunityReport,
+          ),
+          const SizedBox(height: 8),
+          _VendorMiniAction(
+            icon: Icons.shield_outlined,
+            label: 'Zona de riesgo',
+            color: AppColors.warning700,
+            onTap: onRiskZone,
+          ),
+          const SizedBox(height: 8),
+        ],
+        FloatingActionButton(
+          backgroundColor: AppColors.warning700,
+          foregroundColor: AppColors.surface,
+          onPressed: onToggle,
+          child: AnimatedRotation(
+            turns: open ? 0.125 : 0,
+            duration: const Duration(milliseconds: 200),
+            child: const Icon(Icons.add),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _VendorMiniAction extends StatelessWidget {
+  const _VendorMiniAction({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(8),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.12),
+                blurRadius: 4,
+              )
+            ],
+          ),
+          child: Text(label, style: const TextStyle(fontSize: 13)),
+        ),
+        const SizedBox(width: 8),
+        FloatingActionButton.small(
+          heroTag: 'vendor_$label',
+          backgroundColor: color,
+          foregroundColor: AppColors.surface,
+          onPressed: onTap,
+          child: Icon(icon),
+        ),
+      ],
     );
   }
 }

@@ -9,6 +9,7 @@ import 'package:ubisafe_app/features/dispatching/screens/map_screen_buyer.dart';
 import 'package:ubisafe_app/features/dispatching/services/stop_request_module.dart';
 import 'package:ubisafe_app/features/presence/services/gps_service.dart';
 import 'package:ubisafe_app/features/presence/services/vendor_tracker.dart';
+import 'package:ubisafe_app/features/community/services/community_report_module.dart';
 import 'package:ubisafe_app/features/safety/services/risk_zone_module.dart';
 import 'package:ubisafe_app/features/shared/widgets/gps_required_empty_state.dart';
 
@@ -60,6 +61,9 @@ void main() {
         riskZoneModuleProvider.overrideWith(
           (ref) => RiskZoneModule(mockDio),
         ),
+        communityReportModuleProvider.overrideWith(
+          (ref) => CommunityReportModule(mockDio),
+        ),
       ];
 
   group('MapScreenBuyer — GPS guard', () {
@@ -92,6 +96,9 @@ void main() {
             ),
             riskZoneModuleProvider.overrideWith(
               (ref) => RiskZoneModule(mockDio),
+            ),
+            communityReportModuleProvider.overrideWith(
+              (ref) => CommunityReportModule(mockDio),
             ),
           ],
           child: const MaterialApp(home: MapScreenBuyer()),

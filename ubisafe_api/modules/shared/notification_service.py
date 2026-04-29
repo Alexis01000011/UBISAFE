@@ -93,6 +93,34 @@ class NotificationService:
         )
 
     @staticmethod
+    async def send_community_report_nearby(
+        tokens: list[str],
+        report_id: str,
+        threat_type: str,
+        lat: float,
+        lng: float,
+    ) -> None:
+        """FCM multicast to all users when a new community report is created."""
+        if not tokens:
+            return
+        fcm = FirebaseAdminInit.get_fcm()
+        data = {
+            "type": "community_report_nearby",
+            "report_id": report_id,
+            "threat_type": threat_type,
+            "lat": str(lat),
+            "lng": str(lng),
+        }
+        chunk_size = 500
+        for i in range(0, len(tokens), chunk_size):
+            chunk = tokens[i : i + chunk_size]
+            try:
+                message = fcm.MulticastMessage(data=data, tokens=chunk)
+                await asyncio.to_thread(fcm.send_each_for_multicast, message)
+            except Exception as exc:
+                logger.error("FCM community_report_nearby multicast failed: %s", exc)
+
+    @staticmethod
     async def send_risk_zone_alert(
         tokens: list[str],
         zone_id: str,

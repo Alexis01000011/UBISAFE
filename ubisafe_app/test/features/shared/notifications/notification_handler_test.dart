@@ -47,6 +47,7 @@ void main() {
         setIncomingStop: onIncoming ?? (_) {},
         setStopEvent: onEvent ?? (_) {},
         onRiskZoneAlert: () {},
+        onCommunityReportNearby: () {},
       );
 
   group('NotificationHandler.init', () {

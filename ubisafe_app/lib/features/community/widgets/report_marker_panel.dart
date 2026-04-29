@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/design_system/colors.dart';
 import '../models/community_report.dart';
-import '../services/report_validation_module.dart';
-import '../../../features/identity/auth/auth_module.dart';
 
-/// ☆ [iter.2] Detail panel shown when the user taps a community report marker.
-class ReportMarkerPanel extends ConsumerWidget {
+/// [iter.2] Detail panel shown when the user taps a community report marker (CU-05).
+/// CU-06 (voting) will be wired here in F8.
+class ReportMarkerPanel extends StatelessWidget {
   const ReportMarkerPanel({
     super.key,
     required this.report,
@@ -17,23 +16,35 @@ class ReportMarkerPanel extends ConsumerWidget {
   final VoidCallback onClose;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final userAsync = ref.watch(authStateProvider);
-    final validator = ref.read(reportValidationModuleProvider);
+  Widget build(BuildContext context) {
+    final typeLabel = report.threatType == ThreatType.animalMuerto
+        ? 'Animal muerto'
+        : 'Zona sucia';
+    final statusLabel = switch (report.status) {
+      ReportStatus.pendingValidation => 'Pendiente',
+      ReportStatus.confirmed => 'Validado',
+      ReportStatus.dismissed => 'Descartado',
+      ReportStatus.expired => 'Expirado',
+    };
+    final iconColor = report.threatType == ThreatType.animalMuerto
+        ? AppColors.neutral900
+        : const Color(0xFF795548);
 
     return Card(
       margin: const EdgeInsets.all(12),
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(16),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
+                Icon(Icons.coronavirus_outlined, color: iconColor),
+                const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    report.category,
+                    typeLabel,
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ),
@@ -43,45 +54,20 @@ class ReportMarkerPanel extends ConsumerWidget {
                 ),
               ],
             ),
-            Text(report.description),
-            const SizedBox(height: 8),
-            Text('Votos: ${report.votes}'),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    icon: const Icon(Icons.thumb_up),
-                    label: const Text('Confirmar'),
-                    onPressed: () {
-                      final uid = userAsync.valueOrNull?.uid;
-                      if (uid == null) return;
-                      validator.vote(
-                        reportId: report.id,
-                        voterUid: uid,
-                        voteType: VoteType.confirm,
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    icon: const Icon(Icons.thumb_down),
-                    label: const Text('Desestimar'),
-                    onPressed: () {
-                      final uid = userAsync.valueOrNull?.uid;
-                      if (uid == null) return;
-                      validator.vote(
-                        reportId: report.id,
-                        voterUid: uid,
-                        voteType: VoteType.dismiss,
-                      );
-                    },
-                  ),
-                ),
-              ],
+            const SizedBox(height: 4),
+            Text(
+              'Estado: $statusLabel',
+              style: const TextStyle(color: AppColors.textSecondary),
             ),
+            const SizedBox(height: 4),
+            Text(
+              '${report.confirmCount} confirmaciones · ${report.dismissCount} rechazos',
+              style: const TextStyle(color: AppColors.textSecondary),
+            ),
+            if (report.isDuplicate) ...[
+              const SizedBox(height: 4),
+              const Chip(label: Text('Reporte agrupado')),
+            ],
           ],
         ),
       ),

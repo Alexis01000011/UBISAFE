@@ -5,6 +5,9 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../core/design_system/colors.dart';
 import '../../../core/providers/auth_providers.dart';
+import '../../community/models/community_report.dart';
+import '../../community/screens/community_form_bottom_sheet.dart';
+import '../../community/services/community_report_module.dart';
 import '../../identity/profile/widgets/drawer_module.dart';
 import '../../presence/services/gps_service.dart';
 import '../../presence/services/vendor_tracker.dart';
@@ -30,12 +33,15 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
   _BuyerMapState _mapState = _BuyerMapState.idle;
   String? _activeStopId;
   bool _riskZonesLoaded = false;
+  bool _communityReportsLoaded = false;
+  bool _speedDialOpen = false;
 
   @override
   Widget build(BuildContext context) {
     final positionAsync = ref.watch(gpsServiceProvider);
     final vendorsAsync = ref.watch(vendorMarkersProvider);
     final riskZonesAsync = ref.watch(activeRiskZonesProvider);
+    final communityReportsAsync = ref.watch(activeCommunityReportsProvider);
 
     // Listen for FCM events (accepted/rejected/expired)
     ref.listen<StopEvent?>(stopRequestEventProvider, (_, event) {
@@ -71,12 +77,17 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
     return Scaffold(
       drawer: const DrawerModule(),
       appBar: AppBar(title: const Text('UbiSafe — Mapa')),
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: AppColors.warning700,
-        foregroundColor: AppColors.surface,
-        tooltip: 'Reportar zona de riesgo',
-        onPressed: () => _onFabPressed(positionAsync.valueOrNull),
-        child: const Icon(Icons.add),
+      floatingActionButton: _SpeedDial(
+        open: _speedDialOpen,
+        onToggle: () => setState(() => _speedDialOpen = !_speedDialOpen),
+        onRiskZone: () {
+          setState(() => _speedDialOpen = false);
+          _onFabPressed(positionAsync.valueOrNull);
+        },
+        onCommunityReport: () {
+          setState(() => _speedDialOpen = false);
+          _onCommunityFabPressed(positionAsync.valueOrNull);
+        },
       ),
       body: positionAsync.when(
         data: (position) {
@@ -120,10 +131,30 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
             });
           }
 
+          // Load community reports once
+          if (!_communityReportsLoaded) {
+            _communityReportsLoaded = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              ref.read(activeCommunityReportsProvider.notifier).load(
+                    lat: position.latitude,
+                    lng: position.longitude,
+                  );
+            });
+          }
+
           final riskCircles = riskZonesAsync.valueOrNull
                   ?.map((z) => _riskZoneToCircle(z))
                   .toSet() ??
               <Circle>{};
+
+          // Community report markers: skip duplicates (grouped under canonical pin)
+          final communityMarkers = (communityReportsAsync.valueOrNull ?? [])
+              .where((r) =>
+                  !r.isDuplicate &&
+                  r.status != ReportStatus.expired &&
+                  r.status != ReportStatus.dismissed)
+              .map((r) => _communityReportToMarker(r))
+              .toSet();
 
           return Stack(
             children: [
@@ -131,7 +162,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
                 initialCameraPosition: initialCamera,
                 myLocationEnabled: true,
                 myLocationButtonEnabled: true,
-                markers: markers,
+                markers: markers.union(communityMarkers),
                 circles: riskCircles,
               ),
               if (_mapState == _BuyerMapState.waiting)
@@ -216,6 +247,41 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
     );
   }
 
+  void _onCommunityFabPressed(dynamic position) {
+    final gpsStatus = ref.read(gpsStatusProvider).valueOrNull;
+    if (gpsStatus != GpsStatus.ready || position == null) {
+      showModalBottomSheet<void>(
+        context: context,
+        builder: (_) => const GpsRequiredEmptyState(),
+      );
+      return;
+    }
+    CommunityFormBottomSheet.show(
+      context,
+      lat: position.latitude,
+      lng: position.longitude,
+    );
+  }
+
+  // Flujo 9.6.C: duplicates are hidden; canonical pin shows as-is.
+  static Marker _communityReportToMarker(CommunityReport report) {
+    final hue = report.threatType == ThreatType.animalMuerto
+        ? BitmapDescriptor.hueRose // closest to black in Maps SDK hues
+        : BitmapDescriptor.hueOrange; // café approximation
+    final label = report.threatType == ThreatType.animalMuerto
+        ? 'Animal muerto'
+        : 'Zona sucia';
+    final statusLabel = report.status == ReportStatus.confirmed
+        ? ' · Validado'
+        : ' · Pendiente';
+    return Marker(
+      markerId: MarkerId('cr_${report.id}'),
+      position: LatLng(report.latitude, report.longitude),
+      icon: BitmapDescriptor.defaultMarkerWithHue(hue),
+      infoWindow: InfoWindow(title: label, snippet: statusLabel),
+    );
+  }
+
   static Circle _riskZoneToCircle(RiskZone zone) {
     final Color fill;
     final Color stroke;
@@ -237,6 +303,102 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
       fillColor: fill,
       strokeColor: stroke,
       strokeWidth: 2,
+    );
+  }
+}
+
+// ── SpeedDial FAB — CU-03 + CU-05 (SDD2_FASE2 §PASO 2'.4) ───────────────────
+class _SpeedDial extends StatelessWidget {
+  const _SpeedDial({
+    required this.open,
+    required this.onToggle,
+    required this.onRiskZone,
+    required this.onCommunityReport,
+  });
+
+  final bool open;
+  final VoidCallback onToggle;
+  final VoidCallback onRiskZone;
+  final VoidCallback onCommunityReport;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        if (open) ...[
+          _MiniAction(
+            icon: Icons.coronavirus_outlined,
+            label: 'Foco de infección',
+            color: const Color(0xFF795548),
+            onTap: onCommunityReport,
+          ),
+          const SizedBox(height: 8),
+          _MiniAction(
+            icon: Icons.shield_outlined,
+            label: 'Zona de riesgo',
+            color: AppColors.warning700,
+            onTap: onRiskZone,
+          ),
+          const SizedBox(height: 8),
+        ],
+        FloatingActionButton(
+          backgroundColor: AppColors.warning700,
+          foregroundColor: AppColors.surface,
+          onPressed: onToggle,
+          child: AnimatedRotation(
+            turns: open ? 0.125 : 0,
+            duration: const Duration(milliseconds: 200),
+            child: const Icon(Icons.add),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _MiniAction extends StatelessWidget {
+  const _MiniAction({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(8),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.12),
+                blurRadius: 4,
+              )
+            ],
+          ),
+          child: Text(label, style: const TextStyle(fontSize: 13)),
+        ),
+        const SizedBox(width: 8),
+        FloatingActionButton.small(
+          heroTag: label,
+          backgroundColor: color,
+          foregroundColor: AppColors.surface,
+          onPressed: onTap,
+          child: Icon(icon),
+        ),
+      ],
     );
   }
 }

@@ -6,12 +6,19 @@ from typing import Any
 
 from google.cloud.firestore import SERVER_TIMESTAMP
 
+from modules.community.schemas import (
+    CommunityReport,
+    CreateCommunityReportBody,
+    ReportStatus,
+    Validation,
+)
 from modules.dispatching.schemas import CreateStopRequestBody, StopRequest
 from modules.identity.schemas import SyncProfileRequest, UserProfile
 from modules.safety.schemas import CreateRiskZoneBody, RiskZone
 from modules.shared.firebase_admin_init import FirebaseAdminInit
 
 _RISK_ZONE_TTL_HOURS = 24
+_COMMUNITY_REPORT_TTL_HOURS = 24
 _EARTH_RADIUS_KM = 6371.0
 
 
@@ -220,3 +227,105 @@ class FirestoreService:
             for d in docs
             if d.to_dict().get("fcm_token")
         ]
+
+    # -------------------------------------------------- community_reports
+    @classmethod
+    def _doc_to_community_report(cls, doc: Any) -> CommunityReport:
+        raw = doc.to_dict() or {}
+        loc = raw.get("location", {})
+        if hasattr(loc, "latitude"):
+            # Native Firestore GeoPoint
+            raw["location"] = {"lat": loc.latitude, "lng": loc.longitude}
+        # Normalize Validation timestamps
+        validations = []
+        for v in raw.get("validations", []):
+            ts = v.get("timestamp")
+            validations.append(
+                Validation(
+                    user_uid=v.get("user_uid", ""),
+                    verdict=v.get("verdict", "confirm"),
+                    timestamp=ts.isoformat() if hasattr(ts, "isoformat") else str(ts) if ts else None,
+                )
+            )
+        raw["validations"] = [v.model_dump() for v in validations]
+        for field in ("created_at", "updated_at", "expires_at"):
+            val = raw.get(field)
+            if hasattr(val, "isoformat"):
+                raw[field] = val.isoformat()
+            elif hasattr(val, "timestamp"):
+                raw[field] = datetime.fromtimestamp(val.timestamp(), tz=UTC).isoformat()
+        return CommunityReport(id=doc.id, **raw)
+
+    @classmethod
+    async def create_community_report(
+        cls, uid: str, body: CreateCommunityReportBody
+    ) -> CommunityReport:
+        expires_at = (
+            datetime.now(tz=UTC) + timedelta(hours=_COMMUNITY_REPORT_TTL_HOURS)
+        ).isoformat()
+        data = {
+            "reporter_uid": uid,
+            "threat_type": body.threat_type.value,
+            "location": body.location.model_dump(),
+            "radius_meters": 15,
+            "status": ReportStatus.pending_validation.value,
+            "validations": [],
+            "confirm_count": 0,
+            "dismiss_count": 0,
+            "is_duplicate": False,
+            "canonical_report_id": None,
+            "created_at": SERVER_TIMESTAMP,
+            "updated_at": SERVER_TIMESTAMP,
+            "expires_at": expires_at,
+        }
+        _, ref = cls._db().collection("community_reports").add(data)
+        doc = ref.get()
+        return cls._doc_to_community_report(doc)
+
+    @classmethod
+    async def get_community_reports_in_bbox(
+        cls,
+        lat: float | None,
+        lng: float | None,
+        radius_km: float | None,
+    ) -> list[CommunityReport]:
+        """Return pending_validation and confirmed reports, optionally filtered by proximity."""
+        active_statuses = [
+            ReportStatus.pending_validation.value,
+            ReportStatus.confirmed.value,
+        ]
+        query = cls._db().collection("community_reports").where(
+            "status", "in", active_statuses
+        )
+
+        if lat is not None and lng is not None and radius_km is not None:
+            delta_lat = radius_km / 111.0
+            delta_lng = radius_km / (111.0 * math.cos(math.radians(lat)))
+            query = (
+                query.where("location.lat", ">=", lat - delta_lat)
+                .where("location.lat", "<=", lat + delta_lat)
+            )
+            docs = query.stream()
+            results = []
+            for d in docs:
+                raw = d.to_dict() or {}
+                loc = raw.get("location", {})
+                if hasattr(loc, "latitude"):
+                    doc_lat, doc_lng = loc.latitude, loc.longitude
+                else:
+                    doc_lat = loc.get("lat", 0.0)
+                    doc_lng = loc.get("lng", 0.0)
+                if abs(doc_lng - lng) <= delta_lng and _haversine_km(
+                    lat, lng, doc_lat, doc_lng
+                ) <= radius_km:
+                    results.append(cls._doc_to_community_report(d))
+            return results
+
+        return [cls._doc_to_community_report(d) for d in query.stream()]
+
+    @classmethod
+    async def get_community_report(cls, report_id: str) -> CommunityReport | None:
+        doc = cls._db().collection("community_reports").document(report_id).get()
+        if not doc.exists:
+            return None
+        return cls._doc_to_community_report(doc)
