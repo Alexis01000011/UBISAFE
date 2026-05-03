@@ -9,6 +9,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../core/design_system/colors.dart';
 import '../../../core/providers/auth_providers.dart';
+import '../../identity/auth/auth_module.dart';
 import '../../community/models/community_report.dart';
 import '../../community/screens/community_form_bottom_sheet.dart';
 import '../../community/services/community_report_module.dart';
@@ -263,12 +264,15 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
   }
 
   Future<void> _onToggle(BuildContext context) async {
-    final profile = ref.read(userProfileProvider).valueOrNull;
-    if (profile?.uid == null) return;
+    // Use the uid from authStateProvider directly — it is always available
+    // while the user is authenticated, unlike userProfileProvider which may
+    // be loading or null if a re-evaluation is in flight.
+    final uid = ref.read(authStateProvider).valueOrNull?.uid;
+    if (uid == null) return;
 
     if (_isVisible) {
-      await ref.read(gpsServiceInstanceProvider).stopTransmission(profile!.uid);
-      setState(() => _isVisible = false);
+      await ref.read(gpsServiceInstanceProvider).stopTransmission(uid);
+      if (mounted) setState(() => _isVisible = false);
     } else {
       final confirmed = await showDialog<bool>(
         context: context,
@@ -291,8 +295,8 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
         ),
       );
       if (confirmed != true) return;
-      ref.read(gpsServiceInstanceProvider).startTransmission(profile!.uid);
-      setState(() => _isVisible = true);
+      ref.read(gpsServiceInstanceProvider).startTransmission(uid);
+      if (mounted) setState(() => _isVisible = true);
     }
   }
 

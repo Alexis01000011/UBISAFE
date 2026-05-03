@@ -9,6 +9,8 @@ from modules.shared.notification_service import NotificationService
 
 router = APIRouter()
 
+_RISK_ZONE_NOTIFY_RADIUS_KM = 5.0
+
 
 @router.get("/health")
 async def health() -> dict:
@@ -66,7 +68,9 @@ async def expire_risk_zone(
 
 
 async def _notify_all(zone_id: str, body: CreateRiskZoneBody) -> None:
-    tokens = await FirestoreService.get_all_user_fcm_tokens()
+    tokens = await FirestoreService.get_nearby_user_fcm_tokens(
+        body.location.lat, body.location.lng, _RISK_ZONE_NOTIFY_RADIUS_KM
+    )
     await NotificationService.send_risk_zone_alert(
         tokens=tokens,
         zone_id=zone_id,

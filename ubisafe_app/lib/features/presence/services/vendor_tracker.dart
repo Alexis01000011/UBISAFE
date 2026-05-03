@@ -20,9 +20,9 @@ const double _kRadiusKm = 4.0;
 class VendorTracker {
   VendorTracker({DatabaseReference? rtdbRef}) {
     final ref = rtdbRef ?? FirebaseDatabase.instance.ref('vendedores_activos');
-    _init(ref.onValue.map(
-      (event) => event.snapshot.value as Map<dynamic, dynamic>? ?? {},
-    ));
+    _init(ref.onValue
+        .map((event) => event.snapshot.value as Map<dynamic, dynamic>? ?? {})
+        .asBroadcastStream());
   }
 
   /// Test-friendly constructor: inject a raw map stream directly.
@@ -42,13 +42,18 @@ class VendorTracker {
   void _init(Stream<Map<dynamic, dynamic>> stream) {
     _sub = stream.listen(
       (raw) {
-        _vendors = {
-          for (final e in raw.entries)
-            e.key as String: VendorMarker.fromMap(
+        final updated = <String, VendorMarker>{};
+        for (final e in raw.entries) {
+          try {
+            updated[e.key as String] = VendorMarker.fromMap(
               e.key as String,
               e.value as Map<dynamic, dynamic>,
-            ),
-        };
+            );
+          } catch (_) {
+            // Skip malformed entries — don't crash the whole stream.
+          }
+        }
+        _vendors = updated;
         _emit();
       },
       onError: (_) {
@@ -69,7 +74,8 @@ class VendorTracker {
     final lat = _buyerLat;
     final lng = _buyerLng;
     if (lat == null || lng == null) {
-      _controller.add(List.unmodifiable(_vendors.values));
+      // No GPS fix yet — show nothing rather than the full unfiltered set.
+      _controller.add(const []);
       return;
     }
     _controller.add(
@@ -112,9 +118,19 @@ class VendorTracker {
 final _vendorTrackerInstanceProvider = Provider<VendorTracker>((ref) {
   final tracker = VendorTracker();
 
-  // Keep Haversine filter in sync with buyer's GPS position.
+  // Seed with the current GPS position if already available.
+  // ref.listen only fires on *subsequent* changes — without this read the
+  // tracker's _buyerLat/_buyerLng stays null if GPS was already streaming
+  // when this provider was first created, causing _emit() to always return
+  // an empty vendor list regardless of active vendors in RTDB.
+  final initialPos = ref.read(gpsServiceProvider).valueOrNull;
+  if (initialPos != null) {
+    tracker.updateBuyerPosition(initialPos.latitude, initialPos.longitude);
+  }
+
+  // Keep in sync with subsequent GPS position changes.
   ref.listen<AsyncValue<Position?>>(gpsServiceProvider, (_, next) {
-    final pos = next.value;
+    final pos = next.valueOrNull;
     if (pos != null) tracker.updateBuyerPosition(pos.latitude, pos.longitude);
   });
 

@@ -2,13 +2,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/providers/auth_providers.dart';
+import '../features/identity/auth/auth_module.dart';
 import '../features/community/models/community_report.dart';
 import '../features/community/screens/active_reports_screen.dart';
 import '../features/community/screens/report_detail_screen.dart';
 import '../features/dispatching/screens/map_screen_buyer.dart';
 import '../features/dispatching/screens/map_screen_vendor.dart';
 import '../features/dispatching/screens/tracking_screen.dart';
-import '../features/identity/auth/auth_module.dart';
 import '../features/identity/auth/screens/login_screen.dart';
 import '../features/identity/auth/screens/signup_data_screen.dart';
 import '../features/identity/auth/screens/signup_role_screen.dart';
@@ -27,9 +27,18 @@ const _authPaths = {
 };
 
 final appRouterProvider = Provider<GoRouter>((ref) {
+  // Only watch authStateProvider — NOT userProfileProvider.
+  //
+  // Watching userProfileProvider caused GoRouter to recreate a new instance
+  // every time the profile loaded, which reset the navigation stack to
+  // initialLocation ('/splash') mid-session. This produced a race between
+  // the redirect and SplashScreen._checkSession, always losing the role.
+  //
+  // Role-based routing is the responsibility of the screens:
+  //   • SplashScreen._checkSession — session restore on app start / after login
+  //   • SignupRoleScreen — navigates directly after registration
+  // The router redirect only enforces authentication guards.
   final authState = ref.watch(authStateProvider);
-  // Read profile synchronously (may be null/loading on first frame).
-  final profileAsync = ref.watch(userProfileProvider);
 
   return GoRouter(
     initialLocation: '/splash',
@@ -38,16 +47,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       final path = state.matchedLocation;
       final isAuthPath = _authPaths.contains(path);
 
-      // Not logged in and trying to access a protected route → welcome.
+      // Unauthenticated user on a protected route → welcome.
       if (!isLoggedIn && !isAuthPath) return '/welcome';
 
-      // Logged in and still on an auth screen (other than splash, which handles
-      // its own navigation): redirect to the role-appropriate home.
-      // Splash handles its own navigation via SessionCheck; skip it here.
-      if (isLoggedIn && isAuthPath && path != '/splash') {
-        final role = profileAsync.valueOrNull?.role;
-        return role == 'VENDOR' ? '/home/vendor' : '/home/buyer';
-      }
+      // Logged-in user still on an auth screen (other than splash which
+      // routes itself): send to splash so _checkSession can route to the
+      // role-appropriate home without racing against a half-loaded profile.
+      // Do NOT redirect /welcome to /splash. Welcome is the intended fallback
+      // for users with no Firestore profile; redirecting it would cause an
+      // infinite loop (splash → null profile → signOut → welcome → splash…).
+      if (isLoggedIn && isAuthPath && path != '/splash' && path != '/welcome') return '/splash';
 
       return null;
     },

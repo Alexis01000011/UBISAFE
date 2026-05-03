@@ -1,0 +1,95 @@
+[debug] [2026-05-03T19:18:48.357Z] ----------------------------------------------------------------------
+[debug] [2026-05-03T19:18:48.359Z] Command:       C:\nvm4w\nodejs\node.exe C:\nvm4w\nodejs\node_modules\firebase-tools\lib\bin\firebase.js emulators:start --project demo-ubisafe
+[debug] [2026-05-03T19:18:48.360Z] CLI Version:   15.16.0
+[debug] [2026-05-03T19:18:48.360Z] Platform:      win32
+[debug] [2026-05-03T19:18:48.360Z] Node Version:  v20.20.2
+[debug] [2026-05-03T19:18:48.360Z] Time:          Sun May 03 2026 13:18:48 GMT-0600 (hora estándar central)
+[debug] [2026-05-03T19:18:48.360Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-05-03T19:18:49.419Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-05-03T19:18:49.420Z] > authorizing via signed-in user (ultralitogodofredo@gmail.com)
+[debug] [2026-05-03T19:18:49.523Z] java version "21.0.11" 2026-04-21 LTS
+
+[debug] [2026-05-03T19:18:49.523Z] Java(TM) SE Runtime Environment (build 21.0.11+9-LTS-211)
+Java HotSpot(TM) 64-Bit Server VM (build 21.0.11+9-LTS-211, mixed mode, sharing)
+
+[debug] [2026-05-03T19:18:49.533Z] Parsed Java major version: 21
+[info] i  emulators: Starting emulators: auth, functions, firestore, database, hosting, extensions {"metadata":{"emulator":{"name":"hub"},"message":"Starting emulators: auth, functions, firestore, database, hosting, extensions"}}
+[info] i  emulators: Detected demo project ID "demo-ubisafe", emulated services will use a demo configuration and attempts to access non-emulated services for this project will fail. {"metadata":{"emulator":{"name":"hub"},"message":"Detected demo project ID \"demo-ubisafe\", emulated services will use a demo configuration and attempts to access non-emulated services for this project will fail."}}
+[warn] !  hosting: The hosting emulator is configured but there is no hosting configuration. Have you run firebase init hosting? {"metadata":{"emulator":{"name":"hosting"},"message":"The hosting emulator is configured but there is no hosting configuration. Have you run \u001b[1mfirebase init hosting\u001b[22m?"}}
+[debug] [2026-05-03T19:18:49.546Z] [logging] Logging Emulator only supports listening on one address (127.0.0.1). Not listening on ::1
+[debug] [2026-05-03T19:18:49.547Z] [auth] Authentication Emulator only supports listening on one address (127.0.0.1). Not listening on ::1
+[debug] [2026-05-03T19:18:49.547Z] [firestore] Firestore Emulator only supports listening on one address (127.0.0.1). Not listening on ::1
+[debug] [2026-05-03T19:18:49.547Z] [firestore.websocket] websocket server for firestore only supports listening on one address (127.0.0.1). Not listening on ::1
+[debug] [2026-05-03T19:18:49.547Z] [database] Database Emulator only supports listening on one address (127.0.0.1). Not listening on ::1
+[debug] [2026-05-03T19:18:49.547Z] assigned listening specs for emulators {"user":{"hub":[{"address":"127.0.0.1","family":"IPv4","port":4400},{"address":"::1","family":"IPv6","port":4400}],"ui":[{"address":"127.0.0.1","family":"IPv4","port":4000},{"address":"::1","family":"IPv6","port":4000}],"logging":[{"address":"127.0.0.1","family":"IPv4","port":4500}],"auth":[{"address":"127.0.0.1","family":"IPv4","port":9099}],"firestore":[{"address":"127.0.0.1","family":"IPv4","port":8088}],"firestore.websocket":[{"address":"127.0.0.1","family":"IPv4","port":9150}],"database":[{"address":"127.0.0.1","family":"IPv4","port":9000}]},"metadata":{"message":"assigned listening specs for emulators"}}
+[debug] [2026-05-03T19:18:49.551Z] Write emulator hub locator at C:\Users\ultra\AppData\Local\Temp\hub-demo-ubisafe.json
+[debug] [2026-05-03T19:18:49.561Z] [Extensions] Started Extensions emulator, this is a noop.
+[debug] [2026-05-03T19:18:49.566Z] [functions] Functions Emulator only supports listening on one address (127.0.0.1). Not listening on ::1
+[debug] [2026-05-03T19:18:49.566Z] [eventarc] Eventarc Emulator only supports listening on one address (127.0.0.1). Not listening on ::1
+[debug] [2026-05-03T19:18:49.566Z] [tasks] Cloud Tasks Emulator only supports listening on one address (127.0.0.1). Not listening on ::1
+[debug] [2026-05-03T19:18:49.566Z] late-assigned ports for functions and eventarc emulators {"user":{"hub":[{"address":"127.0.0.1","family":"IPv4","port":4400},{"address":"::1","family":"IPv6","port":4400}],"ui":[{"address":"127.0.0.1","family":"IPv4","port":4000},{"address":"::1","family":"IPv6","port":4000}],"logging":[{"address":"127.0.0.1","family":"IPv4","port":4500}],"auth":[{"address":"127.0.0.1","family":"IPv4","port":9099}],"firestore":[{"address":"127.0.0.1","family":"IPv4","port":8088}],"firestore.websocket":[{"address":"127.0.0.1","family":"IPv4","port":9150}],"database":[{"address":"127.0.0.1","family":"IPv4","port":9000}],"functions":[{"address":"127.0.0.1","family":"IPv4","port":5001}],"eventarc":[{"address":"127.0.0.1","family":"IPv4","port":9299}],"tasks":[{"address":"127.0.0.1","family":"IPv4","port":9499}]},"metadata":{"message":"late-assigned ports for functions and eventarc emulators"}}
+[debug] [2026-05-03T19:18:49.645Z] defaultcredentials: writing to file C:\Users\ultra\AppData\Roaming\firebase\ultralitogodofredo_gmail_com_application_default_credentials.json
+[debug] [2026-05-03T19:18:49.647Z] Setting GAC to C:\Users\ultra\AppData\Roaming\firebase\ultralitogodofredo_gmail_com_application_default_credentials.json {"metadata":{"emulator":{"name":"functions"},"message":"Setting GAC to C:\\Users\\ultra\\AppData\\Roaming\\firebase\\ultralitogodofredo_gmail_com_application_default_credentials.json"}}
+[debug] [2026-05-03T19:18:49.662Z] Ignoring unsupported arg: auto_download {"metadata":{"emulator":{"name":"firestore"},"message":"Ignoring unsupported arg: auto_download"}}
+[debug] [2026-05-03T19:18:49.662Z] Ignoring unsupported arg: single_project_mode_error {"metadata":{"emulator":{"name":"firestore"},"message":"Ignoring unsupported arg: single_project_mode_error"}}
+[debug] [2026-05-03T19:18:49.662Z] Starting Firestore Emulator with command {"binary":"java","args":["-Dgoogle.cloud_firestore.debug_log_level=FINE","-Duser.language=en","-jar","C:\\Users\\ultra\\.cache\\firebase\\emulators\\cloud-firestore-emulator-v1.21.0.jar","--host","127.0.0.1","--port",8088,"--websocket_port",9150,"--database-edition","standard","--project_id","demo-ubisafe","--rules","C:\\Users\\ultra\\Documents\\Ingenieria\\Semestre Actual\\TSP\\Codigo\\UBISAFE\\firestore.rules","--single_project_mode",true,"--functions_emulator","127.0.0.1:5001"],"optionalArgs":["port","webchannel_port","host","rules","websocket_port","database-edition","functions_emulator","seed_from_export","project_id","single_project_mode"],"joinArgs":false,"shell":false,"port":8088} {"metadata":{"emulator":{"name":"firestore"},"message":"Starting Firestore Emulator with command {\"binary\":\"java\",\"args\":[\"-Dgoogle.cloud_firestore.debug_log_level=FINE\",\"-Duser.language=en\",\"-jar\",\"C:\\\\Users\\\\ultra\\\\.cache\\\\firebase\\\\emulators\\\\cloud-firestore-emulator-v1.21.0.jar\",\"--host\",\"127.0.0.1\",\"--port\",8088,\"--websocket_port\",9150,\"--database-edition\",\"standard\",\"--project_id\",\"demo-ubisafe\",\"--rules\",\"C:\\\\Users\\\\ultra\\\\Documents\\\\Ingenieria\\\\Semestre Actual\\\\TSP\\\\Codigo\\\\UBISAFE\\\\firestore.rules\",\"--single_project_mode\",true,\"--functions_emulator\",\"127.0.0.1:5001\"],\"optionalArgs\":[\"port\",\"webchannel_port\",\"host\",\"rules\",\"websocket_port\",\"database-edition\",\"functions_emulator\",\"seed_from_export\",\"project_id\",\"single_project_mode\"],\"joinArgs\":false,\"shell\":false,\"port\":8088}"}}
+[info] i  firestore: Firestore Emulator logging to firestore-debug.log {"metadata":{"emulator":{"name":"firestore"},"message":"Firestore Emulator logging to \u001b[1mfirestore-debug.log\u001b[22m"}}
+[info] +  firestore: Firestore Emulator was started in standard edition. {"metadata":{"emulator":{"name":"firestore"},"message":"Firestore Emulator was started in standard edition."}}
+[info] +  firestore: Firestore Emulator UI websocket is running on 9150. {"metadata":{"emulator":{"name":"firestore"},"message":"Firestore Emulator UI websocket is running on 9150."}}
+[debug] [2026-05-03T19:18:51.112Z] Checked if tokens are valid: true, expires at: 1777836899286
+[debug] [2026-05-03T19:18:51.112Z] Checked if tokens are valid: true, expires at: 1777836899286
+[debug] [2026-05-03T19:18:51.116Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects/demo-ubisafe [none]
+[debug] [2026-05-03T19:18:51.611Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects/demo-ubisafe 403
+[debug] [2026-05-03T19:18:51.611Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects/demo-ubisafe {"error":{"code":403,"message":"The caller does not have permission","status":"PERMISSION_DENIED"}}
+[debug] [2026-05-03T19:18:51.612Z] Request to https://firebase.googleapis.com/v1beta1/projects/demo-ubisafe had HTTP Error: 403, The caller does not have permission
+[debug] [2026-05-03T19:18:51.612Z] Failed to retrieve default database instance: Failed to get Firebase project demo-ubisafe. Please make sure the project exists and your account has permission to access it. {"metadata":{"emulator":{"name":"database"},"message":"Failed to retrieve default database instance: Failed to get Firebase project demo-ubisafe. Please make sure the project exists and your account has permission to access it."}}
+[debug] [2026-05-03T19:18:51.612Z] database rules config:  [{"instance":"demo-ubisafe-default-rtdb","rules":"C:\\Users\\ultra\\Documents\\Ingenieria\\Semestre Actual\\TSP\\Codigo\\UBISAFE\\database.rules.json"}]
+[debug] [2026-05-03T19:18:51.613Z] Ignoring unsupported arg: projectId {"metadata":{"emulator":{"name":"database"},"message":"Ignoring unsupported arg: projectId"}}
+[debug] [2026-05-03T19:18:51.613Z] Ignoring unsupported arg: auto_download {"metadata":{"emulator":{"name":"database"},"message":"Ignoring unsupported arg: auto_download"}}
+[debug] [2026-05-03T19:18:51.613Z] Ignoring unsupported arg: rules {"metadata":{"emulator":{"name":"database"},"message":"Ignoring unsupported arg: rules"}}
+[debug] [2026-05-03T19:18:51.613Z] Starting Database Emulator with command {"binary":"java","args":["-Duser.language=en","-jar","C:\\Users\\ultra\\.cache\\firebase\\emulators\\firebase-database-emulator-v4.11.2.jar","--host","127.0.0.1","--port",9000,"--single_project_mode","Warning","--functions_emulator_host","127.0.0.1","--functions_emulator_port",5001],"optionalArgs":["port","host","functions_emulator_port","functions_emulator_host","single_project_mode"],"joinArgs":false,"shell":false,"port":9000} {"metadata":{"emulator":{"name":"database"},"message":"Starting Database Emulator with command {\"binary\":\"java\",\"args\":[\"-Duser.language=en\",\"-jar\",\"C:\\\\Users\\\\ultra\\\\.cache\\\\firebase\\\\emulators\\\\firebase-database-emulator-v4.11.2.jar\",\"--host\",\"127.0.0.1\",\"--port\",9000,\"--single_project_mode\",\"Warning\",\"--functions_emulator_host\",\"127.0.0.1\",\"--functions_emulator_port\",5001],\"optionalArgs\":[\"port\",\"host\",\"functions_emulator_port\",\"functions_emulator_host\",\"single_project_mode\"],\"joinArgs\":false,\"shell\":false,\"port\":9000}"}}
+[info] i  database: Database Emulator logging to database-debug.log {"metadata":{"emulator":{"name":"database"},"message":"Database Emulator logging to \u001b[1mdatabase-debug.log\u001b[22m"}}
+[debug] [2026-05-03T19:18:58.878Z] [Extensions] Connecting Extensions emulator, this is a noop.
+[info] i  functions: Watching "C:\Users\ultra\Documents\Ingenieria\Semestre Actual\TSP\Codigo\UBISAFE\functions" for Cloud Functions... {"metadata":{"emulator":{"name":"functions"},"message":"Watching \"C:\\Users\\ultra\\Documents\\Ingenieria\\Semestre Actual\\TSP\\Codigo\\UBISAFE\\functions\" for Cloud Functions..."}}
+[debug] [2026-05-03T19:18:58.883Z] Customer code is not Node
+[debug] [2026-05-03T19:18:58.885Z] Validating python source
+[debug] [2026-05-03T19:18:58.885Z] Building python source
+[debug] [2026-05-03T19:18:58.889Z] Could not find functions.yaml. Must use http discovery
+[debug] [2026-05-03T19:18:58.904Z] Running command with virtualenv: command="C:\Users\ultra\Documents\Ingenieria\Semestre Actual\TSP\Codigo\UBISAFE\functions\venv\Scripts\activate.bat", args=["","&&","python.exe","-c","\"import firebase_functions; import os; print(os.path.dirname(firebase_functions.__file__))\""]
+[debug] [2026-05-03T19:18:58.920Z] stderr: El sistema no puede encontrar la ruta especificada.
+
+[error] !!  functions: Failed to load function definition from source: Error: spawn "C:\Users\ultra\Documents\Ingenieria\Semestre Actual\TSP\Codigo\UBISAFE\functions\venv\Scripts\activate.bat" ENOENT {"metadata":{"emulator":{"name":"functions"},"message":"Failed to load function definition from source: Error: spawn \"C:\\Users\\ultra\\Documents\\Ingenieria\\Semestre Actual\\TSP\\Codigo\\UBISAFE\\functions\\venv\\Scripts\\activate.bat\" ENOENT"}}
+[debug] [2026-05-03T19:18:58.924Z] >>> [apiv2][query] PUT http://127.0.0.1:9000/.settings/rules.json ns=demo-ubisafe-default-rtdb
+[debug] [2026-05-03T19:18:58.924Z] >>> [apiv2][body] PUT http://127.0.0.1:9000/.settings/rules.json "{\r\n  \"rules\": {\r\n    \"vendedores_activos\": {\r\n      \".read\": \"auth != null\",\r\n      \"$vendor_uid\": {\r\n        \".write\": \"auth != null && auth.uid === $vendor_uid\",\r\n        \".read\": \"auth != null\",\r\n        \".validate\": \"newData.hasChildren(['lat', 'lng', 'timestamp', 'activo'])\",\r\n        \"lat\": {\r\n          \".validate\": \"newData.isNumber() && newData.val() >= -90 && newData.val() <= 90\"\r\n        },\r\n        \"lng\": {\r\n          \".validate\": \"newData.isNumber() && newData.val() >= -180 && newData.val() <= 180\"\r\n        },\r\n        \"timestamp\": {\r\n          \".validate\": \"newData.isNumber() && newData.val() > 0\"\r\n        },\r\n        \"activo\": {\r\n          \".validate\": \"newData.isBoolean() && newData.val() === true\"\r\n        },\r\n        \"ride_enabled\": {\r\n          \".validate\": \"newData.isBoolean()\"\r\n        }\r\n      }\r\n    }\r\n  }\r\n}\r\n"
+[debug] [2026-05-03T19:18:59.369Z] <<< [apiv2][status] PUT http://127.0.0.1:9000/.settings/rules.json 200
+[debug] [2026-05-03T19:18:59.369Z] <<< [apiv2][body] PUT http://127.0.0.1:9000/.settings/rules.json {"status":"ok"}
+[debug] [2026-05-03T19:18:59.373Z] Could not find VSCode notification endpoint: FetchError: request to http://localhost:40001/vscode/notify failed, reason: . If you are not running the Firebase SQL Connect VSCode extension, this is expected and not an issue.
+[info] 
+┌─────────────────────────────────────────────────────────────┐
+│ ✔  All emulators ready! It is now safe to connect your app. │
+│ i  View Emulator UI at http://127.0.0.1:4000/               │
+└─────────────────────────────────────────────────────────────┘
+
+┌────────────────┬──────────────────────────────────┬──────────────────────────────────┐
+│ Emulator       │ Host:Port                        │ View in Emulator UI              │
+├────────────────┼──────────────────────────────────┼──────────────────────────────────┤
+│ Authentication │ 127.0.0.1:9099                   │ http://127.0.0.1:4000/auth       │
+├────────────────┼──────────────────────────────────┼──────────────────────────────────┤
+│ Functions      │ 127.0.0.1:5001                   │ http://127.0.0.1:4000/functions  │
+├────────────────┼──────────────────────────────────┼──────────────────────────────────┤
+│ Firestore      │ 127.0.0.1:8088                   │ http://127.0.0.1:4000/firestore  │
+├────────────────┼──────────────────────────────────┼──────────────────────────────────┤
+│ Database       │ 127.0.0.1:9000                   │ http://127.0.0.1:4000/database   │
+├────────────────┼──────────────────────────────────┼──────────────────────────────────┤
+│ Hosting        │ Failed to initialize (see above) │                                  │
+├────────────────┼──────────────────────────────────┼──────────────────────────────────┤
+│ Extensions     │ 127.0.0.1:5001                   │ http://127.0.0.1:4000/extensions │
+└────────────────┴──────────────────────────────────┴──────────────────────────────────┘
+  Emulator Hub host: 127.0.0.1 port: 4400
+  Other reserved ports: 4500, 9150
+┌─────────────────────────┬───────────────┬─────────────────────┐
+│ Extension Instance Name │ Extension Ref │ View in Emulator UI │
+└─────────────────────────┴───────────────┴─────────────────────┘
+Issues? Report them at https://github.com/firebase/firebase-tools/issues and attach the *-debug.log files.
+ 

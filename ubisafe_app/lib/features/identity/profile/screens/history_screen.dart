@@ -6,26 +6,42 @@ import 'package:intl/intl.dart';
 import '../../../../core/design_system/colors.dart';
 import '../../../../core/design_system/spacing.dart';
 import '../../../../core/design_system/typography.dart';
+import '../../../../core/providers/auth_providers.dart';
 import '../../auth/auth_module.dart';
 
 final historyProvider = FutureProvider<List<Map<String, dynamic>>>((ref) async {
   final user = ref.watch(authStateProvider).value;
   if (user == null) return [];
 
-  // Get user role from claims
-  final claims = (await user.getIdTokenResult(false)).claims ?? {};
-  final role = claims['role'] as String? ?? 'buyer';
+  // Role is stored in Firestore (via /auth/sync-profile), not in Firebase
+  // custom claims. Read from userProfileProvider to get the correct role.
+  final profile = await ref.watch(userProfileProvider.future);
+  if (profile == null) return [];
 
+  final role = profile.role?.toLowerCase() ?? 'buyer';
   final fieldToFilter = role == 'vendor' ? 'vendor_uid' : 'buyer_uid';
 
+  // Avoid composite-index requirement by sorting client-side.
   final snapshot = await FirebaseFirestore.instance
       .collection('rides')
       .where(fieldToFilter, isEqualTo: user.uid)
       .where('status', whereIn: ['completed', 'rejected', 'expired'])
-      .orderBy('updated_at', descending: true)
       .get();
 
-  return snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
+  final docs = snapshot.docs
+      .map((doc) => {'id': doc.id, ...doc.data()})
+      .toList();
+
+  docs.sort((a, b) {
+    final aTs = a['updated_at'] as Timestamp?;
+    final bTs = b['updated_at'] as Timestamp?;
+    if (aTs == null && bTs == null) return 0;
+    if (aTs == null) return 1;
+    if (bTs == null) return -1;
+    return bTs.compareTo(aTs);
+  });
+
+  return docs;
 });
 
 /// Displays the history of completed/rejected/expired trips for the current user.
@@ -50,7 +66,7 @@ class HistoryScreen extends ConsumerWidget {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.history_outlined, size: 64, color: AppColors.textSecondary.withOpacity(0.5)),
+                  Icon(Icons.history_outlined, size: 64, color: AppColors.textSecondary.withValues(alpha: 0.5)),
                   const SizedBox(height: AppSpacing.md),
                   Text('Aún no tienes viajes registrados', style: AppTypography.body1),
                 ],
@@ -65,30 +81,31 @@ class HistoryScreen extends ConsumerWidget {
             itemBuilder: (context, index) {
               final ride = rides[index];
               final status = ride['status'] as String? ?? 'unknown';
-              final price = ride['offered_price'] as double? ?? 0.0;
               final timestamp = ride['updated_at'] as Timestamp?;
-              final dateStr = timestamp != null 
-                  ? DateFormat('dd MMM yyyy, HH:mm').format(timestamp.toDate()) 
+              final dateStr = timestamp != null
+                  ? DateFormat('dd MMM yyyy, HH:mm').format(timestamp.toDate())
                   : 'Fecha desconocida';
 
-              Color statusColor;
-              IconData statusIcon;
+              final Color statusColor;
+              final IconData statusIcon;
+              final String statusLabel;
               switch (status) {
                 case 'completed':
                   statusColor = AppColors.success500;
                   statusIcon = Icons.check_circle_outline;
-                  break;
+                  statusLabel = 'Viaje Completado';
                 case 'rejected':
                   statusColor = AppColors.danger500;
                   statusIcon = Icons.cancel_outlined;
-                  break;
+                  statusLabel = 'Viaje Rechazado';
                 case 'expired':
                   statusColor = AppColors.textSecondary;
                   statusIcon = Icons.timer_off_outlined;
-                  break;
+                  statusLabel = 'Viaje Expirado';
                 default:
                   statusColor = AppColors.textSecondary;
                   statusIcon = Icons.help_outline;
+                  statusLabel = 'Estado desconocido';
               }
 
               return Container(
@@ -98,7 +115,7 @@ class HistoryScreen extends ConsumerWidget {
                   borderRadius: BorderRadius.circular(AppSpacing.sm),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
+                      color: Colors.black.withValues(alpha: 0.05),
                       blurRadius: 4,
                       offset: const Offset(0, 2),
                     ),
@@ -109,7 +126,7 @@ class HistoryScreen extends ConsumerWidget {
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: statusColor.withOpacity(0.1),
+                        color: statusColor.withValues(alpha: 0.1),
                         shape: BoxShape.circle,
                       ),
                       child: Icon(statusIcon, color: statusColor, size: 28),
@@ -120,17 +137,13 @@ class HistoryScreen extends ConsumerWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            status == 'completed' ? 'Viaje Completado' : status == 'rejected' ? 'Viaje Rechazado' : 'Viaje Expirado',
+                            statusLabel,
                             style: AppTypography.body1.copyWith(fontWeight: FontWeight.bold),
                           ),
                           const SizedBox(height: 4),
                           Text(dateStr, style: AppTypography.caption.copyWith(color: AppColors.textSecondary)),
                         ],
                       ),
-                    ),
-                    Text(
-                      '\$${price.toStringAsFixed(2)}',
-                      style: AppTypography.heading2.copyWith(color: AppColors.primary700),
                     ),
                   ],
                 ),

@@ -1,17 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../auth/auth_module.dart';
 import '../../../../core/design_system/colors.dart';
-import '../../../../core/design_system/typography.dart';
 import '../../../../core/design_system/spacing.dart';
-
-final userClaimsProvider = FutureProvider<Map<String, dynamic>>((ref) async {
-  final user = ref.watch(authStateProvider).value;
-  if (user == null) return {};
-  final tokenResult = await user.getIdTokenResult(true);
-  return tokenResult.claims ?? {};
-});
+import '../../../../core/design_system/typography.dart';
+import '../../../../core/providers/auth_providers.dart';
+import '../../auth/auth_module.dart';
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -19,7 +13,7 @@ class ProfileScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final userAsync = ref.watch(authStateProvider);
-    final claimsAsync = ref.watch(userClaimsProvider);
+    final profileAsync = ref.watch(userProfileProvider);
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -34,11 +28,12 @@ class ProfileScreen extends ConsumerWidget {
             return const Center(child: Text('Sin sesión'));
           }
 
-          return claimsAsync.when(
-            data: (claims) {
-              final role = claims['role'] as String? ?? 'Desconocido';
-              final name = claims['name'] as String? ?? 'Usuario';
-              final phone = claims['phone'] as String? ?? 'N/A';
+          return profileAsync.when(
+            data: (profile) {
+              final role = profile?.role ?? 'Desconocido';
+              final name = profile?.name ?? 'Usuario';
+              final phone = profile?.phone ?? 'N/A';
+              final isVendor = role.toUpperCase() == 'VENDOR';
 
               return SingleChildScrollView(
                 padding: const EdgeInsets.all(AppSpacing.lg),
@@ -49,7 +44,7 @@ class ProfileScreen extends ConsumerWidget {
                     Center(
                       child: CircleAvatar(
                         radius: 50,
-                        backgroundColor: AppColors.primary700.withOpacity(0.1),
+                        backgroundColor: AppColors.primary700.withValues(alpha: 0.1),
                         child: Text(
                           name[0].toUpperCase(),
                           style: AppTypography.heading1.copyWith(
@@ -70,7 +65,7 @@ class ProfileScreen extends ConsumerWidget {
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                         decoration: BoxDecoration(
-                          color: role == 'vendor' ? AppColors.secondary500 : AppColors.primary700,
+                          color: isVendor ? AppColors.secondary500 : AppColors.primary700,
                           borderRadius: BorderRadius.circular(16),
                         ),
                         child: Text(
@@ -109,16 +104,14 @@ class ProfileScreen extends ConsumerWidget {
                           borderRadius: BorderRadius.circular(AppSpacing.sm),
                         ),
                       ),
-                      onPressed: () {
-                        ref.read(authModuleProvider).signOut();
-                      },
+                      onPressed: () => ref.read(authModuleProvider).signOut(),
                     ),
                   ],
                 ),
               );
             },
             loading: () => const Center(child: CircularProgressIndicator()),
-            error: (e, _) => Center(child: Text('Error al cargar datos: $e')),
+            error: (e, _) => Center(child: Text('Error al cargar perfil: $e')),
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -139,7 +132,7 @@ class ProfileScreen extends ConsumerWidget {
         borderRadius: BorderRadius.circular(AppSpacing.sm),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 4,
             offset: const Offset(0, 2),
           ),

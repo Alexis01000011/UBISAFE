@@ -55,7 +55,9 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
           .read(userProfileProvider.future)
           .timeout(const Duration(seconds: 5));
       if (profile == null) {
-        // await ref.read(authModuleProvider).signOut();
+        // No profile in Firestore (partial registration or API unavailable).
+        // Sign out first so the router redirect doesn't loop back to /splash.
+        await ref.read(authModuleProvider).signOut();
         _go('/welcome');
         return;
       }
@@ -63,8 +65,11 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
       _go(home);
     } on TimeoutException {
       debugPrint('SplashScreen: Firestore timeout — redirecting to welcome');
+      // Sign out to prevent the logged-in → /welcome → /splash redirect loop.
+      try { await ref.read(authModuleProvider).signOut(); } catch (_) {}
       _go('/welcome');
     } catch (_) {
+      try { await ref.read(authModuleProvider).signOut(); } catch (_) {}
       _go('/welcome');
     }
   }

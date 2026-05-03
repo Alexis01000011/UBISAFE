@@ -221,6 +221,26 @@ class FirestoreService:
         docs = cls._db().collection("users").stream()
         return [d.to_dict()["fcm_token"] for d in docs if d.to_dict().get("fcm_token")]
 
+    @classmethod
+    async def get_nearby_user_fcm_tokens(
+        cls, lat: float, lng: float, radius_km: float
+    ) -> list[str]:
+        """Return FCM tokens for users whose last_location is within radius_km."""
+        docs = cls._db().collection("users").stream()
+        tokens: list[str] = []
+        for d in docs:
+            data = d.to_dict() or {}
+            token = data.get("fcm_token")
+            if not token:
+                continue
+            loc = data.get("last_location")
+            if not loc:
+                continue
+            dist = _haversine_km(lat, lng, loc.get("lat", 0.0), loc.get("lng", 0.0))
+            if dist <= radius_km:
+                tokens.append(token)
+        return tokens
+
     # -------------------------------------------------- community_reports
     @classmethod
     def _doc_to_community_report(cls, doc: Any) -> CommunityReport:
@@ -326,34 +346,46 @@ class FirestoreService:
     async def vote_community_report(
         cls, report_id: str, voter_uid: str, verdict: str
     ) -> CommunityReport:
-        """Append a vote, increment the counter, and promote status if threshold reached."""
-        from google.cloud.firestore import ArrayUnion, Increment  # noqa: PLC0415
+        """Append a vote and promote status atomically via a Firestore transaction."""
+        from google.cloud.firestore import transactional as fs_transactional  # noqa: PLC0415
 
-        ref = cls._db().collection("community_reports").document(report_id)
-        doc = ref.get()
-        data = doc.to_dict() or {}
+        db = cls._db()
+        ref = db.collection("community_reports").document(report_id)
 
-        vote_entry = {
-            "user_uid": voter_uid,
-            "verdict": verdict,
-            "timestamp": datetime.now(tz=UTC).isoformat(),
-        }
+        @fs_transactional
+        def _txn(transaction):
+            doc = ref.get(transaction=transaction)
+            data = doc.to_dict() or {}
 
-        update: dict[str, Any] = {
-            "validations": ArrayUnion([vote_entry]),
-            "updated_at": SERVER_TIMESTAMP,
-        }
+            vote_entry = {
+                "user_uid": voter_uid,
+                "verdict": verdict,
+                "timestamp": datetime.now(tz=UTC).isoformat(),
+            }
+            validations = list(data.get("validations", []))
+            validations.append(vote_entry)
 
-        if verdict == ValidationVerdict.confirm.value:
-            update["confirm_count"] = Increment(1)
-            if (data.get("confirm_count") or 0) + 1 >= 3:
-                update["status"] = ReportStatus.confirmed.value
-        else:
-            update["dismiss_count"] = Increment(1)
-            if (data.get("dismiss_count") or 0) + 1 >= 3:
-                update["status"] = ReportStatus.dismissed.value
+            confirm_count = data.get("confirm_count", 0)
+            dismiss_count = data.get("dismiss_count", 0)
+            update: dict[str, Any] = {
+                "validations": validations,
+                "updated_at": SERVER_TIMESTAMP,
+            }
 
-        ref.update(update)
+            if verdict == ValidationVerdict.confirm.value:
+                confirm_count += 1
+                update["confirm_count"] = confirm_count
+                if confirm_count >= 3:
+                    update["status"] = ReportStatus.confirmed.value
+            else:
+                dismiss_count += 1
+                update["dismiss_count"] = dismiss_count
+                if dismiss_count >= 3:
+                    update["status"] = ReportStatus.dismissed.value
+
+            transaction.update(ref, update)
+
+        _txn(db.transaction())
         return cls._doc_to_community_report(ref.get())
 
     # ------------------------------------------------------------------ rides

@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
-import '../../../../core/providers/auth_providers.dart';
 import '../auth_module.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -34,13 +32,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             email: _emailCtrl.text.trim(),
             password: _passwordCtrl.text,
           );
-
-      // Invalidate cached profile so it re-fetches with the new session.
-      ref.invalidate(userProfileProvider);
-      final profile = await ref.read(userProfileProvider.future);
-      final home = profile?.role == 'VENDOR' ? '/home/vendor' : '/home/buyer';
-
-      if (mounted) context.go(home);
+      // Navigation is handled by the GoRouter redirect in app_router.dart.
+      // When authStateProvider emits the new user, the router waits for
+      // userProfileProvider to load (isLoading guard) then routes to the
+      // correct home (/home/buyer or /home/vendor) based on role.
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

@@ -77,7 +77,7 @@ class _DrawerModuleState extends ConsumerState<DrawerModule> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                         decoration: BoxDecoration(
-                          color: isVendor ? AppColors.secondary500 : Colors.white.withOpacity(0.2),
+                          color: isVendor ? AppColors.secondary500 : Colors.white.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Text(
@@ -163,7 +163,7 @@ class _DrawerModuleState extends ConsumerState<DrawerModule> {
                   icon: const Icon(Icons.logout),
                   label: const Text('Cerrar Sesión'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.danger500.withOpacity(0.1),
+                    backgroundColor: AppColors.danger500.withValues(alpha: 0.1),
                     foregroundColor: AppColors.danger500,
                     elevation: 0,
                     minimumSize: const Size.fromHeight(50),
@@ -247,7 +247,7 @@ class _DrawerModuleState extends ConsumerState<DrawerModule> {
             icon: const Icon(Icons.logout),
             label: const Text('Cerrar Sesión'),
             style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.danger500.withOpacity(0.1),
+              backgroundColor: AppColors.danger500.withValues(alpha: 0.1),
               foregroundColor: AppColors.danger500,
               elevation: 0,
               minimumSize: const Size.fromHeight(50),

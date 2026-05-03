@@ -48,10 +48,17 @@ class AuthModule {
     required String email,
     required String password,
   }) async {
-    await _auth.createUserWithEmailAndPassword(
-      email: email,
-      password: password,
-    );
+    try {
+      await _auth.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+    } catch (e) {
+      // firebase_auth 4.16.0 on Android: same Pigeon deserialisation bug as
+      // signIn — account IS created but a type-cast exception is thrown.
+      // If currentUser is not null the account exists — continue normally.
+      if (_auth.currentUser == null) rethrow;
+    }
     await _dio.post<dynamic>('/auth/sync-profile', data: {
       'name': name,
       'phone': phone,

@@ -56,7 +56,7 @@ final gpsServiceProvider = StreamProvider<Position?>((ref) async* {
   yield* Geolocator.getPositionStream(
     locationSettings: const LocationSettings(
       accuracy: LocationAccuracy.high,
-      distanceFilter: 10,
+      distanceFilter: 0,
     ),
   ).map((p) => p as Position?);
 });
@@ -91,7 +91,6 @@ class GPSService {
             positionStreamFactory ?? _defaultPositionStream,
         _rtdbRefFactory = rtdbRefFactory ?? _defaultRtdbRef;
 
-  static const _kNoSignalTimeout = Duration(seconds: 10);
   static const _kRetryDelay = Duration(seconds: 5);
 
   final PositionStreamFactory _positionStreamFactory;
@@ -121,7 +120,14 @@ class GPSService {
     _retryTimer = null;
     await _posSub?.cancel();
     _posSub = null;
-    await _rtdbRefFactory(vendorUid).remove();
+    // Fire-and-forget with a short deadline. Firebase SDK queues RTDB
+    // operations and can hang indefinitely when the emulator is unreachable —
+    // the onDisconnect().remove() handler cleans up the node once connectivity
+    // is restored, so blocking here is unnecessary.
+    _rtdbRefFactory(vendorUid).remove().timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {},
+    ).catchError((_) {});
     if (!_stateCtrl.isClosed) _stateCtrl.add(GPSServiceState.inactive);
     _activeUid = null;
   }
@@ -134,8 +140,7 @@ class GPSService {
     _posSub = _positionStreamFactory(
       const LocationSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: 10,
-        timeLimit: _kNoSignalTimeout,
+        distanceFilter: 0,
       ),
     ).listen(
       (pos) {

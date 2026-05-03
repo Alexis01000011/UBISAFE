@@ -87,6 +87,10 @@ class _CommunityReportsNotifier
   double? _lat;
   double? _lng;
 
+  /// True if [load] has been called at least once (from a map screen or the
+  /// ActiveReportsScreen itself). Used to detect the "never loaded" state.
+  bool get hasCoordinates => _lat != null && _lng != null;
+
   Future<void> load({required double lat, required double lng}) async {
     _lat = lat;
     _lng = lng;
@@ -103,5 +107,11 @@ class _CommunityReportsNotifier
     if (_lat != null && _lng != null) {
       await load(lat: _lat!, lng: _lng!);
     }
+  }
+
+  /// Called by [ActiveReportsScreen] when GPS is not available and load was
+  /// never triggered. Replaces the eternal loading spinner with an error state.
+  void setGpsUnavailable() {
+    state = AsyncValue.error('gps_unavailable', StackTrace.current);
   }
 }

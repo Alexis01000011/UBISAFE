@@ -16,8 +16,9 @@ void main() {
     final origHandler = FlutterError.onError;
     FlutterError.onError = (details) {
       final msg = details.exception.toString();
-      if (msg.contains('allowRuntimeFetching') || msg.contains('Inter-'))
+      if (msg.contains('allowRuntimeFetching') || msg.contains('Inter-')) {
         return;
+      }
       origHandler?.call(details);
     };
 
