@@ -39,6 +39,22 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
   String? _vendorUid;
 
   @override
+  void initState() {
+    super.initState();
+    if (widget.stopRequestId != null) {
+      // Belt-and-suspenders: cancel the 60-second expiry timer that
+      // StopRequestModule started when the buyer sent the stop request.
+      // map_screen_buyer.dart already calls cancelTimer() on the accepted FCM
+      // event, but if FCM and the timer race (FCM arrives within the last ~1s),
+      // the timer callback fires anyway and hits a 400 on the already-accepted
+      // stop.  Cancelling here guarantees the timer is dead before it can fire.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) ref.read(stopRequestModuleProvider).cancelTimer();
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final positionAsync = ref.watch(gpsServiceProvider);
     final vendorsAsync = ref.watch(vendorMarkersProvider);
@@ -50,6 +66,7 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
       if (event.stopId != stopId) return;
       if (event.status == StopRequestStatus.completed) {
         ref.read(stopRequestEventProvider.notifier).state = null;
+        if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('¡El vendedor llegó!'),
@@ -203,7 +220,13 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
     if (stopId != null) {
       try {
         await ref.read(stopRequestModuleProvider).expireStopRequest(stopId);
-      } catch (_) {}
+      } catch (e) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al cancelar: $e')),
+        );
+        return;
+      }
     }
     if (context.mounted) Navigator.of(context).pop();
   }

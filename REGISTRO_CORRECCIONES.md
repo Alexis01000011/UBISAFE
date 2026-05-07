@@ -358,6 +358,172 @@
 
 ---
 
+### C-28 · Timer único de parada podía cancelar solicitud incorrecta (BUG-005)
+
+| Campo | Detalle |
+|---|---|
+| **Qué se corrigió (técnico)** | `Timer? _timeoutTimer` reemplazado por `Map<String, Timer> _timers`; `_startTimer` ahora indexa el timer por `stopId`; `cancelTimer()` cancela todos los timers del mapa |
+| **Qué se corrigió (simple)** | Si el comprador hacía dos solicitudes de parada seguidas, el segundo `createStopRequest` cancelaba el timer de la primera solicitud, dejando la primera sin expirar nunca; ahora cada solicitud tiene su propio timer |
+| **Clase / Método / Módulo** | `StopRequestModule._startTimer / cancelTimer` → `stop_request_module.dart` (`ubisafe_app/lib/features/dispatching/services/stop_request_module.dart`) |
+| **Justificación** | Un solo `Timer?` en la clase sólo puede apuntar a un callback pendiente; la segunda llamada a `_startTimer` hacía `_timeoutTimer?.cancel()` sobre el timer de la primera solicitud |
+| **Problema que resolvía** | Primera solicitud de parada nunca expiraba si se enviaba una segunda antes de que la primera llegara a 60 s |
+
+---
+
+### C-29 · expireRide silenciaba todos los errores de red (BUG-006)
+
+| Campo | Detalle |
+|---|---|
+| **Qué se corrigió (técnico)** | `catch (_) {}` reemplazado por `on DioException catch (e) { if (e.response?.statusCode == 409) return; rethrow; }` en `RideRequestModule.expireRide` |
+| **Qué se corrigió (simple)** | Al expirar un raite, ahora sólo se ignoran los conflictos 409 (raite ya procesado en paralelo); cualquier otro error de red se propaga para que quien llame pueda manejarlo |
+| **Clase / Método / Módulo** | `RideRequestModule.expireRide()` → `ride_request_module.dart` (`ubisafe_app/lib/features/dispatching/services/ride_request_module.dart`) |
+| **Justificación** | `catch (_) {}` ocultaba errores de autenticación, timeout y fallas del servidor; el raite podía quedar en estado `pending` indefinidamente sin que ningún código lo supiera |
+| **Problema que resolvía** | Raites expirados silenciosamente en error quedaban bloqueados en estado `pending`; el vendedor seguía viendo la solicitud activa |
+
+---
+
+### C-30 · _confirmCancel no notificaba error de red al usuario (BUG-007)
+
+| Campo | Detalle |
+|---|---|
+| **Qué se corrigió (técnico)** | Bloque `catch (_) {}` reemplazado por `catch (e) { showSnackBar(...); return; }` en `_TrackingScreenState._confirmCancel`; la pantalla ya no cierra si `expireStopRequest` lanza excepción |
+| **Qué se corrigió (simple)** | Si la cancelación de una parada falla por error de red, ahora se muestra un aviso al usuario y la pantalla permanece abierta; antes la pantalla se cerraba igual, dejando la parada en estado `pending` en el servidor |
+| **Clase / Método / Módulo** | `_TrackingScreenState._confirmCancel()` → `tracking_screen.dart` (`ubisafe_app/lib/features/dispatching/screens/tracking_screen.dart`) |
+| **Justificación** | Cerrar la pantalla aunque la cancelación fallara dejaba al vendedor con una solicitud activa que el comprador creía cancelada; el comprador no podía reintentar porque ya no estaba en la pantalla |
+| **Problema que resolvía** | Parada quedaba en `pending` indefinidamente cuando el cancel fallaba por red; el vendedor seguía siendo interrumpido por la solicitud |
+
+---
+
+### C-31 · Timer de parada podía disparar PATCH /expired sobre parada ya aceptada (BUG-017)
+
+| Campo | Detalle |
+|---|---|
+| **Qué se corrigió (técnico)** | (1) `_startTimer` ahora atrapa `statusCode == 400` además de 409; (2) `TrackingScreen.initState` llama `cancelTimer()` via `addPostFrameCallback` cuando `stopRequestId != null` |
+| **Qué se corrigió (simple)** | Si el vendedor acepta la parada justo antes de que el timer de 60 s dispare, el timer aún podía intentar expirar una parada ya aceptada causando un error 400 sin capturar; ahora ese caso es silenciado y la pantalla también cancela el timer como protección adicional |
+| **Clase / Método / Módulo** | `StopRequestModule._startTimer` + `_TrackingScreenState.initState` → `stop_request_module.dart` y `tracking_screen.dart` |
+| **Justificación** | `map_screen_buyer.dart` ya llama `cancelTimer()` al recibir el evento FCM de `accepted`, pero existe una ventana de carrera donde el timer dispara antes de que el FCM llegue; el catch de 400 y el cancel en `initState` cierran esa ventana |
+| **Problema que resolvía** | Excepción no capturada en el callback del timer cuando la parada ya estaba en estado `accepted` al momento en que el timer intentaba expirarla |
+
+---
+
+### C-32 · FIREBASE_PROJECT_ID faltante en API causaba 401 en todos los endpoints
+
+| Campo | Detalle |
+|---|---|
+| **Qué se corrigió (técnico)** | Se añadió `FIREBASE_PROJECT_ID=ubisafe-ca262` al archivo `ubisafe_api/.env` |
+| **Qué se corrigió (simple)** | El API usaba `demo-ubisafe` como project ID por defecto; tras cambiar `.firebaserc` a `ubisafe-ca262`, el emulador Auth emitía tokens con `aud: ubisafe-ca262`, pero el Admin SDK seguía verificando contra `demo-ubisafe` → todos los endpoints respondían 401 |
+| **Clase / Módulo** | `FirebaseAdminInit.initialize()` → `firebase_admin_init.py` línea 41; `ubisafe_api/.env` |
+| **Justificación** | `os.environ.get("FIREBASE_PROJECT_ID", "demo-ubisafe")` tenía `demo-ubisafe` como valor por defecto hardcodeado; el fallback nunca fue actualizado cuando se alineó `.firebaserc` al proyecto real |
+| **Problema que resolvía** | Login: `signInWithEmailAndPassword` exitoso pero `POST /auth/sync-profile` → 401; Splash: `GET /auth/me` → 401 → catch → signOut → /welcome. El usuario quedaba atrapado en el bucle login→welcome aunque las credenciales fueran correctas |
+
+> **Acción requerida:** Reiniciar el API (`uvicorn main:app --reload`) después de cambiar `.env`.
+
+---
+
+### C-33 · firebase_url apuntaba al namespace incorrecto del emulador RTDB
+
+| Campo | Detalle |
+|---|---|
+| **Qué se corrigió (técnico)** | `firebase_url` en `google-services.json` cambiado de `https://ubisafe-ca262-default-rtdb.firebaseio.com` a `https://ubisafe-ca262.firebaseio.com` |
+| **Qué se corrigió (simple)** | El SDK de Firebase extrae el namespace RTDB del `firebase_url`; la URL anterior producía namespace `ubisafe-ca262-default-rtdb`, pero el emulador Firebase usa el project ID como namespace por defecto (`ubisafe-ca262`). Todas las escrituras del vendedor iban al namespace incorrecto y el emulador las ignoraba silenciosamente |
+| **Clase / Módulo** | `google-services.json` → `project_info.firebase_url`; `FirebaseDatabase.instance` en `gps_service.dart` y `vendor_tracker.dart` |
+| **Justificación** | El Firebase RTDB Emulator, al iniciarse con `--project ubisafe-ca262`, crea la instancia bajo el namespace `ubisafe-ca262` (project ID), NO `ubisafe-ca262-default-rtdb`. La URL de producción estándar usa el sufijo `-default-rtdb`, pero en el emulador el namespace es el project ID directo. Confirmado en Emulator UI: `http://127.0.0.1:9000/?ns=ubisafe-ca262` |
+| **Problema que resolvía** | `GPSService._subscribe` → `RTDB.ref(...).set({...})` no era `await`ed, el error se descartaba silenciosamente; Emulator UI siempre mostraba `null`; vendedor nunca aparecía en el mapa del comprador |
+
+> **Acción requerida:** Hacer `flutter run` completo (NO hot-reload) — `google-services.json` se compila al APK en build time.
+
+---
+
+### C-34 · RTDB set() sin callback de error ocultaba fallos de escritura
+
+| Campo | Detalle |
+|---|---|
+| **Qué se corrigió (técnico)** | Se añadió `.then((_) { debugPrint OK }, onError: (e) { debugPrint FAILED })` al `_rtdbRefFactory(vendorUid).set({...})` en `GPSService._subscribe` |
+| **Qué se corrigió (simple)** | La escritura RTDB retorna un Future que no estaba siendo observado; si fallaba (namespace incorrecto, auth inválida, ADB reverse expirado), el error desaparecía sin dejar rastro en los logs. Ahora el error aparece en los logs de Flutter |
+| **Clase / Módulo** | `GPSService._subscribe` → `gps_service.dart` líneas 153-163 |
+| **Justificación** | En Dart, Futures no observados descartan sus errores silenciosamente. Para una operación crítica como la escritura RTDB que es el núcleo de la funcionalidad F3, el error debe ser visible en debug mode |
+| **Problema que resolvía** | Imposibilidad de diagnosticar por qué las escrituras RTDB fallaban; el vendedor activaba el radar y no ocurría nada visible en logs ni en la base de datos |
+
+---
+
+### C-35 · StopRequestModule._startTimer silenciaba errores no-409/400
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-35 · StopRequestModule rethrow en timer |
+| **Qué se corrigió (técnico)** | Se añadió `rethrow` al final del bloque `on DioException catch (e)` en `_startTimer`, después de la guardia `if (statusCode == 409 || statusCode == 400) return` |
+| **Qué se corrigió (simple)** | Errores de red distintos de 409/400 (p. ej. timeout, 500) ya no se silencian: ahora se propagan para que el caller los pueda observar |
+| **Clase / Método / Módulo** | `StopRequestModule._startTimer()` → `stop_request_module.dart` (`ubisafe_app/lib/features/dispatching/services/stop_request_module.dart`) |
+| **Justificación** | C-29 aplicó este mismo patrón a `RideRequestModule.expireRide()` pero no se replicó en `_startTimer`; sin `rethrow`, un error 500 o de red terminaba el bloque catch sin relanzar la excepción, ocultando el fallo |
+| **Problema que resolvía** | Solicitudes de parada podían quedar en estado `pending` indefinidamente cuando el servidor devolvía 5xx o había error de conectividad; el timer las descartaba silenciosamente |
+
+---
+
+### C-36 · RideRequestModule.startExpiryTimer — onExpired nunca se llamaba si expireRide lanzaba
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-36 · RideRequestModule callback onExpired garantizado |
+| **Qué se corrigió (técnico)** | El callback del `Timer` ahora envuelve `expireRide` en `try/on DioException catch`; `onExpired()` se llama **después del try-catch**, asegurando que siempre se ejecuta independientemente del resultado de red |
+| **Qué se corrigió (simple)** | Si la petición de expiración de un raite falla por error de red (no-409), el comprador ahora recibe la notificación de tiempo agotado igualmente, en lugar de quedarse en pantalla esperando indefinidamente |
+| **Clase / Método / Módulo** | `RideRequestModule.startExpiryTimer()` → `ride_request_module.dart` (`ubisafe_app/lib/features/dispatching/services/ride_request_module.dart`) |
+| **Justificación** | `Timer` no awaita su callback; una excepción en `expireRide` se convertía en un Future error perdido y `onExpired()` nunca se ejecutaba. El UI del comprador quedaba bloqueado en estado `pending` pasados los 60 s |
+| **Problema que resolvía** | Pantalla del comprador bloqueada en solicitud de raite activa cuando la expiración fallaba por error de red |
+
+---
+
+### C-37 · RideRequestModule — timer único reemplazado por Map de timers
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-37 · RideRequestModule Map de timers por rideId |
+| **Qué se corrigió (técnico)** | `Timer? _expiryTimer` reemplazado por `Map<String, Timer> _expiryTimers`; `startExpiryTimer` indexa por `rideId`; `cancelExpiryTimer` cancela e itera el mapa |
+| **Qué se corrigió (simple)** | Si se inicia un segundo timer para un raite diferente, ya no cancela el timer del raite anterior; cada raite tiene su propio timer |
+| **Clase / Método / Módulo** | `RideRequestModule.startExpiryTimer / cancelExpiryTimer` → `ride_request_module.dart` |
+| **Justificación** | Mismo patrón que motivó C-28 en `StopRequestModule`; la asimetría representaba una trampa si en el futuro se permiten raites concurrentes o retries rápidos |
+| **Problema que resolvía** | En retry rápido, el segundo `startExpiryTimer` cancelaba el timer del primer raite, dejándolo sin expirar |
+
+---
+
+### C-38 · TrackingScreen — context.mounted faltante antes de Snackbar/Navigator en ref.listen
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-38 · TrackingScreen context.mounted guard |
+| **Qué se corrigió (técnico)** | Se añadió `if (!context.mounted) return;` en el callback de `ref.listen<StopEvent?>`, inmediatamente antes de `ScaffoldMessenger.of(context)` y `Navigator.of(context).pop()` |
+| **Qué se corrigió (simple)** | Si el widget se desmonta justo cuando llega el evento de "solicitud completada", ya no intenta mostrar un snackbar ni navegar usando un contexto inválido |
+| **Clase / Método / Módulo** | `_TrackingScreenState.build()` → `tracking_screen.dart` (`ubisafe_app/lib/features/dispatching/screens/tracking_screen.dart`) |
+| **Justificación** | Riverpod dispone el listener al desmontarse el widget, pero existe una ventana mínima donde el callback puede disparar con el contexto ya marcado como unmounted; `context.mounted` cierra esa ventana |
+| **Problema que resolvía** | Crash raro: `ScaffoldMessenger.of(context)` / `Navigator.of(context)` con contexto unmounted si el evento FCM llegaba en el instante exacto del desmontaje |
+
+---
+
+### C-39 · GPSService — onDisconnect().remove() sin manejo de error
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-39 · GPSService onDisconnect catchError |
+| **Qué se corrigió (técnico)** | Se añadió `.catchError((Object e) { if (kDebugMode) debugPrint(...) })` a `_rtdbRefFactory(vendorUid).onDisconnect().remove()` en `_subscribe` |
+| **Qué se corrigió (simple)** | Si el registro del handler de desconexión falla (sin conexión, permiso denegado), el error ahora aparece en los logs de debug en lugar de perderse silenciosamente |
+| **Clase / Método / Módulo** | `GPSService._subscribe()` → `gps_service.dart` (`ubisafe_app/lib/features/presence/services/gps_service.dart`) |
+| **Justificación** | Mismo principio que C-34 aplicó al `.set()`; los Futures no observados descartan sus errores en Dart; el registro del disconnect handler es crítico para la limpieza del nodo RTDB |
+| **Problema que resolvía** | Imposibilidad de diagnosticar fallos en el registro del handler de desconexión; nodos RTDB podían quedar huérfanos si el handler nunca se registró |
+
+---
+
+### C-40 · VendorTracker.fromStream — stream inyectado no convertido a broadcast
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-40 · VendorTracker.fromStream asBroadcastStream |
+| **Qué se corrigió (técnico)** | En el constructor `VendorTracker.fromStream`, el stream inyectado ahora se convierte con `rawStream.isBroadcast ? rawStream : rawStream.asBroadcastStream()` antes de pasarse a `_init` |
+| **Qué se corrigió (simple)** | Los tests que inyectan un stream single-subscription ya no lanzan `StateError: Stream already listened to` cuando el provider o el test intentan suscribirse más de una vez |
+| **Clase / Método / Módulo** | `VendorTracker.fromStream()` → `vendor_tracker.dart` (`ubisafe_app/lib/features/presence/services/vendor_tracker.dart`) |
+| **Justificación** | C-24 añadió `.asBroadcastStream()` al constructor de producción pero no al constructor de pruebas; la asimetría causaba `StateError` al reutilizar el stream en tests |
+| **Problema que resolvía** | Tests de `VendorTracker` podían fallar con `StateError` al suscribirse dos veces al stream inyectado |
+
+---
+
 ### CP-01 · Botón faltante en pantalla UbiSafe-Mapa ⚠️ EN DIAGNÓSTICO
 
 | Campo | Detalle |

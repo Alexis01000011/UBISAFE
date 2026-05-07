@@ -23,8 +23,8 @@ class VendorMarker {
   factory VendorMarker.fromMap(String uid, Map<dynamic, dynamic> map) {
     return VendorMarker(
       uid: uid,
-      latitude: num.parse(map['lat'].toString()).toDouble(),
-      longitude: num.parse(map['lng'].toString()).toDouble(),
+      latitude: num.parse((map['lat'] ?? 0).toString()).toDouble(),
+      longitude: num.parse((map['lng'] ?? 0).toString()).toDouble(),
       rideEnabled: map['ride_enabled'] as bool? ?? false,
     );
   }

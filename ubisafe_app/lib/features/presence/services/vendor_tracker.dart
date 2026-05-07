@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:firebase_database/firebase_database.dart';
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 
@@ -26,8 +27,10 @@ class VendorTracker {
   }
 
   /// Test-friendly constructor: inject a raw map stream directly.
+  /// Converts to broadcast so tests can attach multiple listeners (e.g. the
+  /// provider + the test assertion) without a StateError.
   VendorTracker.fromStream(Stream<Map<dynamic, dynamic>> rawStream) {
-    _init(rawStream);
+    _init(rawStream.isBroadcast ? rawStream : rawStream.asBroadcastStream());
   }
 
   final _controller = StreamController<List<VendorMarker>>.broadcast();
@@ -49,14 +52,20 @@ class VendorTracker {
               e.key as String,
               e.value as Map<dynamic, dynamic>,
             );
-          } catch (_) {
-            // Skip malformed entries — don't crash the whole stream.
+          } catch (err) {
+            if (kDebugMode) {
+              debugPrint('VendorTracker: entry ${e.key} malformed — $err');
+            }
           }
         }
         _vendors = updated;
         _emit();
       },
-      onError: (_) {
+      onError: (Object err) {
+        // Typical cause: RTDB permission_denied (missing .read rule) or
+        // no connectivity. Logged in debug so the error is visible without
+        // crashing the stream.
+        if (kDebugMode) debugPrint('VendorTracker RTDB error: $err');
         if (!_controller.isClosed) _controller.add([]);
       },
     );

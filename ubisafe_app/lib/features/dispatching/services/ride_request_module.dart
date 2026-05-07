@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_client.dart';
@@ -15,7 +16,7 @@ class RideRequestModule {
   final Dio _dio;
   final FirebaseFirestore _firestore;
 
-  Timer? _expiryTimer;
+  final _expiryTimers = <String, Timer>{};
 
   Future<Ride> createRide({
     required String vendorUid,
@@ -59,24 +60,41 @@ class RideRequestModule {
   Future<void> expireRide(String rideId) async {
     try {
       await updateStatus(rideId, 'expired');
-    } catch (_) {}
+    } on DioException catch (e) {
+      // 409 = already processed concurrently; swallow silently.
+      if (e.response?.statusCode == 409) return;
+      rethrow;
+    }
   }
 
   /// Starts a 60-second timer that marks the ride as expired if not answered.
+  /// Each rideId gets its own timer; a second call for the same id replaces
+  /// the previous timer (same semantics as StopRequestModule._startTimer).
+  /// [onExpired] is always called — even if the network request fails — so
+  /// the buyer UI never stays stuck in a pending state after the TTL elapses.
   void startExpiryTimer(String rideId, {required void Function() onExpired}) {
-    cancelExpiryTimer();
-    _expiryTimer = Timer(
+    _expiryTimers[rideId]?.cancel();
+    _expiryTimers[rideId] = Timer(
       const Duration(seconds: _kRideTtlSeconds),
       () async {
-        await expireRide(rideId);
+        _expiryTimers.remove(rideId);
+        try {
+          await expireRide(rideId);
+        } on DioException catch (e) {
+          // 409 = already processed concurrently — expected, swallow silently.
+          // Any other error is unexpected; log it but still notify the UI.
+          if (e.response?.statusCode != 409) {
+            if (kDebugMode) debugPrint('RideRequestModule: expiry failed — $e');
+          }
+        }
         onExpired();
       },
     );
   }
 
   void cancelExpiryTimer() {
-    _expiryTimer?.cancel();
-    _expiryTimer = null;
+    for (final t in _expiryTimers.values) t.cancel();
+    _expiryTimers.clear();
   }
 
   Stream<Ride?> watchRide(String rideId) => _firestore

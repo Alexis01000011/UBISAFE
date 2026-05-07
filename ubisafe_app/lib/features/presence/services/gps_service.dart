@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:firebase_database/firebase_database.dart';
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 
@@ -132,11 +133,19 @@ class GPSService {
     _activeUid = null;
   }
 
-  void _subscribe(String vendorUid) {
+  // Returns Future so the old subscription is fully cancelled before the new
+  // one starts — prevents duplicate RTDB writes during retry (BUG-014).
+  Future<void> _subscribe(String vendorUid) async {
     // Register the disconnect handler BEFORE any write (safety invariant).
-    _rtdbRefFactory(vendorUid).onDisconnect().remove();
+    // catchError so a permission_denied or offline rejection is visible in
+    // debug logs instead of becoming a silently-lost unhandled Future.
+    _rtdbRefFactory(vendorUid).onDisconnect().remove().catchError((Object e) {
+      if (kDebugMode) debugPrint('GPSService: onDisconnect register failed — $e');
+    });
 
-    _posSub?.cancel();
+    final oldSub = _posSub;
+    _posSub = null;
+    await oldSub?.cancel();
     _posSub = _positionStreamFactory(
       const LocationSettings(
         accuracy: LocationAccuracy.high,
@@ -151,7 +160,14 @@ class GPSService {
           'lng': pos.longitude,
           'timestamp': DateTime.now().millisecondsSinceEpoch,
           'activo': true,
-        });
+        }).then(
+          (_) {
+            if (kDebugMode) debugPrint('GPSService: RTDB write OK ($vendorUid)');
+          },
+          onError: (Object e) {
+            debugPrint('GPSService: RTDB write FAILED — $e');
+          },
+        );
         if (!_stateCtrl.isClosed) _stateCtrl.add(GPSServiceState.active);
       },
       onError: (_) {

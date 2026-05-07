@@ -12,7 +12,7 @@ class StopRequestModule {
 
   final Dio _dio;
   final FirebaseFirestore _firestore;
-  Timer? _timeoutTimer;
+  final _timers = <String, Timer>{};
 
   CollectionReference<Map<String, dynamic>> get _col =>
       _firestore.collection('stop_requests');
@@ -35,19 +35,24 @@ class StopRequestModule {
   }
 
   void _startTimer(String stopId) {
-    _timeoutTimer?.cancel();
-    _timeoutTimer = Timer(const Duration(seconds: 60), () async {
+    _timers[stopId]?.cancel();
+    _timers[stopId] = Timer(const Duration(seconds: 60), () async {
+      _timers.remove(stopId);
       try {
         await expireStopRequest(stopId);
       } on DioException catch (e) {
-        if (e.response?.statusCode == 409) return;
+        // 409 = already processed concurrently; 400 = terminal state (accepted)
+        if (e.response?.statusCode == 409 || e.response?.statusCode == 400) {
+          return;
+        }
+        rethrow;
       }
     });
   }
 
   void cancelTimer() {
-    _timeoutTimer?.cancel();
-    _timeoutTimer = null;
+    for (final t in _timers.values) t.cancel();
+    _timers.clear();
   }
 
   Future<void> expireStopRequest(String stopId) =>
