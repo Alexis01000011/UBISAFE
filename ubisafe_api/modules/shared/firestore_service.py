@@ -81,9 +81,22 @@ class FirestoreService:
 
     # --------------------------------------------------------------- stops
     @classmethod
+    def _doc_to_stop_request(cls, doc: Any) -> StopRequest:
+        raw = doc.to_dict() or {}
+        for field in ("created_at", "updated_at", "expires_at"):
+            val = raw.get(field)
+            if val is None:
+                continue
+            if hasattr(val, "isoformat"):
+                raw[field] = val.isoformat()
+            elif hasattr(val, "timestamp"):
+                raw[field] = datetime.fromtimestamp(val.timestamp(), tz=UTC).isoformat()
+        return StopRequest(id=doc.id, **raw)
+
+    @classmethod
     async def list_stop_requests(cls, uid: str) -> list[StopRequest]:
         docs = cls._db().collection("stop_requests").where("buyer_uid", "==", uid).stream()
-        return [StopRequest(id=d.id, **d.to_dict()) for d in docs]
+        return [cls._doc_to_stop_request(d) for d in docs]
 
     @classmethod
     async def create_stop_request(cls, uid: str, body: CreateStopRequestBody) -> StopRequest:
@@ -96,14 +109,14 @@ class FirestoreService:
         data["expires_at"] = expires_at
         _, ref = cls._db().collection("stop_requests").add(data)
         doc = ref.get()
-        return StopRequest(id=doc.id, **doc.to_dict())
+        return cls._doc_to_stop_request(doc)
 
     @classmethod
     async def get_stop_request(cls, stop_id: str) -> StopRequest | None:
         doc = cls._db().collection("stop_requests").document(stop_id).get()
         if not doc.exists:
             return None
-        return StopRequest(id=doc.id, **doc.to_dict())
+        return cls._doc_to_stop_request(doc)
 
     @classmethod
     async def update_stop_status(cls, stop_id: str, new_status: str) -> StopRequest | None:
@@ -113,7 +126,7 @@ class FirestoreService:
             return None
         ref.update({"status": new_status, "updated_at": SERVER_TIMESTAMP})
         doc = ref.get()
-        return StopRequest(id=doc.id, **doc.to_dict())
+        return cls._doc_to_stop_request(doc)
 
     @classmethod
     async def update_stop_status_if_pending(
@@ -128,12 +141,11 @@ class FirestoreService:
         doc = ref.get()
         if not doc.exists:
             return None, False
-        current = doc.to_dict() or {}
-        if current.get("status") != "pending":
-            return StopRequest(id=doc.id, **current), False
+        if (doc.to_dict() or {}).get("status") != "pending":
+            return cls._doc_to_stop_request(doc), False
         ref.update({"status": new_status, "updated_at": SERVER_TIMESTAMP})
         doc = ref.get()
-        return StopRequest(id=doc.id, **doc.to_dict()), True
+        return cls._doc_to_stop_request(doc), True
 
     # ------------------------------------------------------------ risk zones
     @classmethod

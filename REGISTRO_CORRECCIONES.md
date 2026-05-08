@@ -3,7 +3,7 @@
 **Proyecto:** Los Borbotones · TSP · ITESM  
 **Rama activa:** `feat/shared/f8-hardening-e2e-polish`  
 **Dispositivo de prueba:** Físico Android (depuración inalámbrica ADB, NO emulador de computadora)  
-**Última actualización:** 2026-05-08 (C-44)
+**Última actualización:** 2026-05-08 (C-45)
 
 ---
 
@@ -569,6 +569,18 @@
 | **Clase / Módulo** | `StopRequestModule.startTimer` · `_MapScreenBuyerState._requestStop` · `NotificationHandler._dispatchData` · `notification_service.py:send_stop_expired` · `dispatching/router.py:update_stop_status` |
 | **Justificación** | `_startTimer` privado solo hacía PATCH sin callback de UI; el backend nunca enviaba FCM para `expired`; `notification_handler.dart` no tenía el case `stop_request_expired`. Sin el callback, la `_WaitingOverlay` permanecía visible indefinidamente tras el timeout de 60 s o el rechazo del vendedor |
 | **Problema que resolvía** | Comprador veía el spinner de "Esperando respuesta..." para siempre después de que el vendedor rechazaba o pasaban 60 s sin respuesta |
+
+---
+
+### C-45 · 500 al aceptar/rechazar/expirar parada — `SERVER_TIMESTAMP` no serializable como `str`
+
+| Campo | Detalle |
+|---|---|
+| **Qué se corrigió (técnico)** | Se añadió `FirestoreService._doc_to_stop_request(doc)` que convierte todos los campos de timestamp (`created_at`, `updated_at`, `expires_at`) a `str` vía `.isoformat()` antes de construir el objeto `StopRequest`. Se reemplazaron todos los `StopRequest(id=doc.id, **doc.to_dict())` del módulo de stops por llamadas a este helper |
+| **Qué se corrigió (simple)** | Al aceptar/rechazar/expirar una parada, el backend guardaba la fecha de actualización como un objeto `DatetimeWithNanoseconds` de Firestore y al leerla de vuelta, Pydantic v2 no podía convertirla a `str` → error 500. Ahora siempre se convierte a string ISO antes de pasarla al schema |
+| **Clase / Módulo** | `FirestoreService._doc_to_stop_request` · `list_stop_requests` · `create_stop_request` · `get_stop_request` · `update_stop_status` · `update_stop_status_if_pending` → `firestore_service.py` (`ubisafe_api/modules/shared/firestore_service.py`) |
+| **Justificación** | `SERVER_TIMESTAMP` es un centinela que Firestore reemplaza por su timestamp de servidor. Al leer el documento inmediatamente después, el SDK de Python devuelve un `DatetimeWithNanoseconds` (subclase de `datetime`). Pydantic v2 no coerciona `datetime → str` en modo lax, a diferencia de Pydantic v1. El patrón correcto ya existía en `_doc_to_ride` y `_doc_to_community_report` pero no se había aplicado a stops |
+| **Problema que resolvía** | `DioException [bad response]: status code of 500` al intentar aceptar una solicitud de parada (el vendedor hacía PATCH y el servidor crasheaba al serializar la respuesta) |
 
 ---
 
