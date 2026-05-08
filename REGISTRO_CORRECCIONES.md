@@ -548,6 +548,18 @@
 
 ---
 
+### C-43 · POST a rutas raíz — 307 redirect por trailing slash en FastAPI
+
+| Campo | Detalle |
+|---|---|
+| **Qué se corrigió (técnico)** | Se cambió `@router.post("/")` y `@router.get("/")` a `@router.post("")` y `@router.get("")` en `dispatching/router.py`, `safety/router.py` y `community/report_router.py` |
+| **Qué se corrigió (simple)** | Al hacer `POST /stops`, `/risk-zones` o `/community-reports`, FastAPI ya no redirige con 307 a la versión con slash (`/stops/`, etc.); los endpoints responden directamente en la ruta sin trailing slash |
+| **Clase / Módulo** | `dispatching/router.py` · `safety/router.py` · `community/report_router.py` (todos en `ubisafe_api/modules/`) |
+| **Justificación** | FastAPI con `redirect_slashes=True` (default) redirige `POST /stops` → `POST /stops/` con 307. Dio no sigue automáticamente redirects de POST/PATCH/DELETE, por lo que lanza `DioException [bad response] 307`. `ride_router.py` ya usaba el patrón correcto `@router.post("")` sin trailing slash; se unificó el resto de routers con ese mismo patrón |
+| **Problema que resolvía** | `Error al solicitar parada: DioException [bad response]: status code of 307` — ninguna solicitud de parada, zona de riesgo ni reporte comunitario llegaba al backend |
+
+---
+
 ### CP-01 · Botón faltante en pantalla UbiSafe-Mapa ⚠️ EN DIAGNÓSTICO
 
 | Campo | Detalle |
