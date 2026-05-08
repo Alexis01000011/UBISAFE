@@ -1,9 +1,11 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../core/api/api_client.dart';
 import '../../../../core/design_system/colors.dart';
 import '../../../../core/design_system/typography.dart';
 import '../../../../core/providers/auth_providers.dart';
@@ -42,34 +44,34 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
   Future<void> _checkSession() async {
     if (!mounted || _navigated) return;
 
-    final authAsync = ref.read(authStateProvider);
-    final user = authAsync.valueOrNull;
-
+    final user = ref.read(authStateProvider).valueOrNull;
     if (user == null) {
       _go('/welcome');
       return;
     }
 
     try {
-      final profile = await ref
-          .read(userProfileProvider.future)
-          .timeout(const Duration(seconds: 5));
-      if (profile == null) {
-        // No profile in Firestore (partial registration or API unavailable).
-        // Sign out first so the router redirect doesn't loop back to /splash.
-        await ref.read(authModuleProvider).signOut();
-        _go('/welcome');
-        return;
+      final dio = ref.read(apiClientProvider);
+      final response = await dio.get<Map<String, dynamic>>(
+        '/auth/me',
+        // Skip to the last retry so the interceptor only makes one extra
+        // attempt — avoids blocking the splash for 40+ seconds on cold start.
+        options: Options(extra: {'_retryCount': 2}),
+      );
+      final profile = UserProfile.fromJson(response.data!);
+      _go(profile.role == 'VENDOR' ? '/home/vendor' : '/home/buyer');
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) {
+        // Confirmed: no profile in Firestore (partial registration).
+        // Sign out so the router doesn't redirect authenticated user to /splash.
+        try { await ref.read(authModuleProvider).signOut(); } catch (_) {}
       }
-      final home = profile.role == 'VENDOR' ? '/home/vendor' : '/home/buyer';
-      _go(home);
-    } on TimeoutException {
-      debugPrint('SplashScreen: Firestore timeout — redirecting to welcome');
-      // Sign out to prevent the logged-in → /welcome → /splash redirect loop.
-      try { await ref.read(authModuleProvider).signOut(); } catch (_) {}
+      // Any other error (Render cold start, network outage, 5xx) → do NOT sign
+      // out. The Firebase Auth session is still valid. The user stays
+      // authenticated and will be redirected to /splash again on the next
+      // login tap, which retries GET /auth/me once Render is warm.
       _go('/welcome');
     } catch (_) {
-      try { await ref.read(authModuleProvider).signOut(); } catch (_) {}
       _go('/welcome');
     }
   }

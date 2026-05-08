@@ -3,7 +3,7 @@
 **Proyecto:** Los Borbotones · TSP · ITESM  
 **Rama activa:** `feat/shared/f8-hardening-e2e-polish`  
 **Dispositivo de prueba:** Físico Android (depuración inalámbrica ADB, NO emulador de computadora)  
-**Última actualización:** 2026-05-01
+**Última actualización:** 2026-05-08
 
 ---
 
@@ -521,6 +521,30 @@
 | **Clase / Método / Módulo** | `VendorTracker.fromStream()` → `vendor_tracker.dart` (`ubisafe_app/lib/features/presence/services/vendor_tracker.dart`) |
 | **Justificación** | C-24 añadió `.asBroadcastStream()` al constructor de producción pero no al constructor de pruebas; la asimetría causaba `StateError` al reutilizar el stream en tests |
 | **Problema que resolvía** | Tests de `VendorTracker` podían fallar con `StateError` al suscribirse dos veces al stream inyectado |
+
+---
+
+### C-41 · login() — sync-profile es best-effort y no debe tumbar la sesión
+
+| Campo | Detalle |
+|---|---|
+| **Qué se corrigió (técnico)** | Se envolvió `await _dio.post('/auth/sync-profile', ...)` en un bloque `try { } catch (_) {}` dentro de `AuthModule.login()` |
+| **Qué se corrigió (simple)** | Si el backend (Render) está en cold start y la llamada de sincronización del perfil falla, el login ya no lanza excepción; el usuario queda autenticado en Firebase Auth y puede continuar |
+| **Clase / Método / Módulo** | `AuthModule.login()` → `auth_module.dart` (`ubisafe_app/lib/features/identity/auth/auth_module.dart`) |
+| **Justificación** | `sync-profile` en login sólo actualiza `updated_at`; es puramente best-effort. Si Render tiene un cold start de ~30-60 s, esta llamada falla pero `signInWithEmailAndPassword` ya completó exitosamente. Lanzar excepción aquí invalida una sesión Firebase completamente válida |
+| **Problema que resolvía** | Al hacer login con Render en cold start, `POST /auth/sync-profile` lanzaba una excepción que propagaba a `_submit()`, mostrando snackbar de error aunque Firebase Auth había autenticado al usuario correctamente |
+
+---
+
+### C-42 · _checkSession() no debe hacer signOut en errores de red — solo en 404
+
+| Campo | Detalle |
+|---|---|
+| **Qué se corrigió (técnico)** | Se reemplazó `ref.read(userProfileProvider.future).timeout(5s)` por una llamada directa a `dio.get('/auth/me')` con `Options(extra: {'_retryCount': 2})`; `signOut()` ahora solo se ejecuta cuando `e.response?.statusCode == 404`; para cualquier otro `DioException` (red, 5xx, timeout) se navega a `/welcome` sin cerrar sesión |
+| **Qué se corrigió (simple)** | Si Render no responde a tiempo en el Splash, el usuario ya no es deslogueado; la sesión de Firebase Auth se conserva. Al tocar "Iniciar sesión" de nuevo, el router lo lleva directo a Splash sin pedirle credenciales, y cuando Render ya está despierto la sesión se restaura |
+| **Clase / Método / Módulo** | `_SplashScreenState._checkSession()` → `splash_screen.dart` (`ubisafe_app/lib/features/identity/auth/screens/splash_screen.dart`) |
+| **Justificación** | `userProfileProvider` devuelve `null` para CUALQUIER `DioException` (incluyendo errores de red y timeouts de Render cold start). `_checkSession()` interpretaba ese `null` como "no hay perfil → signOut → /welcome". El ciclo se repetía 4-5 veces hasta que Render despertaba (~30-60 s). Ahora solo se cierra sesión ante un 404 confirmado (registro parcial sin perfil en Firestore). El `_retryCount: 2` limita al `_RetryInterceptor` a un solo reintento adicional, evitando bloquear el Splash hasta 40 s |
+| **Problema que resolvía** | Al iniciar sesión, la app regresaba al usuario a la pantalla de login/bienvenida entre 4 y 5 veces antes de funcionar, obligándolo a reingresar sus credenciales en cada intento |
 
 ---
 

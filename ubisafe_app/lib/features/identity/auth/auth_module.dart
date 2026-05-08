@@ -34,8 +34,11 @@ class AuthModule {
       // otherwise we rethrow so the caller sees the real error.
       if (_auth.currentUser == null) rethrow;
     }
-    // Update updated_at on every login (SDD §8.4.B)
-    await _dio.post<dynamic>('/auth/sync-profile', data: <String, dynamic>{});
+    // sync-profile is best-effort: it only updates updated_at. A failure here
+    // (e.g. Render cold start) must not invalidate an otherwise valid session.
+    try {
+      await _dio.post<dynamic>('/auth/sync-profile', data: <String, dynamic>{});
+    } catch (_) {}
     await _syncDeviceToken();
   }
 
