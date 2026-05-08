@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_client.dart';
@@ -29,12 +30,13 @@ class StopRequestModule {
         'buyer_location': {'lat': buyerLat, 'lng': buyerLng},
       },
     );
-    final req = StopRequest.fromJson(res.data!);
-    _startTimer(req.id);
-    return req;
+    return StopRequest.fromJson(res.data!);
   }
 
-  void _startTimer(String stopId) {
+  /// Starts a 60-second timer that marks the stop as expired if not answered.
+  /// [onExpired] is always called — even if the PATCH fails — so the buyer UI
+  /// never stays stuck in a pending state after the TTL elapses.
+  void startTimer(String stopId, {required void Function() onExpired}) {
     _timers[stopId]?.cancel();
     _timers[stopId] = Timer(const Duration(seconds: 60), () async {
       _timers.remove(stopId);
@@ -42,11 +44,11 @@ class StopRequestModule {
         await expireStopRequest(stopId);
       } on DioException catch (e) {
         // 409 = already processed concurrently; 400 = terminal state (accepted)
-        if (e.response?.statusCode == 409 || e.response?.statusCode == 400) {
-          return;
+        if (e.response?.statusCode != 409 && e.response?.statusCode != 400) {
+          debugPrint('StopRequestModule: expiry PATCH failed — $e');
         }
-        rethrow;
       }
+      onExpired();
     });
   }
 

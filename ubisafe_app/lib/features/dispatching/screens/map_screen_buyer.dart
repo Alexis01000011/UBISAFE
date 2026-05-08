@@ -325,6 +325,19 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
           );
       _activeStopId = stop.id;
       ref.read(activeStopProvider.notifier).set(stop);
+      ref.read(stopRequestModuleProvider).startTimer(
+        stop.id,
+        onExpired: () {
+          if (!mounted) return;
+          setState(() {
+            _mapState = _BuyerMapState.idle;
+            _activeStopId = null;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Tiempo de espera agotado.')),
+          );
+        },
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() => _mapState = _BuyerMapState.idle);

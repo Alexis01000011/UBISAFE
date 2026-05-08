@@ -3,7 +3,7 @@
 **Proyecto:** Los Borbotones · TSP · ITESM  
 **Rama activa:** `feat/shared/f8-hardening-e2e-polish`  
 **Dispositivo de prueba:** Físico Android (depuración inalámbrica ADB, NO emulador de computadora)  
-**Última actualización:** 2026-05-08
+**Última actualización:** 2026-05-08 (C-44)
 
 ---
 
@@ -557,6 +557,18 @@
 | **Clase / Módulo** | `dispatching/router.py` · `safety/router.py` · `community/report_router.py` (todos en `ubisafe_api/modules/`) |
 | **Justificación** | FastAPI con `redirect_slashes=True` (default) redirige `POST /stops` → `POST /stops/` con 307. Dio no sigue automáticamente redirects de POST/PATCH/DELETE, por lo que lanza `DioException [bad response] 307`. `ride_router.py` ya usaba el patrón correcto `@router.post("")` sin trailing slash; se unificó el resto de routers con ese mismo patrón |
 | **Problema que resolvía** | `Error al solicitar parada: DioException [bad response]: status code of 307` — ninguna solicitud de parada, zona de riesgo ni reporte comunitario llegaba al backend |
+
+---
+
+### C-44 · Pantalla del comprador se congela tras rechazo o expiración de parada
+
+| Campo | Detalle |
+|---|---|
+| **Qué se corrigió (técnico)** | (1) `StopRequestModule._startTimer` refactorizado a `startTimer(stopId, {required onExpired})` con callback que se llama siempre al finalizar, incluso si el PATCH falla. (2) `map_screen_buyer.dart._requestStop` llama explícitamente a `startTimer` con `onExpired` que resetea `_mapState` y muestra snackbar. (3) Backend: `notification_service.py` añade `send_stop_expired`; `dispatching/router.py` dispara FCM al comprador cuando `status = expired`. (4) `notification_handler.dart` añade `case 'stop_request_expired'` que emite `StopEvent(..., StopRequestStatus.expired)` a `stopRequestEventProvider` |
+| **Qué se corrigió (simple)** | La pantalla de espera del comprador ahora se cierra automáticamente en dos escenarios: (a) cuando el timer de 60 s vence localmente sin respuesta del vendedor; (b) cuando el backend marca la parada como expirada o rechazada y envía la notificación FCM |
+| **Clase / Módulo** | `StopRequestModule.startTimer` · `_MapScreenBuyerState._requestStop` · `NotificationHandler._dispatchData` · `notification_service.py:send_stop_expired` · `dispatching/router.py:update_stop_status` |
+| **Justificación** | `_startTimer` privado solo hacía PATCH sin callback de UI; el backend nunca enviaba FCM para `expired`; `notification_handler.dart` no tenía el case `stop_request_expired`. Sin el callback, la `_WaitingOverlay` permanecía visible indefinidamente tras el timeout de 60 s o el rechazo del vendedor |
+| **Problema que resolvía** | Comprador veía el spinner de "Esperando respuesta..." para siempre después de que el vendedor rechazaba o pasaban 60 s sin respuesta |
 
 ---
 

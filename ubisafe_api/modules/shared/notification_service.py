@@ -87,6 +87,15 @@ class NotificationService:
         )
 
     @staticmethod
+    async def send_stop_expired(buyer_uid: str, stop_id: str) -> None:
+        await NotificationService.send_to_user(
+            uid=buyer_uid,
+            title="Tiempo de espera agotado",
+            body="El vendedor no respondió a tiempo.",
+            data={"type": "stop_request_expired", "stop_id": stop_id},
+        )
+
+    @staticmethod
     async def send_community_report_nearby(
         tokens: list[str],
         report_id: str,
