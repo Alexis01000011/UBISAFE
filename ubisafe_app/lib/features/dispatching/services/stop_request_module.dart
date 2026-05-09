@@ -51,7 +51,7 @@ class StopRequestModule {
   }
 
   void cancelTimer() {
-    for (final t in _timers.values) t.cancel();
+    for (final t in _timers.values) { t.cancel(); }
     _timers.clear();
   }
 

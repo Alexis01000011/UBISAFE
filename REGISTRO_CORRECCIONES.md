@@ -524,6 +524,18 @@
 
 ---
 
+### C-41 · Limpieza de warnings e infos de flutter analyze
+
+| Campo | Detalle |
+|---|---|
+| **Qué se corrigió (técnico)** | (1) Eliminados imports huérfanos de `auth_providers.dart` en `map_screen_vendor.dart` y `app_router.dart`; (2) añadidas llaves `{}` a for-each sin bloque en `ride_request_module.dart` y `stop_request_module.dart`; (3) Futures fire-and-forget en `gps_service.dart` envueltos con `unawaited()` (`stopTransmission` y `_subscribe`) |
+| **Qué se corrigió (simple)** | Se limpiaron los avisos que dejaron como residuo las correcciones C-01, C-17, C-18, C-19, C-28, C-34, C-37 y C-39; el CI de Flutter vuelve a pasar |
+| **Clase / Método / Módulo** | `map_screen_vendor.dart`, `app_router.dart`, `ride_request_module.dart:cancelExpiryTimer`, `stop_request_module.dart:cancelTimer`, `gps_service.dart:stopTransmission + _subscribe` |
+| **Justificación** | `flutter analyze` sale con código 1 ante cualquier `warning`; los `info` de `curly_braces_in_flow_control_structures` y `unawaited_futures` también aportan al conteo; `unawaited()` comunica explícitamente la intención fire-and-forget sin cambiar el comportamiento |
+| **Problema que resolvía** | CI bloqueado: job "Flutter — analyze & test" fallaba con 6 issues en cada push |
+
+---
+
 ### CP-01 · Botón faltante en pantalla UbiSafe-Mapa ⚠️ EN DIAGNÓSTICO
 
 | Campo | Detalle |
