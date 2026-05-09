@@ -536,6 +536,18 @@
 
 ---
 
+### C-42 · Tests FastAPI con trailing slash causaban HTTP 307
+
+| Campo | Detalle |
+|---|---|
+| **Qué se corrigió (técnico)** | Eliminado trailing slash de las URLs en `test_stops.py` (3 llamadas), `test_risk_zones.py` (6 llamadas) y `test_community_reports.py` (7 llamadas): `/stops/` → `/stops`, `/risk-zones/` → `/risk-zones`, `/community-reports/` → `/community-reports` |
+| **Qué se corrigió (simple)** | Los tests usaban URLs con `/` al final; Starlette registra las rutas raíz sin ese `/` y con `redirect_slashes=True` (default) redirige con 307; `httpx.AsyncClient` no sigue redirecciones por defecto, así los tests recibían 307 en lugar del código esperado |
+| **Clase / Módulo** | `ubisafe_api/tests/test_stops.py`, `test_risk_zones.py`, `test_community_reports.py` — solo URLs de llamadas al cliente de prueba |
+| **Justificación** | Corrección mínima que no toca routers ni lógica de producción; los routers ya tenían sus rutas correctamente definidas con `@router.post("/")`, Starlette las registra como `/prefix` (sin trailing slash) |
+| **Problema que resolvía** | CI bloqueado: 16 tests fallaban con `assert 307 == <expected>` en el job FastAPI |
+
+---
+
 ### CP-01 · Botón faltante en pantalla UbiSafe-Mapa ⚠️ EN DIAGNÓSTICO
 
 | Campo | Detalle |
