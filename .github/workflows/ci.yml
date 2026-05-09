@@ -76,7 +76,7 @@ jobs:
 
       - name: Build APK
         working-directory: ubisafe_app
-        run: flutter build apk --release
+        run: flutter build apk --release --dart-define=API_BASE_URL=https://ubisafe-j1fg.onrender.com
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
