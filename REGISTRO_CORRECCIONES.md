@@ -3,7 +3,7 @@
 **Proyecto:** Los Borbotones · TSP · ITESM  
 **Rama activa:** `feat/shared/f8-hardening-e2e-polish`  
 **Dispositivo de prueba:** Físico Android (depuración inalámbrica ADB, NO emulador de computadora)  
-**Última actualización:** 2026-05-01
+**Última actualización:** 2026-05-08
 
 ---
 
@@ -545,6 +545,18 @@
 | **Clase / Módulo** | `ubisafe_api/tests/test_stops.py`, `test_risk_zones.py`, `test_community_reports.py` — solo URLs de llamadas al cliente de prueba |
 | **Justificación** | Corrección mínima que no toca routers ni lógica de producción; los routers ya tenían sus rutas correctamente definidas con `@router.post("/")`, Starlette las registra como `/prefix` (sin trailing slash) |
 | **Problema que resolvía** | CI bloqueado: 16 tests fallaban con `assert 307 == <expected>` en el job FastAPI |
+
+---
+
+### C-43 · Revertir C-42: rutas registradas con trailing slash requieren URLs con trailing slash en tests async
+
+| Campo | Detalle |
+|---|---|
+| **Qué se corrigió (técnico)** | Revertido el cambio de C-42: devuelto trailing slash a las URLs raíz en `test_stops.py` (3 llamadas), `test_risk_zones.py` (6 llamadas) y `test_community_reports.py` (7 llamadas): `/stops` → `/stops/`, `/risk-zones` → `/risk-zones/`, `/community-reports` → `/community-reports/` |
+| **Qué se corrigió (simple)** | C-42 tenía el diagnóstico invertido. Las rutas raíz están registradas CON trailing slash (`/stops/`, `/risk-zones/`, `/community-reports/`) porque `prefix="/stops"` + `@router.post("/")` → Starlette registra `/stops/`. Los tests nuevos usan `AsyncClient` que no sigue redirects, por lo que `/stops` (sin slash) recibía un 307 hacia `/stops/` en lugar de la respuesta esperada. `test_api.py` usa `TestClient` (síncrono) que sí sigue redirects, por eso esos tests pasaban con cualquiera de las dos formas. |
+| **Clase / Módulo** | `ubisafe_api/tests/test_stops.py`, `test_risk_zones.py`, `test_community_reports.py` — solo URLs de llamadas al cliente de prueba |
+| **Justificación** | Verificado inspeccionando las rutas registradas en el app: `GET /stops/`, `POST /stops/`, `GET /risk-zones/`, `POST /risk-zones/`, `POST /community-reports/`, `GET /community-reports/` (todas con slash). `AsyncClient` necesita la URL exacta registrada. |
+| **Problema que resolvía** | 16 tests seguían fallando con `assert 307 == <expected>` después de C-42 porque la corrección era en la dirección equivocada. |
 
 ---
 
