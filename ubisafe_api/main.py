@@ -32,17 +32,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="UBISAFE API", lifespan=lifespan)
 
-# CORS — allow localhost origins in development.
-_dev_origins = [
-    "http://localhost",
-    "http://localhost:3000",
-    "http://localhost:8080",
-    "http://10.0.2.2",  # Android emulator host
-]
+_allowed_origins = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_dev_origins,
-    allow_credentials=True,
+    allow_origins=_allowed_origins,
+    allow_credentials=_allowed_origins != ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
