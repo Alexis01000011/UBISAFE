@@ -392,6 +392,9 @@ adb reverse tcp:9000 tcp:9000
 adb reverse tcp:8000 tcp:8000
 
 flutter run
+
+# Against production Firebase + Render backend (no emulators needed):
+flutter run --dart-define=USE_EMULATORS=false --dart-define=API_BASE_URL=https://ubisafe-j1fg.onrender.com
 ```
 
 #### Docker (FastAPI)
