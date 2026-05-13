@@ -50,6 +50,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
   @override
   Widget build(BuildContext context) {
     final positionAsync = ref.watch(gpsServiceProvider);
+    ref.watch(authStateProvider); // pre-subscribe so ref.read in _onToggle is synchronous
     final communityReportsAsync = ref.watch(activeCommunityReportsProvider);
 
     // Listen for incoming stop requests (vendor receives FCM)

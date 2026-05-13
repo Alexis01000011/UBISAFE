@@ -11,7 +11,6 @@ import '../../community/services/community_report_module.dart';
 import '../../identity/profile/widgets/drawer_module.dart';
 import '../../presence/services/gps_service.dart';
 import '../../presence/services/vendor_tracker.dart';
-import '../../safety/models/risk_zone.dart';
 import '../../safety/screens/risk_form_bottom_sheet.dart';
 import '../../safety/services/risk_zone_service.dart';
 import '../../shared/notifications/notification_handler.dart';

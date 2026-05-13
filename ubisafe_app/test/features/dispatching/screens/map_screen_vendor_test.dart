@@ -6,17 +6,29 @@
 // Estrategia: Se usan provider overrides para inyectar eventos FCM simulados
 // (incomingStopRequestProvider) y verificar que el dialog de CU-01 aparece.
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:mocktail/mocktail.dart';
 
 import 'package:ubisafe_app/core/providers/auth_providers.dart';
+import 'package:ubisafe_app/features/community/models/community_report.dart';
+import 'package:ubisafe_app/features/community/services/community_report_module.dart';
 import 'package:ubisafe_app/features/dispatching/screens/map_screen_vendor.dart';
+import 'package:ubisafe_app/features/identity/auth/auth_module.dart';
 import 'package:ubisafe_app/features/presence/services/gps_service.dart';
 import 'package:ubisafe_app/features/presence/services/vendor_tracker.dart';
 import 'package:ubisafe_app/features/safety/services/risk_zone_service.dart';
 import 'package:ubisafe_app/features/shared/notifications/notification_handler.dart';
+
+class _MockCommunityReportModule extends Mock implements CommunityReportModule {}
+
+class _MockFirebaseUser extends Mock implements User {
+  @override
+  String get uid => 'vendor-test';
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -42,6 +54,15 @@ Widget _buildVendorScreen({
 }) {
   return ProviderScope(
     overrides: [
+      authStateProvider.overrideWith(
+        (ref) => Stream.value(_MockFirebaseUser()),
+      ),
+      communityReportModuleProvider.overrideWith((_) {
+        final m = _MockCommunityReportModule();
+        when(() => m.fetchReports(lat: any(named: 'lat'), lng: any(named: 'lng')))
+            .thenAnswer((_) async => <CommunityReport>[]);
+        return m;
+      }),
       gpsServiceProvider.overrideWith(
         (ref) => Stream.value(gpsPosition),
       ),
@@ -68,6 +89,15 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
+            authStateProvider.overrideWith(
+        (ref) => Stream.value(_MockFirebaseUser()),
+      ),
+            communityReportModuleProvider.overrideWith((_) {
+              final m = _MockCommunityReportModule();
+              when(() => m.fetchReports(lat: any(named: 'lat'), lng: any(named: 'lng')))
+                  .thenAnswer((_) async => <CommunityReport>[]);
+              return m;
+            }),
             gpsServiceProvider.overrideWith((ref) => const Stream.empty()),
             vendorMarkersProvider.overrideWith((ref) => Stream.value([])),
             incomingStopRequestProvider.overrideWith((ref) => null),

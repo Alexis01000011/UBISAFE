@@ -7,13 +7,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:mocktail/mocktail.dart';
 
 import 'package:ubisafe_app/features/dispatching/models/stop_request.dart';
 import 'package:ubisafe_app/features/dispatching/screens/tracking_screen.dart';
-
+import 'package:ubisafe_app/features/dispatching/services/stop_request_module.dart';
 import 'package:ubisafe_app/features/presence/services/gps_service.dart';
 import 'package:ubisafe_app/features/presence/services/vendor_tracker.dart';
 import 'package:ubisafe_app/features/shared/notifications/notification_handler.dart';
+
+class _MockStopRequestModule extends Mock implements StopRequestModule {}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -32,6 +35,12 @@ Position _fakePosition({double lat = 19.43, double lng = -99.13}) =>
       speedAccuracy: 0,
     );
 
+_MockStopRequestModule _makeStubModule() {
+  final m = _MockStopRequestModule();
+  when(() => m.watchStopRequest(any())).thenAnswer((_) => const Stream.empty());
+  return m;
+}
+
 /// Construye TrackingScreen dentro de un ProviderScope mínimo.
 Widget _buildTrackingScreen({
   Position? gpsPosition,
@@ -40,6 +49,7 @@ Widget _buildTrackingScreen({
 }) {
   return ProviderScope(
     overrides: [
+      stopRequestModuleProvider.overrideWith((ref) => _makeStubModule()),
       // Inyectar posición GPS estática (evita llamadas reales a geolocator)
       gpsServiceProvider.overrideWith((ref) => Stream.value(gpsPosition)),
       // Sin vendedores en unit tests
@@ -63,6 +73,7 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
+            stopRequestModuleProvider.overrideWith((ref) => _makeStubModule()),
             gpsServiceProvider.overrideWith((ref) => const Stream.empty()),
             vendorMarkersProvider.overrideWith((ref) => Stream.value([])),
             stopRequestEventProvider.overrideWith((ref) => null),

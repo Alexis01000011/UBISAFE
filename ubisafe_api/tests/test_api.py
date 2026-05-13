@@ -8,7 +8,7 @@ Strategy:
 """
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -27,8 +27,8 @@ def _no_firebase():
 
 
 def _make_client(user_claims: dict | None):
-    from main import app
     from dependencies import get_current_user
+    from main import app
 
     if user_claims is not None:
         app.dependency_overrides[get_current_user] = lambda: user_claims
@@ -57,8 +57,8 @@ def vendor():
 
 @pytest.fixture
 def anon():
-    from main import app
     from dependencies import get_current_user
+    from main import app
     app.dependency_overrides.pop(get_current_user, None)
     client = TestClient(app)
     yield client
@@ -78,7 +78,7 @@ def _vendor_profile(**kwargs):
 
 
 def _make_stop(status: str = "pending"):
-    from modules.dispatching.schemas import StopRequest, GeoPoint
+    from modules.dispatching.schemas import GeoPoint, StopRequest
     return StopRequest(
         id="stop-1",
         buyer_uid="buyer-uid",

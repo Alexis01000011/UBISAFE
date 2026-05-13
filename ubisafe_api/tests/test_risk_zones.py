@@ -80,7 +80,11 @@ async def test_create_zone_no_token(mock_firebase):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         res = await client.post(
             "/risk-zones/",
-            json={"threat_type": "Robo", "risk_level": "HIGH", "location": {"lat": 20.67, "lng": -103.34}},
+            json={
+                "threat_type": "Robo",
+                "risk_level": "HIGH",
+                "location": {"lat": 20.67, "lng": -103.34},
+            },
         )
 
     assert res.status_code == 401
