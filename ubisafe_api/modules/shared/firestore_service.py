@@ -141,7 +141,8 @@ class FirestoreService:
         doc = cls._db().collection("risk_zones").document(zone_id).get()
         if not doc.exists:
             return None
-        return RiskZone(id=doc.id, **doc.to_dict())
+        raw = doc.to_dict() or {}
+        return RiskZone(id=doc.id, **raw)
 
     @classmethod
     async def get_active_risk_zones(
@@ -198,7 +199,8 @@ class FirestoreService:
         data["expired_at"] = None
         _, ref = cls._db().collection("risk_zones").add(data)
         doc = ref.get()
-        return RiskZone(id=doc.id, **doc.to_dict())
+        raw = doc.to_dict() or {}
+        return RiskZone(id=doc.id, **raw)
 
     @classmethod
     async def expire_risk_zone(cls, zone_id: str) -> RiskZone | None:
@@ -213,13 +215,41 @@ class FirestoreService:
             }
         )
         doc = ref.get()
-        return RiskZone(id=doc.id, **doc.to_dict())
+        raw = doc.to_dict() or {}
+        return RiskZone(id=doc.id, **raw)
+
+    @classmethod
+    async def query_active_risk_zones_bbox(
+        cls, lat: float, lng: float, delta: float
+    ) -> list[dict]:
+        """Return active zones whose location falls within a lat/lng bounding box."""
+        docs = cls._db().collection("risk_zones").where("active", "==", True).stream()
+        candidates = []
+        for doc in docs:
+            data = doc.to_dict() or {}
+            loc = data.get("location") or {}
+            zone_lat = loc.get("lat", 0)
+            zone_lng = loc.get("lng", 0)
+            if abs(zone_lat - lat) <= delta and abs(zone_lng - lng) <= delta:
+                candidates.append({"id": doc.id, **data})
+        return candidates
+
+    @classmethod
+    async def get_all_fcm_tokens(cls) -> list[str]:
+        """Return all non-null FCM tokens from the users collection."""
+        docs = cls._db().collection("users").stream()
+        tokens = []
+        for doc in docs:
+            data = doc.to_dict() or {}
+            token = data.get("fcm_token")
+            if token:
+                tokens.append(token)
+        return tokens
 
     @classmethod
     async def get_all_user_fcm_tokens(cls) -> list[str]:
-        """Return all non-null FCM tokens from the users collection."""
-        docs = cls._db().collection("users").stream()
-        return [d.to_dict()["fcm_token"] for d in docs if d.to_dict().get("fcm_token")]
+        """Alias for get_all_fcm_tokens."""
+        return await cls.get_all_fcm_tokens()
 
     @classmethod
     async def get_nearby_user_fcm_tokens(

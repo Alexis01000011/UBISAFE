@@ -9,16 +9,20 @@ class GeoPoint(BaseModel):
 
 
 class RiskZone(BaseModel):
+    """Modelo de zona de riesgo. Ref: SDD_FASE3_UBISAFE.md §7.2.3
+    El backend siempre genera created_at y expires_at (now+24h) al crear.
+    """
+
     id: str
     reporter_uid: str
     threat_type: str
     risk_level: str  # HIGH | MEDIUM | LOW
     location: GeoPoint
-    radius_meters: int = 100
-    active: bool = True
-    created_at: str | None = None
-    expires_at: str | None = None
-    expired_at: str | None = None
+    radius_meters: int
+    active: bool
+    created_at: str  # Siempre presente — generado por el backend
+    expires_at: str  # Siempre presente — created_at + 24h
+    expired_at: str | None = None  # Solo presente cuando la zona ya expiró
 
 
 class CreateRiskZoneBody(BaseModel):

@@ -49,7 +49,7 @@ void main() {
   StopRequestModule makeModule() => StopRequestModule(mockDio, mockFirestore);
 
   group('createStopRequest', () {
-    test('calls POST /stops/ and returns parsed StopRequest', () async {
+    test('calls POST /stops and returns parsed StopRequest', () async {
       when(() => mockDio.post<Map<String, dynamic>>(
                 any(),
                 data: any(named: 'data'),

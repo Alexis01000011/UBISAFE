@@ -13,7 +13,7 @@ import '../../presence/services/gps_service.dart';
 import '../../presence/services/vendor_tracker.dart';
 import '../../safety/models/risk_zone.dart';
 import '../../safety/screens/risk_form_bottom_sheet.dart';
-import '../../safety/services/risk_report_module.dart';
+import '../../safety/services/risk_zone_service.dart';
 import '../../shared/notifications/notification_handler.dart';
 import '../../shared/widgets/gps_required_empty_state.dart';
 import '../models/stop_request.dart';
@@ -35,7 +35,6 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
   _BuyerMapState _mapState = _BuyerMapState.idle;
   String? _activeStopId;
   String? _activeRideId;
-  bool _riskZonesLoaded = false;
   bool _communityReportsLoaded = false;
   bool _speedDialOpen = false;
 
@@ -43,7 +42,6 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
   Widget build(BuildContext context) {
     final positionAsync = ref.watch(gpsServiceProvider);
     final vendorsAsync = ref.watch(vendorMarkersProvider);
-    final riskZonesAsync = ref.watch(activeRiskZonesProvider);
     final communityReportsAsync = ref.watch(activeCommunityReportsProvider);
 
     // Listen for FCM events (accepted/rejected/expired)
@@ -186,17 +184,6 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
             orElse: () => <Marker>{},
           );
 
-          // Load risk zones once when position is first available
-          if (!_riskZonesLoaded) {
-            _riskZonesLoaded = true;
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              ref.read(activeRiskZonesProvider.notifier).load(
-                    lat: position.latitude,
-                    lng: position.longitude,
-                  );
-            });
-          }
-
           // Load community reports once
           if (!_communityReportsLoaded) {
             _communityReportsLoaded = true;
@@ -208,10 +195,24 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
             });
           }
 
-          final riskCircles = riskZonesAsync.valueOrNull
-                  ?.map((z) => _riskZoneToCircle(z))
-                  .toSet() ??
-              <Circle>{};
+          final zonesAsync = ref.watch(
+            activeRiskZonesProvider(LatLng(position.latitude, position.longitude)),
+          );
+          final circles = zonesAsync.maybeWhen(
+            data: (zones) => zones
+                .map(
+                  (z) => Circle(
+                    circleId: CircleId(z.id),
+                    center: LatLng(z.latitude, z.longitude),
+                    radius: z.radiusMeters.toDouble(),
+                    fillColor: _riskFillColor(z.riskLevel),
+                    strokeColor: _riskStrokeColor(z.riskLevel),
+                    strokeWidth: 2,
+                  ),
+                )
+                .toSet(),
+            orElse: () => <Circle>{},
+          );
 
           // Community report markers: skip duplicates (grouped under canonical pin)
           final communityMarkers = (communityReportsAsync.valueOrNull ?? [])
@@ -229,7 +230,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
                 myLocationEnabled: true,
                 myLocationButtonEnabled: true,
                 markers: markers.union(communityMarkers),
-                circles: riskCircles,
+                circles: circles,
               ),
               if (_mapState == _BuyerMapState.waiting)
                 _WaitingOverlay(
@@ -392,8 +393,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
     }
     RiskFormBottomSheet.show(
       context,
-      lat: position.latitude,
-      lng: position.longitude,
+      LatLng(position.latitude, position.longitude),
     );
   }
 
@@ -434,29 +434,6 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
     );
   }
 
-  static Circle _riskZoneToCircle(RiskZone zone) {
-    final Color fill;
-    final Color stroke;
-    switch (zone.riskLevel) {
-      case RiskLevel.high:
-        fill = AppColors.danger700.withValues(alpha: 0.35);
-        stroke = AppColors.danger700;
-      case RiskLevel.medium:
-        fill = AppColors.warning500.withValues(alpha: 0.30);
-        stroke = AppColors.warning500;
-      case RiskLevel.low:
-        fill = AppColors.info500.withValues(alpha: 0.25);
-        stroke = AppColors.info500;
-    }
-    return Circle(
-      circleId: CircleId(zone.id),
-      center: LatLng(zone.latitude, zone.longitude),
-      radius: zone.radiusMeters.toDouble(),
-      fillColor: fill,
-      strokeColor: stroke,
-      strokeWidth: 2,
-    );
-  }
 }
 
 // ── SpeedDial FAB — CU-03 + CU-05 ───────────────────
@@ -554,6 +531,22 @@ class _MiniAction extends StatelessWidget {
     );
   }
 }
+
+// ─── Risk zone color helpers ──────────────────────────────────────────────────
+
+Color _riskFillColor(String level) => switch (level) {
+      'HIGH' => const Color(0x59C62828),
+      'MEDIUM' => const Color(0x4DF57C00),
+      _ => const Color(0x400277BD),
+    };
+
+Color _riskStrokeColor(String level) => switch (level) {
+      'HIGH' => const Color(0xFFC62828),
+      'MEDIUM' => const Color(0xFFF57C00),
+      _ => const Color(0xFF0277BD),
+    };
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _WaitingOverlay extends StatelessWidget {
   const _WaitingOverlay({required this.onCancel, required this.label});

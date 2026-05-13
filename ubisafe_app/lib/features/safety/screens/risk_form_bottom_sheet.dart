@@ -1,37 +1,28 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 
-import '../../../core/design_system/colors.dart';
-import '../../../core/design_system/typography.dart';
-import '../services/risk_report_module.dart';
+import '../../../core/api/api_client.dart';
 
-/// W-17 — RiskFormBottomSheet (CU-03)
-/// Transversal to BUYER and VENDOR roles.
-/// Precondition: GPS must be active before calling [show].
+/// Bottom sheet form for reporting a risk zone (CU-03).
+/// Returns true if the report was submitted successfully.
 class RiskFormBottomSheet extends ConsumerStatefulWidget {
-  const RiskFormBottomSheet({
-    super.key,
-    required this.currentLat,
-    required this.currentLng,
-  });
+  const RiskFormBottomSheet({super.key, required this.currentLocation});
 
-  final double currentLat;
-  final double currentLng;
+  final LatLng currentLocation;
 
-  static Future<void> show(
-    BuildContext context, {
-    required double lat,
-    required double lng,
-  }) =>
-      showModalBottomSheet<void>(
-        context: context,
-        isScrollControlled: true,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        builder: (_) => RiskFormBottomSheet(currentLat: lat, currentLng: lng),
-      );
+  static Future<bool> show(BuildContext context, LatLng currentLocation) async {
+    final result = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => RiskFormBottomSheet(currentLocation: currentLocation),
+    );
+    return result == true;
+  }
 
   @override
   ConsumerState<RiskFormBottomSheet> createState() =>
@@ -39,200 +30,211 @@ class RiskFormBottomSheet extends ConsumerStatefulWidget {
 }
 
 class _RiskFormBottomSheetState extends ConsumerState<RiskFormBottomSheet> {
-  String? _threatType;
-  final _descCtrl = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+  final _threatCtrl = TextEditingController();
+  String? _riskLevel;
+  String? _duplicateError;
   bool _loading = false;
-
-  static const _threatOptions = [
-    'Robo/Asalto',
-    'Accidente',
-    'Zona insegura',
-    'Iluminación deficiente',
-    'Otro',
-  ];
-
-  // Map display label → API risk_level value
-  String _resolveLevel(String threatType) {
-    switch (threatType) {
-      case 'Robo/Asalto':
-        return 'HIGH';
-      case 'Accidente':
-        return 'HIGH';
-      case 'Zona insegura':
-        return 'MEDIUM';
-      case 'Iluminación deficiente':
-        return 'LOW';
-      default:
-        return 'MEDIUM';
-    }
-  }
 
   @override
   void dispose() {
-    _descCtrl.dispose();
+    _threatCtrl.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
-    if (_threatType == null) return;
-    setState(() => _loading = true);
+    if (!_formKey.currentState!.validate()) return;
+    if (_riskLevel == null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Selecciona un nivel de riesgo')));
+      return;
+    }
+
+    setState(() {
+      _loading = true;
+      _duplicateError = null;
+    });
+
+    final messenger = ScaffoldMessenger.of(context);
+    final dio = ref.read(apiClientProvider);
+
     try {
-      await ref.read(riskReportModuleProvider).createRiskZone(
-            threatType: _threatType!,
-            riskLevel: _resolveLevel(_threatType!),
-            lat: widget.currentLat,
-            lng: widget.currentLng,
-          );
-
-      // Refresh map polygons
-      await ref.read(activeRiskZonesProvider.notifier).refresh();
-
-      if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Zona reportada. Gracias.')),
-        );
-      }
+      await dio.post<dynamic>(
+        '/risk-zones',
+        data: {
+          'threat_type': _threatCtrl.text.trim(),
+          'risk_level': _riskLevel,
+          'location': {
+            'lat': widget.currentLocation.latitude,
+            'lng': widget.currentLocation.longitude,
+          },
+          'radius_meters': 100,
+        },
+      );
+      if (!mounted) return;
+      Navigator.pop(context, true);
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Zona de riesgo reportada')),
+      );
     } on DioException catch (e) {
-      final code = e.response?.statusCode;
-      final msg = code == 409
-          ? 'Ya existe un reporte activo en esta zona.'
-          : 'No se pudo enviar. Intenta de nuevo.';
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(msg),
-            backgroundColor: AppColors.danger500,
-          ),
+      if (!mounted) return;
+      setState(() => _loading = false);
+      if (e.response?.statusCode == 409) {
+        setState(() => _duplicateError = 'Ya existe un reporte activo en esta zona');
+      } else {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Error al reportar la zona. Intenta de nuevo.')),
         );
       }
-    } finally {
-      if (mounted) setState(() => _loading = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.fromLTRB(
-        24,
-        0,
-        24,
-        32 + MediaQuery.of(context).viewInsets.bottom,
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+        left: 16,
+        right: 16,
+        top: 16,
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Handle
-          const SizedBox(height: 12),
-          Center(
-            child: Container(
-              width: 32,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppColors.neutral200,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          // Title
-          Text(
-            'Reportar zona de riesgo',
-            style: AppTypography.heading1.copyWith(color: AppColors.neutral900),
-          ),
-          const Divider(height: 24),
-          // Threat type dropdown (required)
-          Text(
-            'Tipo de riesgo *',
-            style: AppTypography.label.copyWith(color: AppColors.neutral600),
-          ),
-          const SizedBox(height: 6),
-          DropdownButtonFormField<String>(
-            initialValue: _threatType,
-            hint: const Text('Selecciona...'),
-            decoration: InputDecoration(
-              border:
-                  OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            ),
-            items: _threatOptions
-                .map((o) => DropdownMenuItem(value: o, child: Text(o)))
-                .toList(),
-            onChanged: (v) => setState(() => _threatType = v),
-          ),
-          const SizedBox(height: 16),
-          // Description (optional)
-          Text(
-            'Descripción',
-            style: AppTypography.label.copyWith(color: AppColors.neutral600),
-          ),
-          const SizedBox(height: 6),
-          TextField(
-            controller: _descCtrl,
-            maxLines: 4,
-            minLines: 2,
-            maxLength: 200,
-            decoration: InputDecoration(
-              hintText: 'Describe brevemente...',
-              border:
-                  OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            ),
-          ),
-          const SizedBox(height: 16),
-          // Location chip (readonly)
-          Row(
-            children: [
-              const Icon(Icons.location_on, size: 18),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  'Lat ${widget.currentLat.toStringAsFixed(4)}, '
-                  'Lng ${widget.currentLng.toStringAsFixed(4)}',
-                  style: AppTypography.body2,
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
                 decoration: BoxDecoration(
-                  color: AppColors.secondary50,
-                  borderRadius: BorderRadius.circular(12),
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
                 ),
-                child: Text(
-                  'GPS activo',
-                  style: AppTypography.caption
-                      .copyWith(color: AppColors.secondary700),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Reportar zona de riesgo',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Lat: ${widget.currentLocation.latitude.toStringAsFixed(5)}, '
+              'Lng: ${widget.currentLocation.longitude.toStringAsFixed(5)}',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _threatCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Tipo de amenaza',
+                hintText: 'Ej: robo, accidente, vía bloqueada...',
+                border: OutlineInputBorder(),
+              ),
+              validator: (v) =>
+                  (v == null || v.trim().isEmpty) ? 'Requerido' : null,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Nivel de riesgo',
+              style: Theme.of(context).textTheme.labelLarge,
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: [
+                _LevelChip(
+                  label: 'ALTO',
+                  value: 'HIGH',
+                  selectedColor: const Color(0xFFC62828),
+                  selected: _riskLevel == 'HIGH',
+                  onSelected: (v) => setState(() {
+                    _riskLevel = v ? 'HIGH' : null;
+                    _duplicateError = null;
+                  }),
                 ),
+                _LevelChip(
+                  label: 'MEDIO',
+                  value: 'MEDIUM',
+                  selectedColor: const Color(0xFFF57C00),
+                  selected: _riskLevel == 'MEDIUM',
+                  onSelected: (v) => setState(() {
+                    _riskLevel = v ? 'MEDIUM' : null;
+                    _duplicateError = null;
+                  }),
+                ),
+                _LevelChip(
+                  label: 'BAJO',
+                  value: 'LOW',
+                  selectedColor: const Color(0xFF0277BD),
+                  selected: _riskLevel == 'LOW',
+                  onSelected: (v) => setState(() {
+                    _riskLevel = v ? 'LOW' : null;
+                    _duplicateError = null;
+                  }),
+                ),
+              ],
+            ),
+            if (_duplicateError != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                _duplicateError!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ],
-          ),
-          const SizedBox(height: 24),
-          // Submit button
-          ElevatedButton(
-            onPressed: (_threatType == null || _loading) ? null : _submit,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.warning700,
-              foregroundColor: Colors.white,
-              minimumSize: const Size.fromHeight(52),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: _loading ? null : _submit,
+              child: _loading
+                  ? const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Reportar'),
             ),
-            child: _loading
-                ? const SizedBox(
-                    height: 20,
-                    width: 20,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Colors.white),
-                  )
-                : const Text('Enviar reporte'),
-          ),
-        ],
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: _loading ? null : () => Navigator.pop(context, false),
+              child: const Text('Cancelar'),
+            ),
+          ],
+        ),
       ),
+    );
+  }
+}
+
+class _LevelChip extends StatelessWidget {
+  const _LevelChip({
+    required this.label,
+    required this.value,
+    required this.selectedColor,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final String label;
+  final String value;
+  final Color selectedColor;
+  final bool selected;
+  final ValueChanged<bool> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return FilterChip(
+      label: Text(label),
+      selected: selected,
+      selectedColor: selectedColor.withValues(alpha: 0.2),
+      checkmarkColor: selectedColor,
+      labelStyle: TextStyle(
+        color: selected ? selectedColor : null,
+        fontWeight: selected ? FontWeight.bold : null,
+      ),
+      side: selected ? BorderSide(color: selectedColor) : null,
+      onSelected: onSelected,
     );
   }
 }
