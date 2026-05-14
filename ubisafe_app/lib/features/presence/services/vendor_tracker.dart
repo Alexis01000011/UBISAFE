@@ -83,8 +83,7 @@ class VendorTracker {
     final lat = _buyerLat;
     final lng = _buyerLng;
     if (lat == null || lng == null) {
-      // No GPS fix yet — show nothing rather than the full unfiltered set.
-      _controller.add(const []);
+      _controller.add(List.unmodifiable(_vendors.values));
       return;
     }
     _controller.add(

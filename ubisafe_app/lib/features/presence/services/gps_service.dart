@@ -125,10 +125,12 @@ class GPSService {
     // operations and can hang indefinitely when the emulator is unreachable —
     // the onDisconnect().remove() handler cleans up the node once connectivity
     // is restored, so blocking here is unnecessary.
-    _rtdbRefFactory(vendorUid).remove().timeout(
-      const Duration(seconds: 2),
-      onTimeout: () {},
-    ).catchError((_) {});
+    unawaited(
+      _rtdbRefFactory(vendorUid).remove().timeout(
+        const Duration(seconds: 2),
+        onTimeout: () {},
+      ).catchError((_) {}),
+    );
     if (!_stateCtrl.isClosed) _stateCtrl.add(GPSServiceState.inactive);
     _activeUid = null;
   }
@@ -139,9 +141,11 @@ class GPSService {
     // Register the disconnect handler BEFORE any write (safety invariant).
     // catchError so a permission_denied or offline rejection is visible in
     // debug logs instead of becoming a silently-lost unhandled Future.
-    _rtdbRefFactory(vendorUid).onDisconnect().remove().catchError((Object e) {
-      if (kDebugMode) debugPrint('GPSService: onDisconnect register failed — $e');
-    });
+    unawaited(
+      _rtdbRefFactory(vendorUid).onDisconnect().remove().catchError((Object e) {
+        if (kDebugMode) debugPrint('GPSService: onDisconnect register failed — $e');
+      }),
+    );
 
     final oldSub = _posSub;
     _posSub = null;

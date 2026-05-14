@@ -1,4 +1,6 @@
-import asyncio
+from __future__ import annotations
+
+import math
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -9,7 +11,24 @@ from modules.shared.notification_service import NotificationService
 
 router = APIRouter()
 
-_RISK_ZONE_NOTIFY_RADIUS_KM = 5.0
+_VALID_RISK_LEVELS = {"HIGH", "MEDIUM", "LOW"}
+
+_EARTH_RADIUS_M = 6_371_000
+
+
+def _haversine_meters(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lng2 - lng1)
+    a = (
+        math.sin(dphi / 2) ** 2
+        + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    )
+    return 2 * _EARTH_RADIUS_M * math.asin(math.sqrt(a))
+
+
+def _bbox_delta(radius_meters: float) -> float:
+    return radius_meters / 111_000
 
 
 @router.get("/health")
@@ -32,22 +51,49 @@ async def create_risk_zone(
     body: CreateRiskZoneBody,
     current_user: dict = Depends(get_current_user),
 ):
-    duplicate = await FirestoreService.find_duplicate_risk_zone(
-        body.location.lat, body.location.lng, body.radius_meters
-    )
-    if duplicate:
+    if body.risk_level not in _VALID_RISK_LEVELS:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "error": "duplicate_risk_zone",
-                "existing_zone_id": duplicate.id,
-                "message": "Ya existe una zona activa en esta área",
-            },
+            status_code=422,
+            detail=f"risk_level must be one of {sorted(_VALID_RISK_LEVELS)}",
         )
+
+    delta = _bbox_delta(body.radius_meters)
+    candidates = await FirestoreService.query_active_risk_zones_bbox(
+        body.location.lat, body.location.lng, delta
+    )
+    for cand in candidates:
+        loc = cand.get("location") or {}
+        dist = _haversine_meters(
+            body.location.lat,
+            body.location.lng,
+            loc.get("lat", 0),
+            loc.get("lng", 0),
+        )
+        if dist < cand.get("radius_meters", 100):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error": "duplicate_risk_zone",
+                    "existing_zone_id": cand["id"],
+                    "message": "Ya existe una zona activa en esta área",
+                },
+            )
 
     zone = await FirestoreService.create_risk_zone(current_user["uid"], body)
 
-    asyncio.ensure_future(_notify_all(zone.id, body))
+    fcm_tokens = await FirestoreService.get_all_fcm_tokens()
+    loc = zone.location
+    await NotificationService.notify_risk_zone_alert(
+        fcm_tokens,
+        {
+            "type": "risk_zone_alert",
+            "risk_zone_id": zone.id,
+            "risk_level": zone.risk_level,
+            "threat_type": zone.threat_type,
+            "lat": str(loc.lat),
+            "lng": str(loc.lng),
+        },
+    )
 
     return zone
 
@@ -59,23 +105,13 @@ async def expire_risk_zone(
 ):
     zone = await FirestoreService.get_risk_zone(zone_id)
     if zone is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Zone not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Zone not found",
+        )
     if zone.reporter_uid != current_user["uid"]:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Only the reporter can expire this zone"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the reporter can expire this zone",
         )
     await FirestoreService.expire_risk_zone(zone_id)
-
-
-async def _notify_all(zone_id: str, body: CreateRiskZoneBody) -> None:
-    tokens = await FirestoreService.get_nearby_user_fcm_tokens(
-        body.location.lat, body.location.lng, _RISK_ZONE_NOTIFY_RADIUS_KM
-    )
-    await NotificationService.send_risk_zone_alert(
-        tokens=tokens,
-        zone_id=zone_id,
-        risk_level=body.risk_level,
-        threat_type=body.threat_type,
-        lat=body.location.lat,
-        lng=body.location.lng,
-    )

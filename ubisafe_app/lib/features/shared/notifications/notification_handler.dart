@@ -6,7 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/api_client.dart';
 import '../../community/services/community_report_module.dart';
 import '../../dispatching/models/stop_request.dart';
-import '../../safety/services/risk_report_module.dart';
+import '../../safety/services/risk_zone_service.dart';
 
 /// Background message handler — must be a top-level function.
 @pragma('vm:entry-point')
@@ -57,13 +57,13 @@ class NotificationHandler {
     this._dio, {
     required void Function(Map<String, dynamic>?) setIncomingStop,
     required void Function(StopEvent?) setStopEvent,
-    required void Function() onRiskZoneAlert,
+    required void Function() invalidateRiskZones,
     required void Function() onCommunityReportNearby,
     required void Function(Map<String, dynamic>?) setIncomingRide,
     required void Function(RideEvent?) setRideEvent,
   })  : _setIncomingStop = setIncomingStop,
         _setStopEvent = setStopEvent,
-        _onRiskZoneAlert = onRiskZoneAlert,
+        _invalidateRiskZones = invalidateRiskZones,
         _onCommunityReportNearby = onCommunityReportNearby,
         _setIncomingRide = setIncomingRide,
         _setRideEvent = setRideEvent;
@@ -72,7 +72,7 @@ class NotificationHandler {
   final Dio _dio;
   final void Function(Map<String, dynamic>?) _setIncomingStop;
   final void Function(StopEvent?) _setStopEvent;
-  final void Function() _onRiskZoneAlert;
+  final void Function() _invalidateRiskZones;
   final void Function() _onCommunityReportNearby;
   final void Function(Map<String, dynamic>?) _setIncomingRide;
   final void Function(RideEvent?) _setRideEvent;
@@ -147,7 +147,7 @@ class NotificationHandler {
         }
 
       case 'risk_zone_alert':
-        _onRiskZoneAlert();
+        _invalidateRiskZones();
 
       case 'community_report_nearby':
         _onCommunityReportNearby();
@@ -209,7 +209,7 @@ final notificationHandlerProvider = Provider<NotificationHandler>((ref) {
         ref.read(incomingStopRequestProvider.notifier).state = data,
     setStopEvent: (event) =>
         ref.read(stopRequestEventProvider.notifier).state = event,
-    onRiskZoneAlert: () => ref.read(activeRiskZonesProvider.notifier).refresh(),
+    invalidateRiskZones: () => ref.invalidate(activeRiskZonesProvider),
     onCommunityReportNearby: () =>
         ref.read(activeCommunityReportsProvider.notifier).refresh(),
     setIncomingRide: (data) =>

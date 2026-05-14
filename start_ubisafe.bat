@@ -24,7 +24,7 @@ timeout /t 4 /nobreak > nul
 REM ---- 3. ADB Reverse (para dispositivo fisico) ----
 echo [3/3] Configurando ADB reverse...
 adb reverse tcp:9099 tcp:9099 2>nul || echo      (adb no encontrado o sin dispositivo conectado, continua de todas formas)
-adb reverse tcp:8088 tcp:8088 2>nul
+adb reverse tcp:8080 tcp:8080 2>nul
 adb reverse tcp:9000 tcp:9000 2>nul
 adb reverse tcp:8000 tcp:8000 2>nul
 

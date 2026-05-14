@@ -93,7 +93,7 @@ class RideRequestModule {
   }
 
   void cancelExpiryTimer() {
-    for (final t in _expiryTimers.values) t.cancel();
+    for (final t in _expiryTimers.values) { t.cancel(); }
     _expiryTimers.clear();
   }
 

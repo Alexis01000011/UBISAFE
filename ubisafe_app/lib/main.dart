@@ -10,12 +10,17 @@ import 'core/design_system/theme.dart';
 import 'features/shared/notifications/notification_handler.dart';
 import 'router/app_router.dart';
 
+const bool _useEmulators = bool.fromEnvironment(
+  'USE_EMULATORS',
+  defaultValue: kDebugMode,
+);
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
   NotificationHandler.registerBackgroundHandler();
 
-  if (kDebugMode) {
+  if (_useEmulators) {
     await _connectToEmulators();
   }
 
@@ -29,7 +34,7 @@ Future<void> _connectToEmulators() async {
   const host = 'localhost';
   await FirebaseAuth.instance
       .useAuthEmulator(host, 9099, automaticHostMapping: false);
-  FirebaseFirestore.instance.useFirestoreEmulator(host, 8088);
+  FirebaseFirestore.instance.useFirestoreEmulator(host, 8080);
   FirebaseDatabase.instance.useDatabaseEmulator(host, 9000);
 }
 

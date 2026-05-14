@@ -8,7 +8,6 @@ import 'package:go_router/go_router.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../core/design_system/colors.dart';
-import '../../../core/providers/auth_providers.dart';
 import '../../identity/auth/auth_module.dart';
 import '../../community/models/community_report.dart';
 import '../../community/screens/community_form_bottom_sheet.dart';
@@ -17,7 +16,7 @@ import '../../identity/profile/widgets/drawer_module.dart';
 import '../../presence/services/gps_service.dart';
 import '../../safety/models/risk_zone.dart';
 import '../../safety/screens/risk_form_bottom_sheet.dart';
-import '../../safety/services/risk_report_module.dart';
+import '../../safety/services/risk_zone_service.dart';
 import '../../shared/notifications/notification_handler.dart';
 import '../../shared/widgets/gps_required_empty_state.dart';
 import '../models/ride.dart';
@@ -38,7 +37,6 @@ class MapScreenVendor extends ConsumerStatefulWidget {
 class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
   bool _isVisible = false;
   bool _isNavigating = false;
-  bool _riskZonesLoaded = false;
   bool _communityReportsLoaded = false;
   bool _speedDialOpen = false;
   String? _activeStopId;
@@ -52,7 +50,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
   @override
   Widget build(BuildContext context) {
     final positionAsync = ref.watch(gpsServiceProvider);
-    final riskZonesAsync = ref.watch(activeRiskZonesProvider);
+    ref.watch(authStateProvider); // pre-subscribe so ref.read in _onToggle is synchronous
     final communityReportsAsync = ref.watch(activeCommunityReportsProvider);
 
     // Listen for incoming stop requests (vendor receives FCM)
@@ -151,17 +149,6 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
                 }
               : <Polyline>{};
 
-          // Load risk zones once when position is first available
-          if (!_riskZonesLoaded) {
-            _riskZonesLoaded = true;
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              ref.read(activeRiskZonesProvider.notifier).load(
-                    lat: position.latitude,
-                    lng: position.longitude,
-                  );
-            });
-          }
-
           // Load community reports once
           if (!_communityReportsLoaded) {
             _communityReportsLoaded = true;
@@ -173,10 +160,24 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
             });
           }
 
-          final riskCircles = riskZonesAsync.valueOrNull
-                  ?.map((z) => _riskZoneToCircle(z))
-                  .toSet() ??
-              <Circle>{};
+          final zonesAsync = ref.watch(
+            activeRiskZonesProvider(LatLng(position.latitude, position.longitude)),
+          );
+          final circles = zonesAsync.maybeWhen(
+            data: (zones) => zones
+                .map(
+                  (z) => Circle(
+                    circleId: CircleId(z.id),
+                    center: LatLng(z.latitude, z.longitude),
+                    radius: z.radiusMeters.toDouble(),
+                    fillColor: _riskFillColor(z.riskLevel),
+                    strokeColor: _riskStrokeColor(z.riskLevel),
+                    strokeWidth: 2,
+                  ),
+                )
+                .toSet(),
+            orElse: () => <Circle>{},
+          );
 
           final communityMarkers = (communityReportsAsync.valueOrNull ?? [])
               .where((r) =>
@@ -193,7 +194,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
                 myLocationEnabled: true,
                 myLocationButtonEnabled: true,
                 polylines: polylines,
-                circles: riskCircles,
+                circles: circles,
                 markers: communityMarkers,
               ),
               // Visibility toggle button
@@ -359,19 +360,30 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
 
     setState(() => _activeStopId = stopId);
 
-    // Route around HIGH-risk zones using via: waypoints
-    final highZones = ref
-            .read(activeRiskZonesProvider)
-            .valueOrNull
-            ?.where((z) => z.riskLevel == RiskLevel.high)
-            .toList() ??
-        [];
+    // Fetch HIGH-risk zones to route around them (SDD §8.3.B)
+    final destLat = double.tryParse(buyerLatStr) ?? 0;
+    final destLng = double.tryParse(buyerLngStr) ?? 0;
+    final zones = await ref
+        .read(
+          activeRiskZonesProvider(LatLng(position.latitude, position.longitude))
+              .future,
+        )
+        .catchError((_) => <RiskZone>[]);
+    final highZones = zones.where((z) => z.riskLevel == 'HIGH').toList();
+    final avoidWaypoints = _buildAvoidWaypoints(
+      originLat: position.latitude,
+      originLng: position.longitude,
+      destLat: destLat,
+      destLng: destLng,
+      highZones: highZones,
+    );
+
     await _fetchRoute(
       originLat: position.latitude,
       originLng: position.longitude,
-      destLat: double.tryParse(buyerLatStr) ?? 0,
-      destLng: double.tryParse(buyerLngStr) ?? 0,
-      avoidZones: highZones,
+      destLat: destLat,
+      destLng: destLng,
+      avoidWaypoints: avoidWaypoints,
     );
 
     setState(() => _isNavigating = true);
@@ -382,46 +394,20 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
     required double originLng,
     required double destLat,
     required double destLng,
-    List<RiskZone> avoidZones = const [],
+    List<String> avoidWaypoints = const [],
   }) async {
     if (_kMapsApiKey.isEmpty) return;
 
     try {
       final dio = Dio();
-
-      // Compute via: waypoints that steer around each HIGH-risk zone on the route
-      final viaPoints = avoidZones
-          .where(
-        (z) => _isNearRoute(
-          originLat: originLat,
-          originLng: originLng,
-          destLat: destLat,
-          destLng: destLng,
-          zoneLat: z.latitude,
-          zoneLng: z.longitude,
-          radiusMeters: z.radiusMeters.toDouble(),
-        ),
-      )
-          .map((z) {
-        final bypass = _bypassPoint(
-          originLat: originLat,
-          originLng: originLng,
-          destLat: destLat,
-          destLng: destLng,
-          zoneLat: z.latitude,
-          zoneLng: z.longitude,
-          offsetMeters: z.radiusMeters + 50.0,
-        );
-        return 'via:${bypass.latitude},${bypass.longitude}';
-      }).join('|');
-
       final params = <String, dynamic>{
         'origin': '$originLat,$originLng',
         'destination': '$destLat,$destLng',
         'key': _kMapsApiKey,
-        if (viaPoints.isNotEmpty) 'waypoints': viaPoints,
       };
-
+      if (avoidWaypoints.isNotEmpty) {
+        params['waypoints'] = avoidWaypoints.join('|');
+      }
       final res = await dio.get<Map<String, dynamic>>(
         'https://maps.googleapis.com/maps/api/directions/json',
         queryParameters: params,
@@ -653,8 +639,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
     }
     RiskFormBottomSheet.show(
       context,
-      lat: position.latitude,
-      lng: position.longitude,
+      LatLng(position.latitude, position.longitude),
     );
   }
 
@@ -694,79 +679,6 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
     );
   }
 
-  /// Returns true if [zone] is within [radiusMeters]+50 m of the route segment.
-  static bool _isNearRoute({
-    required double originLat,
-    required double originLng,
-    required double destLat,
-    required double destLng,
-    required double zoneLat,
-    required double zoneLng,
-    required double radiusMeters,
-  }) {
-    final dx = destLat - originLat;
-    final dy = destLng - originLng;
-    final lenSq = dx * dx + dy * dy;
-    if (lenSq == 0) return false;
-    final t = ((zoneLat - originLat) * dx + (zoneLng - originLng) * dy) / lenSq;
-    final ct = t.clamp(0.0, 1.0);
-    final closestLat = originLat + ct * dx;
-    final closestLng = originLng + ct * dy;
-    final dLat = (zoneLat - closestLat) * 111320;
-    final dLng =
-        (zoneLng - closestLng) * 111320 * math.cos(zoneLat * math.pi / 180);
-    return math.sqrt(dLat * dLat + dLng * dLng) <= radiusMeters + 50;
-  }
-
-  /// Returns a point perpendicular to the route, [offsetMeters] away from the zone.
-  static LatLng _bypassPoint({
-    required double originLat,
-    required double originLng,
-    required double destLat,
-    required double destLng,
-    required double zoneLat,
-    required double zoneLng,
-    required double offsetMeters,
-  }) {
-    final dLat = destLat - originLat;
-    final dLng = destLng - originLng;
-    final len = math.sqrt(dLat * dLat + dLng * dLng);
-    if (len == 0) return LatLng(zoneLat, zoneLng);
-    // Perpendicular unit vector (rotated 90°)
-    final perpLat = -dLng / len;
-    final perpLng = dLat / len;
-    final latOffset = offsetMeters / 111320;
-    final lngOffset =
-        offsetMeters / (111320 * math.cos(zoneLat * math.pi / 180));
-    return LatLng(
-      zoneLat + perpLat * latOffset,
-      zoneLng + perpLng * lngOffset,
-    );
-  }
-
-  static Circle _riskZoneToCircle(RiskZone zone) {
-    final Color fill;
-    final Color stroke;
-    switch (zone.riskLevel) {
-      case RiskLevel.high:
-        fill = AppColors.danger700.withValues(alpha: 0.35);
-        stroke = AppColors.danger700;
-      case RiskLevel.medium:
-        fill = AppColors.warning500.withValues(alpha: 0.30);
-        stroke = AppColors.warning500;
-      case RiskLevel.low:
-        fill = AppColors.info500.withValues(alpha: 0.25);
-        stroke = AppColors.info500;
-    }
-    return Circle(
-      circleId: CircleId(zone.id),
-      center: LatLng(zone.latitude, zone.longitude),
-      radius: zone.radiusMeters.toDouble(),
-      fillColor: fill,
-      strokeColor: stroke,
-      strokeWidth: 2,
-    );
-  }
 }
 
 // ── SpeedDial FAB — CU-03 + CU-05 (vendor map) ───────────────────────────────
@@ -863,6 +775,54 @@ class _VendorMiniAction extends StatelessWidget {
       ],
     );
   }
+}
+
+// ─── Risk zone helpers ────────────────────────────────────────────────────────
+
+Color _riskFillColor(String level) => switch (level) {
+      'HIGH' => const Color(0x59C62828),
+      'MEDIUM' => const Color(0x4DF57C00),
+      _ => const Color(0x400277BD),
+    };
+
+Color _riskStrokeColor(String level) => switch (level) {
+      'HIGH' => const Color(0xFFC62828),
+      'MEDIUM' => const Color(0xFFF57C00),
+      _ => const Color(0xFF0277BD),
+    };
+
+/// Returns perpendicular-offset waypoint strings to route around HIGH zones.
+/// Each waypoint is displaced from the zone center perpendicular to the
+/// origin→destination bearing, on the opposite side from the zone.
+List<String> _buildAvoidWaypoints({
+  required double originLat,
+  required double originLng,
+  required double destLat,
+  required double destLng,
+  required List<RiskZone> highZones,
+}) {
+  if (highZones.isEmpty) return const [];
+  const degPerMeter = 1.0 / 111000;
+  final dLat = destLat - originLat;
+  final dLng = destLng - originLng;
+  final length = math.sqrt(dLat * dLat + dLng * dLng);
+  if (length == 0) return const [];
+
+  // Perpendicular unit vector (90° rotation of direction vector)
+  final perpLat = -dLng / length;
+  final perpLng = dLat / length;
+
+  return highZones.map((z) {
+    // Cross product determines which side of the route the zone is on
+    final cross =
+        dLat * (z.longitude - originLng) - dLng * (z.latitude - originLat);
+    final side = cross >= 0 ? 1.0 : -1.0;
+    final offsetMeters = (z.radiusMeters + 50).toDouble();
+    final offsetDeg = offsetMeters * degPerMeter;
+    final wpLat = z.latitude + perpLat * offsetDeg * side;
+    final wpLng = z.longitude + perpLng * offsetDeg * side;
+    return '$wpLat,$wpLng';
+  }).toList();
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
