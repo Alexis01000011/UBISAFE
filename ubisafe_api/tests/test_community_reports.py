@@ -60,7 +60,7 @@ async def test_create_report_no_token(mock_firebase):
     from main import app
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        res = await client.post("/community-reports/", json=_BODY)
+        res = await client.post("/community-reports", json=_BODY)
 
     assert res.status_code == 401
 
@@ -80,7 +80,7 @@ async def test_create_report_success(mock_firebase, as_reporter):
         ),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            res = await client.post("/community-reports/", headers=_AUTH, json=_BODY)
+            res = await client.post("/community-reports", headers=_AUTH, json=_BODY)
 
     assert res.status_code == 201
     data = res.json()
@@ -101,7 +101,7 @@ async def test_create_report_invalid_threat_type(mock_firebase, as_reporter):
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             res = await client.post(
-                "/community-reports/",
+                "/community-reports",
                 headers=_AUTH,
                 json={**_BODY, "threat_type": "incendio"},
             )
@@ -117,7 +117,7 @@ async def test_list_reports_no_token(mock_firebase):
     from main import app
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        res = await client.get("/community-reports/")
+        res = await client.get("/community-reports")
 
     assert res.status_code == 401
 
@@ -129,7 +129,7 @@ async def test_list_reports_returns_active(mock_firebase, as_reporter):
     with patch(_LIST, new_callable=AsyncMock, return_value=[_ACTIVE_REPORT]):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             res = await client.get(
-                "/community-reports/",
+                "/community-reports",
                 headers=_AUTH,
                 params={"lat": 20.67, "lng": -103.34, "radius_km": 5.0},
             )
@@ -147,7 +147,7 @@ async def test_list_reports_empty(mock_firebase, as_reporter):
 
     with patch(_LIST, new_callable=AsyncMock, return_value=[]):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            res = await client.get("/community-reports/", headers=_AUTH)
+            res = await client.get("/community-reports", headers=_AUTH)
 
     assert res.status_code == 200
     assert res.json() == []
@@ -173,7 +173,7 @@ async def test_list_reports_zona_sucia(mock_firebase, as_reporter):
 
     with patch(_LIST, new_callable=AsyncMock, return_value=[zona_sucia_report]):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            res = await client.get("/community-reports/", headers=_AUTH)
+            res = await client.get("/community-reports", headers=_AUTH)
 
     assert res.status_code == 200
     data = res.json()

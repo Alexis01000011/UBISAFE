@@ -93,7 +93,7 @@ async def test_create_stop_no_token(mock_firebase):
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         r = await c.post(
-            "/stops/",
+            "/stops",
             json={"vendor_uid": VENDOR_UID, "buyer_location": {"lat": 20.0, "lng": -103.0}},
         )
     assert r.status_code == 401  # HTTPBearer rejects missing Authorization header
@@ -110,7 +110,7 @@ async def test_create_stop_as_buyer(mock_firebase, as_buyer):
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.post(
-                "/stops/",
+                "/stops",
                 headers={"Authorization": "Bearer tok"},
                 json={
                     "vendor_uid": VENDOR_UID,
@@ -129,7 +129,7 @@ async def test_create_stop_as_vendor_returns_403(mock_firebase, as_vendor):
     with patch(_GET_USER, new_callable=AsyncMock, return_value=_vendor_profile()):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.post(
-                "/stops/",
+                "/stops",
                 headers={"Authorization": "Bearer tok"},
                 json={
                     "vendor_uid": VENDOR_UID,

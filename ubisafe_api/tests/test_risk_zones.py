@@ -79,7 +79,7 @@ async def test_create_zone_no_token(mock_firebase):
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         res = await client.post(
-            "/risk-zones/",
+            "/risk-zones",
             json={
                 "threat_type": "Robo",
                 "risk_level": "HIGH",
@@ -102,7 +102,7 @@ async def test_create_zone_success(mock_firebase, as_reporter):
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             res = await client.post(
-                "/risk-zones/",
+                "/risk-zones",
                 headers=_AUTH,
                 json={
                     "threat_type": "Robo/Asalto",
@@ -127,7 +127,7 @@ async def test_create_zone_invalid_level(mock_firebase, as_reporter):
     with patch(_QUERY_BBOX, new_callable=AsyncMock, return_value=[]):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             res = await client.post(
-                "/risk-zones/",
+                "/risk-zones",
                 headers=_AUTH,
                 json={
                     "threat_type": "Robo",
@@ -146,7 +146,7 @@ async def test_create_zone_duplicate_returns_409(mock_firebase, as_reporter):
     with patch(_QUERY_BBOX, new_callable=AsyncMock, return_value=[_ZONE_DICT]):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             res = await client.post(
-                "/risk-zones/",
+                "/risk-zones",
                 headers=_AUTH,
                 json={
                     "threat_type": "Robo/Asalto",
@@ -170,7 +170,7 @@ async def test_list_zones_no_token(mock_firebase):
     from main import app
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        res = await client.get("/risk-zones/")
+        res = await client.get("/risk-zones")
 
     assert res.status_code == 401
 
@@ -182,7 +182,7 @@ async def test_list_zones_with_filters(mock_firebase, as_reporter):
     with patch(_GET_ZONES, new_callable=AsyncMock, return_value=[_HIGH_ZONE]):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             res = await client.get(
-                "/risk-zones/",
+                "/risk-zones",
                 headers=_AUTH,
                 params={"lat": 20.6741, "lng": -103.4451, "radius_km": 5.0},
             )
@@ -199,7 +199,7 @@ async def test_list_zones_empty(mock_firebase, as_reporter):
 
     with patch(_GET_ZONES, new_callable=AsyncMock, return_value=[]):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            res = await client.get("/risk-zones/", headers=_AUTH)
+            res = await client.get("/risk-zones", headers=_AUTH)
 
     assert res.status_code == 200
     assert res.json() == []
