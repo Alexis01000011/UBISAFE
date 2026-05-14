@@ -528,7 +528,6 @@
 
 ---
 
-<<<<<<< HEAD
 ### C-41 · login() — sync-profile es best-effort y no debe tumbar la sesión
 
 | Campo | Detalle |
@@ -586,7 +585,6 @@
 | **Clase / Módulo** | `FirestoreService._doc_to_stop_request` · `list_stop_requests` · `create_stop_request` · `get_stop_request` · `update_stop_status` · `update_stop_status_if_pending` → `firestore_service.py` (`ubisafe_api/modules/shared/firestore_service.py`) |
 | **Justificación** | `SERVER_TIMESTAMP` es un centinela que Firestore reemplaza por su timestamp de servidor. Al leer el documento inmediatamente después, el SDK de Python devuelve un `DatetimeWithNanoseconds` (subclase de `datetime`). Pydantic v2 no coerciona `datetime → str` en modo lax, a diferencia de Pydantic v1. El patrón correcto ya existía en `_doc_to_ride` y `_doc_to_community_report` pero no se había aplicado a stops |
 | **Problema que resolvía** | `DioException [bad response]: status code of 500` al intentar aceptar una solicitud de parada (el vendedor hacía PATCH y el servidor crasheaba al serializar la respuesta) |
-=======
 ### C-41 · Limpieza de warnings e infos de flutter analyze
 
 | Campo | Detalle |
@@ -620,7 +618,6 @@
 | **Clase / Módulo** | `ubisafe_api/tests/test_stops.py`, `test_risk_zones.py`, `test_community_reports.py` — solo URLs de llamadas al cliente de prueba |
 | **Justificación** | Verificado inspeccionando las rutas registradas en el app: `GET /stops/`, `POST /stops/`, `GET /risk-zones/`, `POST /risk-zones/`, `POST /community-reports/`, `GET /community-reports/` (todas con slash). `AsyncClient` necesita la URL exacta registrada. |
 | **Problema que resolvía** | 16 tests seguían fallando con `assert 307 == <expected>` después de C-42 porque la corrección era en la dirección equivocada. |
->>>>>>> origin/Temporal-Fixes
 
 ---
 

@@ -29,12 +29,12 @@ async def health() -> dict:
     return {"status": "ok"}
 
 
-@router.get("", response_model=list[StopRequest])
+@router.get("/", response_model=list[StopRequest])
 async def list_stops(current_user: dict = Depends(get_current_user)):
     return await FirestoreService.list_stop_requests(current_user["uid"])
 
 
-@router.post("", response_model=StopRequest, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=StopRequest, status_code=status.HTTP_201_CREATED)
 async def create_stop(
     body: CreateStopRequestBody,
     current_user: dict = Depends(get_current_user),

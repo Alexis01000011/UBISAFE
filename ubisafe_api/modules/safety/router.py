@@ -36,7 +36,7 @@ async def health() -> dict:
     return {"status": "ok"}
 
 
-@router.get("", response_model=list[RiskZone])
+@router.get("/", response_model=list[RiskZone])
 async def list_risk_zones(
     lat: float | None = Query(None),
     lng: float | None = Query(None),
@@ -46,7 +46,7 @@ async def list_risk_zones(
     return await FirestoreService.get_active_risk_zones(lat, lng, radius_km)
 
 
-@router.post("", response_model=RiskZone, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=RiskZone, status_code=status.HTTP_201_CREATED)
 async def create_risk_zone(
     body: CreateRiskZoneBody,
     current_user: dict = Depends(get_current_user),

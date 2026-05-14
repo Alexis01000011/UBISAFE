@@ -15,7 +15,7 @@ router = APIRouter()
 _PROXIMITY_RADIUS_KM = 4.0
 
 
-@router.post("", response_model=CommunityReport, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=CommunityReport, status_code=status.HTTP_201_CREATED)
 async def create_community_report(
     body: CreateCommunityReportBody,
     current_user: dict = Depends(get_current_user),
@@ -53,7 +53,7 @@ async def create_community_report(
     return report
 
 
-@router.get("", response_model=list[CommunityReport])
+@router.get("/", response_model=list[CommunityReport])
 async def list_community_reports(
     lat: float | None = Query(None),
     lng: float | None = Query(None),
