@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../core/design_system/colors.dart';
-import '../../../core/providers/auth_providers.dart';
 import '../../community/models/community_report.dart';
 import '../../community/screens/community_form_bottom_sheet.dart';
 import '../../community/services/community_report_module.dart';
@@ -51,14 +50,16 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
       if (event.status == StopRequestStatus.accepted) {
         ref.read(stopRequestModuleProvider).cancelTimer();
         setState(() => _mapState = _BuyerMapState.idle);
-        context.push('/tracking?stop_id=${event.stopId}');
         ref.read(stopRequestEventProvider.notifier).state = null;
+        if (!context.mounted) return;
+        context.push('/tracking?stop_id=${event.stopId}');
       } else if (event.status == StopRequestStatus.rejected) {
         setState(() {
           _mapState = _BuyerMapState.idle;
           _activeStopId = null;
         });
         ref.read(stopRequestEventProvider.notifier).state = null;
+        if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('El vendedor no pudo atenderte.')),
         );
@@ -68,6 +69,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
           _activeStopId = null;
         });
         ref.read(stopRequestEventProvider.notifier).state = null;
+        if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Tiempo de espera agotado.')),
         );
@@ -102,6 +104,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
             _activeRideId = null;
           });
           ref.read(rideEventProvider.notifier).state = null;
+          if (!context.mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
@@ -113,6 +116,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
           );
         case RideEventType.vendorArrived:
           ref.read(rideEventProvider.notifier).state = null;
+          if (!context.mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('¡El vendedor llegó al punto de recogida!'),
@@ -125,6 +129,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
             _activeRideId = null;
           });
           ref.read(rideEventProvider.notifier).state = null;
+          if (!context.mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('¡Raite completado! Que te vaya bien.'),
@@ -237,6 +242,10 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
                   onCancel: () async {
                     final stopId = _activeStopId;
                     if (stopId == null) return;
+                    // Cancel the local 60-s timer BEFORE changing state so the
+                    // timer callback cannot fire and show a stale "timed out"
+                    // snackbar after the user explicitly cancelled (BUG-A).
+                    ref.read(stopRequestModuleProvider).cancelTimer();
                     setState(() {
                       _mapState = _BuyerMapState.idle;
                       _activeStopId = null;
@@ -313,8 +322,6 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
     required double buyerLat,
     required double buyerLng,
   }) async {
-    final profile = ref.read(userProfileProvider).valueOrNull;
-    if (profile == null) return;
     setState(() => _mapState = _BuyerMapState.waiting);
     final messenger = ScaffoldMessenger.of(context);
     try {

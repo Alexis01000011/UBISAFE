@@ -83,7 +83,7 @@ class VendorTracker {
     final lat = _buyerLat;
     final lng = _buyerLng;
     if (lat == null || lng == null) {
-      _controller.add(List.unmodifiable(_vendors.values));
+      _controller.add(const []);
       return;
     }
     _controller.add(

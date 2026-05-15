@@ -56,6 +56,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
     // Listen for incoming stop requests (vendor receives FCM)
     ref.listen<Map<String, dynamic>?>(incomingStopRequestProvider, (_, data) {
       if (data == null) return;
+      if (!context.mounted) return;
       _showIncomingDialog(
         context,
         stopId: data['stop_id'] as String? ?? '',
@@ -74,8 +75,10 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           ref.read(incomingRideProvider.notifier).state = null;
         });
+        if (!context.mounted) return;
         _showRideTooFarDialog(context, rideId: rideId, distanceKm: distKm);
       } else {
+        if (!context.mounted) return;
         _showIncomingRideDialog(
           context,
           rideId: data['ride_id'] as String? ?? '',
@@ -100,6 +103,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
           _isNavigating = false;
         });
         ref.read(rideEventProvider.notifier).state = null;
+        if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('El pasajero canceló el raite.')),
         );

@@ -64,10 +64,10 @@ void main() {
       await ctrl.close();
     });
 
-    test('emits all vendors when buyer position is unknown', () async {
+    test('emits empty list when buyer position is unknown', () async {
       final ctrl = StreamController<Map<dynamic, dynamic>>();
       final tracker = VendorTracker.fromStream(ctrl.stream);
-      // No updateBuyerPosition call.
+      // No updateBuyerPosition call — GPS not yet available.
 
       final future = tracker.vendorStream.first;
 
@@ -77,7 +77,7 @@ void main() {
       });
 
       final result = await future;
-      expect(result, hasLength(2));
+      expect(result, isEmpty);
 
       tracker.dispose();
       await ctrl.close();

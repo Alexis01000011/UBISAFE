@@ -3,11 +3,7 @@
 **Proyecto:** Los Borbotones · TSP · ITESM  
 **Rama activa:** `feat/shared/f8-hardening-e2e-polish`  
 **Dispositivo de prueba:** Físico Android (depuración inalámbrica ADB, NO emulador de computadora)  
-<<<<<<< HEAD
-**Última actualización:** 2026-05-08 (C-45)
-=======
-**Última actualización:** 2026-05-08
->>>>>>> origin/Temporal-Fixes
+**Última actualización:** 2026-05-14 (C-48)
 
 ---
 
@@ -585,7 +581,8 @@
 | **Clase / Módulo** | `FirestoreService._doc_to_stop_request` · `list_stop_requests` · `create_stop_request` · `get_stop_request` · `update_stop_status` · `update_stop_status_if_pending` → `firestore_service.py` (`ubisafe_api/modules/shared/firestore_service.py`) |
 | **Justificación** | `SERVER_TIMESTAMP` es un centinela que Firestore reemplaza por su timestamp de servidor. Al leer el documento inmediatamente después, el SDK de Python devuelve un `DatetimeWithNanoseconds` (subclase de `datetime`). Pydantic v2 no coerciona `datetime → str` en modo lax, a diferencia de Pydantic v1. El patrón correcto ya existía en `_doc_to_ride` y `_doc_to_community_report` pero no se había aplicado a stops |
 | **Problema que resolvía** | `DioException [bad response]: status code of 500` al intentar aceptar una solicitud de parada (el vendedor hacía PATCH y el servidor crasheaba al serializar la respuesta) |
-### C-41 · Limpieza de warnings e infos de flutter analyze
+
+### C-46 · Limpieza de warnings e infos de flutter analyze
 
 | Campo | Detalle |
 |---|---|
@@ -597,7 +594,7 @@
 
 ---
 
-### C-42 · Tests FastAPI con trailing slash causaban HTTP 307
+### C-47 · Tests FastAPI con trailing slash causaban HTTP 307
 
 | Campo | Detalle |
 |---|---|
@@ -609,43 +606,66 @@
 
 ---
 
-### C-43 · Revertir C-42: rutas registradas con trailing slash requieren URLs con trailing slash en tests async
+### C-48 · Revertir C-47: rutas registradas con trailing slash requieren URLs con trailing slash en tests async
 
 | Campo | Detalle |
 |---|---|
-| **Qué se corrigió (técnico)** | Revertido el cambio de C-42: devuelto trailing slash a las URLs raíz en `test_stops.py` (3 llamadas), `test_risk_zones.py` (6 llamadas) y `test_community_reports.py` (7 llamadas): `/stops` → `/stops/`, `/risk-zones` → `/risk-zones/`, `/community-reports` → `/community-reports/` |
-| **Qué se corrigió (simple)** | C-42 tenía el diagnóstico invertido. Las rutas raíz están registradas CON trailing slash (`/stops/`, `/risk-zones/`, `/community-reports/`) porque `prefix="/stops"` + `@router.post("/")` → Starlette registra `/stops/`. Los tests nuevos usan `AsyncClient` que no sigue redirects, por lo que `/stops` (sin slash) recibía un 307 hacia `/stops/` en lugar de la respuesta esperada. `test_api.py` usa `TestClient` (síncrono) que sí sigue redirects, por eso esos tests pasaban con cualquiera de las dos formas. |
+| **Qué se corrigió (técnico)** | Revertido el cambio de C-47: devuelto trailing slash a las URLs raíz en `test_stops.py` (3 llamadas), `test_risk_zones.py` (6 llamadas) y `test_community_reports.py` (7 llamadas): `/stops` → `/stops/`, `/risk-zones` → `/risk-zones/`, `/community-reports` → `/community-reports/` |
+| **Qué se corrigió (simple)** | C-47 tenía el diagnóstico invertido. Las rutas raíz están registradas CON trailing slash (`/stops/`, `/risk-zones/`, `/community-reports/`) porque `prefix="/stops"` + `@router.post("/")` → Starlette registra `/stops/`. Los tests nuevos usan `AsyncClient` que no sigue redirects, por lo que `/stops` (sin slash) recibía un 307 hacia `/stops/` en lugar de la respuesta esperada. `test_api.py` usa `TestClient` (síncrono) que sí sigue redirects, por eso esos tests pasaban con cualquiera de las dos formas. |
 | **Clase / Módulo** | `ubisafe_api/tests/test_stops.py`, `test_risk_zones.py`, `test_community_reports.py` — solo URLs de llamadas al cliente de prueba |
 | **Justificación** | Verificado inspeccionando las rutas registradas en el app: `GET /stops/`, `POST /stops/`, `GET /risk-zones/`, `POST /risk-zones/`, `POST /community-reports/`, `GET /community-reports/` (todas con slash). `AsyncClient` necesita la URL exacta registrada. |
-| **Problema que resolvía** | 16 tests seguían fallando con `assert 307 == <expected>` después de C-42 porque la corrección era en la dirección equivocada. |
+| **Problema que resolvía** | 16 tests seguían fallando con `assert 307 == <expected>` después de C-47 porque la corrección era en la dirección equivocada. |
 
----
 
-### CP-01 · Botón faltante en pantalla UbiSafe-Mapa ⚠️ EN DIAGNÓSTICO
-
-| Campo | Detalle |
-|---|---|
-| **Qué se corrigió (técnico)** | Por determinar — se requiere identificar qué botón específico no aparece y en qué condición |
-| **Qué se corrigió (simple)** | Algún botón no aparece en la pantalla del mapa del comprador (`MapScreenBuyer`) aunque la pantalla sí carga |
-| **Clase / Módulo** | Probable: `_SpeedDial`, `_VendorBottomSheet`, o FAB de zona de riesgo/reporte en `map_screen_buyer.dart` |
-| **Justificación** | Por determinar |
-| **Problema que resolvía** | El usuario reporta que cierto botón no aparece a pesar de estar en la pantalla correcta |
-
-> **Nota:** Pendiente de clarificación — se necesita saber exactamente qué botón y en qué momento del flujo no aparece.
-
----
-
-### CP-02 · Puerto Firestore — posible conflicto en dispositivo físico ⚠️ EN REVISIÓN
+### C-49 · _WaitingOverlay de parada no cancelaba el timer local al cancelar manualmente `2026-05-15 11:33`
 
 | Campo | Detalle |
 |---|---|
-| **Qué se corrigió (técnico)** | `FirebaseFirestore.instance.useFirestoreEmulator(host, 8088)` en `main.dart` y `"port": 8088` en `firebase.json` (cambio sin commitear; HEAD aún tiene 8080) |
-| **Qué se corrigió (simple)** | Se está probando si cambiar el puerto del emulador de Firestore de 8080 a 8088 resuelve un posible bloqueo de puerto en el dispositivo físico |
-| **Clase / Módulo** | `_connectToEmulators()` en `main.dart`; bloque `"firestore"` en `firebase.json` |
-| **Justificación** | El puerto 8080 puede estar ocupado por otro proceso en la máquina de desarrollo; en dispositivo físico, el `adb reverse` mapea ese puerto, por lo que si está bloqueado el emulador es inaccesible |
-| **Problema que resolvía** | Firestore del emulador inaccesible desde dispositivo físico vía `adb reverse tcp:8080` |
+| **Nombre clave** | C-49 · cancelTimer() en onCancel del overlay de parada |
+| **Qué se corrigió (técnico)** | Se añadió `ref.read(stopRequestModuleProvider).cancelTimer()` al inicio del callback `onCancel` del `_WaitingOverlay` de parada (estado `_BuyerMapState.waiting`) en `map_screen_buyer.dart`, antes de `setState` |
+| **Qué se corrigió (simple)** | Cuando el comprador tocaba "Cancelar" en la pantalla de espera de parada, el timer de 60 s seguía corriendo. Al disparar, siempre llamaba `onExpired()` aunque la parada ya estaba cancelada, mostrando "Tiempo de espera agotado" de forma fantasma |
+| **Clase / Método / Módulo** | `_MapScreenBuyerState.build()` → `_WaitingOverlay.onCancel` → `map_screen_buyer.dart` (`ubisafe_app/lib/features/dispatching/screens/map_screen_buyer.dart`) |
+| **Justificación** | `StopRequestModule.startTimer` siempre llama `onExpired()` al finalizar, independientemente de si la petición PATCH devuelve 409. El overlay de raite (`_BuyerMapState.waitingRide`) ya cancelaba el timer correctamente con `cancelExpiryTimer()` — se aplicó el mismo patrón a la parada |
+| **Problema que resolvía** | El comprador veía "Tiempo de espera agotado" segundos después de haber cancelado manualmente la parada, lo cual era confuso e incorrecto |
 
-> **Nota:** Este cambio aún no está commiteado. Verificar que el comando `adb reverse tcp:8088 tcp:8088` se ejecutó, y que el emulador de Firebase inicia con el puerto 8088.
+---
+
+### C-50 · ref.listen sin context.mounted en MapScreenBuyer y MapScreenVendor `2026-05-15 11:33`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-50 · context.mounted en ref.listen de pantallas del mapa |
+| **Qué se corrigió (técnico)** | Se añadió `if (!context.mounted) return;` inmediatamente antes de cada llamada a `ScaffoldMessenger.of(context)`, `context.push()` y `showDialog`/`_showIncomingDialog`/`_showIncomingRideDialog`/`_showRideTooFarDialog` en los callbacks de `ref.listen` de `MapScreenBuyer` y `MapScreenVendor`. En `MapScreenBuyer`: listeners de `stopRequestEventProvider` (3 ramas: accepted, rejected, expired) y `rideEventProvider` (4 ramas: rejected/expired, vendorArrived, completed). En `MapScreenVendor`: listeners de `incomingStopRequestProvider`, `incomingRideProvider` (2 ramas) y `rideEventProvider` (cancelledByBuyer). Adicionalmente en `accepted` de `stopRequestEventProvider` se movió `ref.read(...).state = null` antes del guard para limpiar el provider antes de salir. |
+| **Qué se corrigió (simple)** | Si el usuario navegaba fuera de la pantalla del mapa en el instante exacto en que llegaba una notificación FCM, el callback del listener intentaba usar un contexto ya desmontado, produciendo un crash. Ahora todos los accesos al contexto verifican primero que el widget siga montado |
+| **Clase / Método / Módulo** | `_MapScreenBuyerState.build()` → `ref.listen` (stopRequestEventProvider + rideEventProvider) · `_MapScreenVendorState.build()` → `ref.listen` (incomingStopRequestProvider + incomingRideProvider + rideEventProvider) |
+| **Justificación** | C-38 documentó y aplicó este mismo patrón en `TrackingScreen`. Las dos pantallas del mapa tenían el mismo problema pero no habían sido corregidas. Riverpod dispone los listeners al desmontarse el widget, pero existe una ventana de carrera mínima donde el callback puede disparar con el contexto ya marcado como unmounted |
+| **Problema que resolvía** | Crash raro del tipo `ScaffoldMessenger.of(context)` con contexto unmounted, reproducible cuando un evento FCM llegaba mientras el usuario navegaba hacia otra pantalla |
+
+---
+
+### C-51 · Guard innecesario de userProfileProvider en _requestStop bloqueaba paradas silenciosamente `2026-05-15 12:10`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-51 · Eliminar guard userProfileProvider en _requestStop |
+| **Qué se corrigió (técnico)** | Se eliminaron las líneas `final profile = ref.read(userProfileProvider).valueOrNull;` e `if (profile == null) return;` al inicio de `_requestStop` en `map_screen_buyer.dart`. También se eliminó el import huérfano de `auth_providers.dart` que quedó sin usar |
+| **Qué se corrigió (simple)** | Si el provider del perfil estaba re-evaluando (ej. justo después del login, cuando authStateProvider emite un nuevo valor), `valueOrNull` devolvía null y la solicitud de parada era descartada silenciosamente sin ningún feedback al usuario |
+| **Clase / Método / Módulo** | `_MapScreenBuyerState._requestStop()` → `map_screen_buyer.dart` |
+| **Justificación** | El backend infiere el `uid` del comprador a partir del JWT en el header — nunca necesita los datos del perfil local. La guardia era residual y no cumplía ninguna función defensiva real. El mismo patrón fue corregido en C-18 para el toggle de visibilidad del vendedor |
+| **Problema que resolvía** | El comprador tocaba un vendedor para pedir una parada y nada ocurría — sin error, sin cambio de estado, sin snackbar — si el profileProvider estaba en estado loading durante una re-evaluación |
+
+---
+
+### C-52 · VendorTracker._emit() emitía todos los vendedores sin filtrar cuando GPS es null `2026-05-15 12:10`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-52 · VendorTracker emite [] cuando buyerLat/Lng son null |
+| **Qué se corrigió (técnico)** | En `vendor_tracker.dart`, la rama `if (lat == null \|\| lng == null)` de `_emit()` cambia de `_controller.add(List.unmodifiable(_vendors.values))` a `_controller.add(const [])`. El test unitario `vendor_tracker_test.dart` se actualizó: el caso `'emits all vendors when buyer position is unknown'` pasó a llamarse `'emits empty list when buyer position is unknown'` con `expect(result, isEmpty)` |
+| **Qué se corrigió (simple)** | Mientras el GPS no entregaba la primera posición, el mapa del comprador mostraba todos los vendedores activos de la ciudad sin filtrar por distancia. Ahora muestra ninguno hasta que la posición esté disponible |
+| **Clase / Método / Módulo** | `VendorTracker._emit()` → `vendor_tracker.dart` (`ubisafe_app/lib/features/presence/services/vendor_tracker.dart`) |
+| **Justificación** | C-06 documentó que la corrección correcta era emitir `[]` en este caso. C-20 mitigó el síntoma sembrando la posición GPS inicial, pero la ventana de carrera persistía. Esta corrección cierra el bug definitivamente |
+| **Problema que resolvía** | Durante los primeros instantes del arranque de la app, antes de que el GPS devolviera la primera posición, el comprador podía ver marcadores de vendedores a cualquier distancia de la ciudad sin restricción de radio |
 
 ---
 
