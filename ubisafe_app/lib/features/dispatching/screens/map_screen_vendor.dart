@@ -44,6 +44,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
   double? _buyerLat; // Coordenadas del comprador de la parada activa
   double? _buyerLng;
   String? _activeRideId;
+  bool _selectingRiskPoint = false;
   // 1 = going to pickup, 2 = ride in progress (passenger aboard)
   int _ridePhase = 0;
   List<LatLng> _routePolyline = [];
@@ -253,6 +254,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
                 polylines: polylines,
                 circles: circles,
                 markers: communityMarkers,
+                onTap: _onMapTap,
               ),
               // Visibility toggle button
               Positioned(
@@ -295,6 +297,17 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
                     buttonText: 'Completar raite',
                     buttonColor: AppColors.success500,
                     onAction: () => _completeRide(context),
+                  ),
+                ),
+              // Instruction banner while user selects a risk zone point
+              if (_selectingRiskPoint)
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: _RiskPointSelectionBanner(
+                    onCancel: () =>
+                        setState(() => _selectingRiskPoint = false),
                   ),
                 ),
             ],
@@ -738,10 +751,13 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
       );
       return;
     }
-    RiskFormBottomSheet.show(
-      context,
-      LatLng(position.latitude, position.longitude),
-    );
+    setState(() => _selectingRiskPoint = true);
+  }
+
+  void _onMapTap(LatLng point) {
+    if (!_selectingRiskPoint) return;
+    setState(() => _selectingRiskPoint = false);
+    RiskFormBottomSheet.show(context, point);
   }
 
   void _onCommunityFabPressed(dynamic position) {
@@ -780,6 +796,42 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
     );
   }
 
+}
+
+// ── Risk point selection banner ───────────────────────────────────────────────
+
+class _RiskPointSelectionBanner extends StatelessWidget {
+  const _RiskPointSelectionBanner({required this.onCancel});
+
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: const Color(0xE6F57C00), // AppColors.warning700 with ~90% opacity
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: SafeArea(
+        bottom: false,
+        child: Row(
+          children: [
+            const Icon(Icons.touch_app, color: Colors.white),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                'Toca el mapa para marcar la zona de riesgo',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+              ),
+            ),
+            TextButton(
+              onPressed: onCancel,
+              style: TextButton.styleFrom(foregroundColor: Colors.white),
+              child: const Text('Cancelar'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 // ── SpeedDial FAB — CU-03 + CU-05 (vendor map) ───────────────────────────────

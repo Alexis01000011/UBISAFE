@@ -5,21 +5,22 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../core/api/api_client.dart';
 
-/// Bottom sheet form for reporting a risk zone (CU-03).
+/// Bottom sheet for reporting a risk zone (CU-03).
+/// [selectedLocation] is the point the user tapped on the map.
 /// Returns true if the report was submitted successfully.
 class RiskFormBottomSheet extends ConsumerStatefulWidget {
-  const RiskFormBottomSheet({super.key, required this.currentLocation});
+  const RiskFormBottomSheet({super.key, required this.selectedLocation});
 
-  final LatLng currentLocation;
+  final LatLng selectedLocation;
 
-  static Future<bool> show(BuildContext context, LatLng currentLocation) async {
+  static Future<bool> show(BuildContext context, LatLng selectedLocation) async {
     final result = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (_) => RiskFormBottomSheet(currentLocation: currentLocation),
+      builder: (_) => RiskFormBottomSheet(selectedLocation: selectedLocation),
     );
     return result == true;
   }
@@ -30,23 +31,15 @@ class RiskFormBottomSheet extends ConsumerStatefulWidget {
 }
 
 class _RiskFormBottomSheetState extends ConsumerState<RiskFormBottomSheet> {
-  final _formKey = GlobalKey<FormState>();
-  final _threatCtrl = TextEditingController();
   String? _riskLevel;
   String? _duplicateError;
   bool _loading = false;
 
-  @override
-  void dispose() {
-    _threatCtrl.dispose();
-    super.dispose();
-  }
-
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
     if (_riskLevel == null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Selecciona un nivel de riesgo')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selecciona un nivel de riesgo')),
+      );
       return;
     }
 
@@ -62,11 +55,11 @@ class _RiskFormBottomSheetState extends ConsumerState<RiskFormBottomSheet> {
       await dio.post<dynamic>(
         '/risk-zones',
         data: {
-          'threat_type': _threatCtrl.text.trim(),
+          'threat_type': 'jauría',
           'risk_level': _riskLevel,
           'location': {
-            'lat': widget.currentLocation.latitude,
-            'lng': widget.currentLocation.longitude,
+            'lat': widget.selectedLocation.latitude,
+            'lng': widget.selectedLocation.longitude,
           },
           'radius_meters': 100,
         },
@@ -98,110 +91,107 @@ class _RiskFormBottomSheetState extends ConsumerState<RiskFormBottomSheet> {
         right: 16,
         top: 16,
       ),
-      child: Form(
-        key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey[300],
-                  borderRadius: BorderRadius.circular(2),
-                ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
               ),
             ),
-            const SizedBox(height: 16),
-            Text(
-              'Reportar zona de riesgo',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Lat: ${widget.currentLocation.latitude.toStringAsFixed(5)}, '
-              'Lng: ${widget.currentLocation.longitude.toStringAsFixed(5)}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _threatCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Tipo de amenaza',
-                hintText: 'Ej: robo, accidente, vía bloqueada...',
-                border: OutlineInputBorder(),
-              ),
-              validator: (v) =>
-                  (v == null || v.trim().isEmpty) ? 'Requerido' : null,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Nivel de riesgo',
-              style: Theme.of(context).textTheme.labelLarge,
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              children: [
-                _LevelChip(
-                  label: 'ALTO',
-                  value: 'HIGH',
-                  selectedColor: const Color(0xFFC62828),
-                  selected: _riskLevel == 'HIGH',
-                  onSelected: (v) => setState(() {
-                    _riskLevel = v ? 'HIGH' : null;
-                    _duplicateError = null;
-                  }),
-                ),
-                _LevelChip(
-                  label: 'MEDIO',
-                  value: 'MEDIUM',
-                  selectedColor: const Color(0xFFF57C00),
-                  selected: _riskLevel == 'MEDIUM',
-                  onSelected: (v) => setState(() {
-                    _riskLevel = v ? 'MEDIUM' : null;
-                    _duplicateError = null;
-                  }),
-                ),
-                _LevelChip(
-                  label: 'BAJO',
-                  value: 'LOW',
-                  selectedColor: const Color(0xFF0277BD),
-                  selected: _riskLevel == 'LOW',
-                  onSelected: (v) => setState(() {
-                    _riskLevel = v ? 'LOW' : null;
-                    _duplicateError = null;
-                  }),
-                ),
-              ],
-            ),
-            if (_duplicateError != null) ...[
-              const SizedBox(height: 8),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Reportar zona de riesgo',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              const Icon(Icons.location_on, size: 14, color: Colors.grey),
+              const SizedBox(width: 4),
               Text(
-                _duplicateError!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
+                '${widget.selectedLocation.latitude.toStringAsFixed(5)}, '
+                '${widget.selectedLocation.longitude.toStringAsFixed(5)}',
+                style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
-            const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: _loading ? null : _submit,
-              child: _loading
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Reportar'),
-            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Tipo de amenaza: Jauría',
+            style: TextStyle(fontSize: 13, color: Colors.grey),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Nivel de riesgo',
+            style: Theme.of(context).textTheme.labelLarge,
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            children: [
+              _LevelChip(
+                label: 'ALTO',
+                value: 'HIGH',
+                selectedColor: const Color(0xFFC62828),
+                selected: _riskLevel == 'HIGH',
+                onSelected: (v) => setState(() {
+                  _riskLevel = v ? 'HIGH' : null;
+                  _duplicateError = null;
+                }),
+              ),
+              _LevelChip(
+                label: 'MEDIO',
+                value: 'MEDIUM',
+                selectedColor: const Color(0xFFF57C00),
+                selected: _riskLevel == 'MEDIUM',
+                onSelected: (v) => setState(() {
+                  _riskLevel = v ? 'MEDIUM' : null;
+                  _duplicateError = null;
+                }),
+              ),
+              _LevelChip(
+                label: 'BAJO',
+                value: 'LOW',
+                selectedColor: const Color(0xFF0277BD),
+                selected: _riskLevel == 'LOW',
+                onSelected: (v) => setState(() {
+                  _riskLevel = v ? 'LOW' : null;
+                  _duplicateError = null;
+                }),
+              ),
+            ],
+          ),
+          if (_duplicateError != null) ...[
             const SizedBox(height: 8),
-            TextButton(
-              onPressed: _loading ? null : () => Navigator.pop(context, false),
-              child: const Text('Cancelar'),
+            Text(
+              _duplicateError!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
           ],
-        ),
+          const SizedBox(height: 20),
+          ElevatedButton(
+            onPressed: _loading ? null : _submit,
+            child: _loading
+                ? const SizedBox(
+                    height: 20,
+                    width: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Reportar'),
+          ),
+          const SizedBox(height: 8),
+          TextButton(
+            onPressed: _loading ? null : () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+        ],
       ),
     );
   }

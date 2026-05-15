@@ -35,6 +35,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
   String? _activeRideId;
   bool _communityReportsLoaded = false;
   bool _speedDialOpen = false;
+  bool _selectingRiskPoint = false;
 
   @override
   Widget build(BuildContext context) {
@@ -235,6 +236,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
                 myLocationButtonEnabled: true,
                 markers: markers.union(communityMarkers),
                 circles: circles,
+                onTap: _onMapTap,
               ),
               if (_mapState == _BuyerMapState.waiting)
                 _WaitingOverlay(
@@ -275,6 +277,17 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
                       } catch (_) {}
                     }
                   },
+                ),
+              // Instruction banner while user selects a risk zone point
+              if (_selectingRiskPoint)
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: _RiskPointSelectionBanner(
+                    onCancel: () =>
+                        setState(() => _selectingRiskPoint = false),
+                  ),
                 ),
             ],
           );
@@ -410,10 +423,13 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
       );
       return;
     }
-    RiskFormBottomSheet.show(
-      context,
-      LatLng(position.latitude, position.longitude),
-    );
+    setState(() => _selectingRiskPoint = true);
+  }
+
+  void _onMapTap(LatLng point) {
+    if (!_selectingRiskPoint) return;
+    setState(() => _selectingRiskPoint = false);
+    RiskFormBottomSheet.show(context, point);
   }
 
   void _onCommunityFabPressed(dynamic position) {
@@ -453,6 +469,42 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
     );
   }
 
+}
+
+// ── Risk point selection banner ───────────────────────────────────────────────
+
+class _RiskPointSelectionBanner extends StatelessWidget {
+  const _RiskPointSelectionBanner({required this.onCancel});
+
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: const Color(0xE6F57C00), // warning amber with ~90% opacity
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: SafeArea(
+        bottom: false,
+        child: Row(
+          children: [
+            const Icon(Icons.touch_app, color: Colors.white),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                'Toca el mapa para marcar la zona de riesgo',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+              ),
+            ),
+            TextButton(
+              onPressed: onCancel,
+              style: TextButton.styleFrom(foregroundColor: Colors.white),
+              child: const Text('Cancelar'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 // ── SpeedDial FAB — CU-03 + CU-05 ───────────────────

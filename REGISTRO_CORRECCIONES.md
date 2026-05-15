@@ -734,6 +734,19 @@
 
 ---
 
+### C-58 · Formulario de zona de riesgo: tipo de amenaza libre y ubicación fija del usuario `2026-05-15 15:05`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-58 · Safety — tipo de amenaza fijo (jauría) + selección de punto en mapa |
+| **Qué se corrigió (técnico)** | **`risk_form_bottom_sheet.dart`**: Eliminados `_formKey`, `_threatCtrl` (TextEditingController), método `dispose()`, widget `Form` y `TextFormField` de tipo de amenaza. El cuerpo del POST ahora envía `'threat_type': 'jauría'` hardcodeado. Parámetro renombrado de `currentLocation` a `selectedLocation`. El subtítulo muestra las coordenadas del punto elegido y el texto fijo "Tipo de amenaza: Jauría". **`map_screen_vendor.dart`** y **`map_screen_buyer.dart`**: Añadido estado `bool _selectingRiskPoint`. `_onFabPressed` ya no abre el formulario directamente — activa `_selectingRiskPoint = true`. Nuevo método `_onMapTap(LatLng)`: si `_selectingRiskPoint`, lo desactiva y abre `RiskFormBottomSheet.show(context, point)` con el punto tocado. `GoogleMap` recibe `onTap: _onMapTap`. Nuevo widget privado `_RiskPointSelectionBanner` (banner naranja en la parte superior del mapa) que muestra la instrucción "Toca el mapa para marcar la zona de riesgo" y un botón "Cancelar" |
+| **Qué se corrigió (simple)** | Antes el formulario pedía un texto libre de "Tipo de amenaza" (debería ser siempre jauría) y reportaba en las coordenadas actuales del usuario. Ahora: (1) el tipo de amenaza es siempre "Jauría" y no aparece campo editable; (2) al pulsar "Zona de riesgo" en el FAB, aparece un banner naranja pidiendo que el usuario toque el punto del mapa donde está la amenaza; luego se abre el formulario solo con la selección de nivel de riesgo |
+| **Clase / Método / Módulo** | `RiskFormBottomSheet` · `_MapScreenVendorState._onFabPressed + _onMapTap` · `_MapScreenBuyerState._onFabPressed + _onMapTap` |
+| **Justificación** | El único tipo de amenaza reportable en UbiSafe es una jauría de perros en situación activa; no tiene sentido un campo de texto libre. La ubicación del riesgo puede no coincidir con la posición del usuario (el usuario puede ver la jauría a distancia), por lo que debe poder señalar el punto exacto en el mapa |
+| **Problema que resolvía** | El formulario mostraba un campo de texto innecesario para el tipo de amenaza, y el reporte siempre se creaba en las coordenadas actuales del usuario en lugar del lugar real del peligro |
+
+---
+
 ## Notas de contexto para diagnóstico
 
 - **Dispositivo de prueba:** Físico Android (MIUI/Xiaomi recomendado para reproducibilidad), depuración inalámbrica ADB. **No se usa emulador de Android Studio.**
