@@ -96,6 +96,15 @@ class NotificationService:
         )
 
     @staticmethod
+    async def send_stop_expired_vendor(vendor_uid: str, stop_id: str) -> None:
+        await NotificationService.send_to_user(
+            uid=vendor_uid,
+            title="Solicitud de parada expirada",
+            body="El comprador no obtuvo respuesta a tiempo.",
+            data={"type": "stop_request_expired", "stop_id": stop_id},
+        )
+
+    @staticmethod
     async def send_stop_cancelled(vendor_uid: str, stop_id: str) -> None:
         await NotificationService.send_to_user(
             uid=vendor_uid,

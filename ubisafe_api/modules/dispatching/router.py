@@ -100,6 +100,10 @@ async def update_stop_status(
         asyncio.ensure_future(
             NotificationService.send_stop_expired(updated_doc.buyer_uid, stop_id)
         )
+        if updated_doc.vendor_uid:
+            asyncio.ensure_future(
+                NotificationService.send_stop_expired_vendor(updated_doc.vendor_uid, stop_id)
+            )
         return updated_doc
 
     updated = await FirestoreService.update_stop_status(stop_id, body.status)

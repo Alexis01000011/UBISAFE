@@ -695,6 +695,19 @@
 
 ---
 
+### C-55 · Diálogo del vendedor no se cerraba al expirar el timer de 60 s `2026-05-15 12:10`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-55 · Notificación de expiración al vendedor + cierre de diálogo |
+| **Qué se corrigió (técnico)** | **Backend:** Se añadió `send_stop_expired_vendor(vendor_uid, stop_id)` en `notification_service.py` (FCM type `stop_request_expired`, mensaje "La solicitud de parada expiró"). En `router.py`, el branch de `expired` llama a este nuevo método si `updated_doc.vendor_uid` está presente. **Flutter:** El listener de `stopRequestEventProvider` en `map_screen_vendor.dart` fue refactorizado para manejar tanto `cancelled` como `expired` con la misma lógica: cierra el diálogo si `_pendingDialogStopId == event.stopId`, limpia `_activeStopId`/`_isNavigating`/`_routePolyline` si corresponde, y muestra snackbar con mensaje diferenciado según el evento |
+| **Qué se corrigió (simple)** | Al expirar el timer de 60 s, el comprador recibía la notificación y regresaba a estado idle correctamente, pero el vendedor seguía con el diálogo de "Aceptar / Rechazar" abierto indefinidamente. El vendedor podía tocar "Aceptar" en una parada ya expirada, generando un error 400 |
+| **Clase / Método / Módulo** | `router.py` (expired branch) · `NotificationService.send_stop_expired_vendor` · `_MapScreenVendorState` listener de `stopRequestEventProvider` |
+| **Justificación** | `send_stop_expired` solo notificaba al comprador. El vendedor nunca recibía señal de que la parada había expirado, dejando su UI en estado inconsistente. Se aplicó el mismo patrón que C-54 (cancelled) para el caso expired |
+| **Problema que resolvía** | Diálogo zombie en el mapa del vendedor tras expirar el timer, con riesgo de 400 al intentar aceptar/rechazar una parada ya cerrada |
+
+---
+
 ## Notas de contexto para diagnóstico
 
 - **Dispositivo de prueba:** Físico Android (MIUI/Xiaomi recomendado para reproducibilidad), depuración inalámbrica ADB. **No se usa emulador de Android Studio.**

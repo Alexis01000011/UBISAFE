@@ -94,29 +94,34 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
 
     ref.listen<StopEvent?>(stopRequestEventProvider, (_, event) {
       if (event == null) return;
-      if (event.status == StopRequestStatus.cancelled) {
-        ref.read(stopRequestEventProvider.notifier).state = null;
+      final isCancelled = event.status == StopRequestStatus.cancelled;
+      final isExpired = event.status == StopRequestStatus.expired;
+      if (!isCancelled && !isExpired) return;
 
-        // Case 1: diálogo accept/reject abierto para esta parada → cerrarlo
-        if (_pendingDialogStopId == event.stopId && context.mounted) {
-          setState(() => _pendingDialogStopId = null);
-          Navigator.of(context).pop();
-        }
+      ref.read(stopRequestEventProvider.notifier).state = null;
 
-        // Case 2: parada ya aceptada y vendedor navegando → limpiar estado
-        if (_activeStopId == event.stopId) {
-          setState(() {
-            _activeStopId = null;
-            _isNavigating = false;
-            _routePolyline = [];
-          });
-        }
-
-        if (!context.mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('El comprador canceló la parada.')),
-        );
+      // Cerrar diálogo accept/reject si está abierto para esta parada
+      if (_pendingDialogStopId == event.stopId && context.mounted) {
+        setState(() => _pendingDialogStopId = null);
+        Navigator.of(context).pop();
       }
+
+      // Limpiar estado de entrega en curso si corresponde a esta parada
+      if (_activeStopId == event.stopId) {
+        setState(() {
+          _activeStopId = null;
+          _isNavigating = false;
+          _routePolyline = [];
+        });
+      }
+
+      if (!context.mounted) return;
+      final message = isCancelled
+          ? 'El comprador canceló la parada.'
+          : 'La solicitud de parada expiró sin respuesta.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
     });
 
     ref.listen<RideEvent?>(rideEventProvider, (_, event) {
