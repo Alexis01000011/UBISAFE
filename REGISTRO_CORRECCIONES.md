@@ -682,6 +682,19 @@
 
 ---
 
+### C-54 · Diálogo y sheet del vendedor no se cerraban al cancelar el comprador `2026-05-15 12:10`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-54 · Limpieza de UI y estado del vendedor al cancelar parada |
+| **Qué se corrigió (técnico)** | Se añadió el campo `_pendingDialogStopId` a `_MapScreenVendorState`. `_showIncomingDialog` lo asigna al abrir el diálogo y los callbacks `onAccept`/`onReject` lo limpian antes de cerrar. El listener de `stopRequestEventProvider` fue expandido: si `_pendingDialogStopId == event.stopId` llama `Navigator.of(context).pop()` para cerrar el diálogo; si `_activeStopId == event.stopId` resetea `_activeStopId`, `_isNavigating` y `_routePolyline` para ocultar el `_ConfirmDeliverySheet` |
+| **Qué se corrigió (simple)** | Cuando el comprador cancelaba la parada: (1) el diálogo de "aceptar/rechazar" en el mapa del vendedor seguía abierto — el vendedor podía tocar "Aceptar" o "Rechazar" en una parada ya cancelada causando errores 400; (2) si la parada ya había sido aceptada, el botón de "Confirmar Entrega" seguía visible — el vendedor podía confirmar una entrega de una parada ya cancelada |
+| **Clase / Método / Módulo** | `_MapScreenVendorState` → `map_screen_vendor.dart` |
+| **Justificación** | El patrón de `_activeRideId`/`_ridePhase` ya existía para raites (limpieza al cancelar). Se replicó la misma estrategia para paradas con `_pendingDialogStopId` y `_activeStopId` |
+| **Problema que resolvía** | Vendor quedaba con UI obsoleta que podía generar errores 400 adicionales al interactuar con una parada que el comprador ya había cancelado |
+
+---
+
 ## Notas de contexto para diagnóstico
 
 - **Dispositivo de prueba:** Físico Android (MIUI/Xiaomi recomendado para reproducibilidad), depuración inalámbrica ADB. **No se usa emulador de Android Studio.**

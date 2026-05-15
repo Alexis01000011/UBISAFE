@@ -41,6 +41,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
   bool _communityReportsLoaded = false;
   bool _speedDialOpen = false;
   String? _activeStopId;
+  String? _pendingDialogStopId; // stopId del diálogo accept/reject actualmente abierto
   String? _activeRideId;
   // 1 = going to pickup, 2 = ride in progress (passenger aboard)
   int _ridePhase = 0;
@@ -95,6 +96,22 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
       if (event == null) return;
       if (event.status == StopRequestStatus.cancelled) {
         ref.read(stopRequestEventProvider.notifier).state = null;
+
+        // Case 1: diálogo accept/reject abierto para esta parada → cerrarlo
+        if (_pendingDialogStopId == event.stopId && context.mounted) {
+          setState(() => _pendingDialogStopId = null);
+          Navigator.of(context).pop();
+        }
+
+        // Case 2: parada ya aceptada y vendedor navegando → limpiar estado
+        if (_activeStopId == event.stopId) {
+          setState(() {
+            _activeStopId = null;
+            _isNavigating = false;
+            _routePolyline = [];
+          });
+        }
+
         if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('El comprador canceló la parada.')),
@@ -323,6 +340,9 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
     required String buyerLat,
     required String buyerLng,
   }) {
+    // Track the open dialog so we can dismiss it if the buyer cancels
+    setState(() => _pendingDialogStopId = stopId);
+
     // Clear the provider so it doesn't re-trigger on rebuild
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(incomingStopRequestProvider.notifier).state = null;
@@ -335,10 +355,12 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
         buyerLat: double.tryParse(buyerLat) ?? 0,
         buyerLng: double.tryParse(buyerLng) ?? 0,
         onAccept: () async {
+          setState(() => _pendingDialogStopId = null);
           Navigator.of(context).pop();
           await _acceptStop(context, stopId, buyerLat, buyerLng);
         },
         onReject: () async {
+          setState(() => _pendingDialogStopId = null);
           Navigator.of(context).pop();
           try {
             await ref.read(stopRequestModuleProvider).rejectStopRequest(stopId);
