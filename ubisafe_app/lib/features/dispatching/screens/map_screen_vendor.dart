@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -24,9 +25,6 @@ import '../models/stop_request.dart';
 import '../services/ride_request_module.dart';
 import '../services/stop_request_module.dart';
 
-// Replace via --dart-define=MAPS_API_KEY=<key> at build/run time.
-const _kMapsApiKey = String.fromEnvironment('MAPS_API_KEY', defaultValue: '');
-
 /// Main map screen for vendors — GPS visibility toggle + CU-01 responder.
 class MapScreenVendor extends ConsumerStatefulWidget {
   const MapScreenVendor({super.key});
@@ -40,6 +38,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
   bool _isNavigating = false;
   bool _communityReportsLoaded = false;
   bool _speedDialOpen = false;
+  String _mapsApiKey = '';
   String? _activeStopId;
   String? _pendingDialogStopId; // stopId del diálogo accept/reject actualmente abierto
   String? _activeRideId;
@@ -48,6 +47,22 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
   List<LatLng> _routePolyline = [];
 
   StreamSubscription<Ride?>? _rideSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _initMapsKey();
+  }
+
+  Future<void> _initMapsKey() async {
+    try {
+      const ch = MethodChannel('ubisafe/config');
+      final key = await ch.invokeMethod<String>('getMapsApiKey') ?? '';
+      if (mounted) setState(() => _mapsApiKey = key);
+    } catch (_) {
+      // Falla silenciosamente en tests o si el channel no está disponible
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -439,14 +454,14 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
     required double destLng,
     List<String> avoidWaypoints = const [],
   }) async {
-    if (_kMapsApiKey.isEmpty) return;
+    if (_mapsApiKey.isEmpty) return;
 
     try {
       final dio = Dio();
       final params = <String, dynamic>{
         'origin': '$originLat,$originLng',
         'destination': '$destLat,$destLng',
-        'key': _kMapsApiKey,
+        'key': _mapsApiKey,
       };
       if (avoidWaypoints.isNotEmpty) {
         params['waypoints'] = avoidWaypoints.join('|');

@@ -708,6 +708,19 @@
 
 ---
 
+### C-56 · Ruta en mapa del vendedor no se trazaba — API key de Maps no disponible en release `2026-05-15 13:45`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-56 · MethodChannel para leer Maps API Key en runtime |
+| **Qué se corrigió (técnico)** | Se eliminó `const _kMapsApiKey = String.fromEnvironment('MAPS_API_KEY')` del top-level de `map_screen_vendor.dart`. Se añadió el campo de estado `String _mapsApiKey = ''`, `initState()` con llamada a `_initMapsKey()`, y el método `_initMapsKey()` que lee `com.google.android.geo.API_KEY` desde el `ApplicationInfo.metaData` del `AndroidManifest.xml` vía `MethodChannel('ubisafe/config').invokeMethod('getMapsApiKey')`. `_fetchRoute()` pasó a usar `_mapsApiKey` en lugar de la constante. `MainActivity.kt` fue reescrito para exponer ese MethodChannel: recibe la llamada `getMapsApiKey` y retorna el valor de la meta-data del manifiesto |
+| **Qué se corrigió (simple)** | La ruta del vendedor hacia el comprador nunca se trazaba: `_fetchRoute()` usaba `String.fromEnvironment('MAPS_API_KEY')` que solo se inyecta con `--dart-define=MAPS_API_KEY=...` en tiempo de compilación, pero el comando de build estándar del proyecto solo define `API_BASE_URL`. La key ya existía correctamente en el `AndroidManifest.xml` (vía `manifestPlaceholders` de `local.properties`), pero no era accesible en Dart. Ahora se lee en runtime sin necesidad de cambiar el comando de build |
+| **Clase / Método / Módulo** | `_MapScreenVendorState.initState()` + `_initMapsKey()` + `_fetchRoute()` → `map_screen_vendor.dart` · `MainActivity.configureFlutterEngine()` → `MainActivity.kt` (`android/app/src/main/kotlin/com/borbotones/ubisafe/`) |
+| **Justificación** | `String.fromEnvironment` es una constante de compilación; sin `--dart-define=MAPS_API_KEY=...` su valor es siempre `''`. La Directions API con clave vacía devuelve `REQUEST_DENIED` y `_fetchRoute()` salta silenciosamente, dejando `_routePolyline` vacío. El canal nativo lee directamente desde los meta-data que Android ya tiene disponibles en el apk |
+| **Problema que resolvía** | La polilínea de ruta del vendedor al comprador nunca aparecía en el mapa, aunque la lógica de `_fetchRoute()` y `_decodePolyline()` era correcta |
+
+---
+
 ## Notas de contexto para diagnóstico
 
 - **Dispositivo de prueba:** Físico Android (MIUI/Xiaomi recomendado para reproducibilidad), depuración inalámbrica ADB. **No se usa emulador de Android Studio.**
