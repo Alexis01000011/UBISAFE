@@ -146,6 +146,11 @@ class NotificationHandler {
           _setStopEvent(StopEvent(stopId, StopRequestStatus.expired));
         }
 
+      case 'stop_request_cancelled':
+        if (stopId != null) {
+          _setStopEvent(StopEvent(stopId, StopRequestStatus.cancelled));
+        }
+
       case 'risk_zone_alert':
         _invalidateRiskZones();
 

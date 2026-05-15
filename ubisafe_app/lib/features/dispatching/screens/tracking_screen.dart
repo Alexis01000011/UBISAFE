@@ -219,7 +219,7 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
     final stopId = widget.stopRequestId;
     if (stopId != null) {
       try {
-        await ref.read(stopRequestModuleProvider).expireStopRequest(stopId);
+        await ref.read(stopRequestModuleProvider).cancelStopRequest(stopId);
       } catch (e) {
         if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(

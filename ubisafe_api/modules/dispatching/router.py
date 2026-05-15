@@ -107,11 +107,14 @@ async def update_stop_status(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stop request not found")
 
     buyer_uid = updated.buyer_uid
+    vendor_uid = updated.vendor_uid
     if body.status == "accepted":
         asyncio.ensure_future(NotificationService.send_stop_accepted(buyer_uid, stop_id))
     elif body.status == "rejected":
         asyncio.ensure_future(NotificationService.send_stop_rejected(buyer_uid, stop_id))
     elif body.status == "completed":
         asyncio.ensure_future(NotificationService.send_stop_completed(buyer_uid, stop_id))
+    elif body.status == "cancelled" and vendor_uid:
+        asyncio.ensure_future(NotificationService.send_stop_cancelled(vendor_uid, stop_id))
 
     return updated

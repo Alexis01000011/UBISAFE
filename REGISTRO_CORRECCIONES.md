@@ -669,6 +669,19 @@
 
 ---
 
+### C-53 · Cancelar parada devolvía 400 — faltaba la transición `cancelled` en VALID_TRANSITIONS `2026-05-15 12:10`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-53 · Cancelación de parada por comprador — estado `cancelled` |
+| **Qué se corrigió (técnico)** | **Backend:** Se añadieron `("pending", "cancelled"): "BUYER"` y `("accepted", "cancelled"): "BUYER"` a `VALID_TRANSITIONS` en `schemas.py`. Se añadió `send_stop_cancelled(vendor_uid, stop_id)` en `notification_service.py` y se disparó en `router.py` cuando `body.status == "cancelled"`. **Flutter:** Se añadió `cancelled` al enum `StopRequestStatus` en `models/stop_request.dart`. Se añadió `cancelStopRequest()` en `stop_request_module.dart`. `map_screen_buyer.dart` (`_WaitingOverlay.onCancel`) y `tracking_screen.dart` (`_confirmCancel`) cambiaron de `expireStopRequest` a `cancelStopRequest`. Se añadió el case `stop_request_cancelled` en `notification_handler.dart`. Se añadió listener de `stopRequestEventProvider` en `map_screen_vendor.dart` para mostrar snackbar "El comprador canceló la parada." |
+| **Qué se corrigió (simple)** | Cuando el comprador tocaba "Cancelar solicitud" (desde el overlay de espera antes de que el vendedor acepte, o desde la pantalla de seguimiento después de aceptar), el backend devolvía 400 porque la transición `expired` no era válida para el estado `accepted`. Ahora se usa el estado semántico correcto `cancelled` |
+| **Clase / Método / Módulo** | `TrackingScreen._confirmCancel()`, `_WaitingOverlay.onCancel`, `StopRequestModule`, `VALID_TRANSITIONS`, `NotificationService`, `NotificationHandler` |
+| **Justificación** | El módulo de raites ya tenía `cancelled_by_buyer` como estado explícito. El módulo de paradas solo tenía `expired` (para timeout del timer), que el backend rechaza correctamente en estado `accepted` porque no es una transición válida |
+| **Problema que resolvía** | El comprador veía "Error al cancelar: DioException [bad response] status 400" al intentar cancelar la parada en cualquier momento del flujo |
+
+---
+
 ## Notas de contexto para diagnóstico
 
 - **Dispositivo de prueba:** Físico Android (MIUI/Xiaomi recomendado para reproducibilidad), depuración inalámbrica ADB. **No se usa emulador de Android Studio.**

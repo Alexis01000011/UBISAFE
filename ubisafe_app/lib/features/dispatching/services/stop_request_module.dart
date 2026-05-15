@@ -60,6 +60,9 @@ class StopRequestModule {
   Future<void> expireStopRequest(String stopId) =>
       _dio.patch('/stops/$stopId/status', data: {'status': 'expired'});
 
+  Future<void> cancelStopRequest(String stopId) =>
+      _dio.patch('/stops/$stopId/status', data: {'status': 'cancelled'});
+
   Future<void> rejectStopRequest(String stopId) =>
       _dio.patch('/stops/$stopId/status', data: {'status': 'rejected'});
 

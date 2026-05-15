@@ -253,7 +253,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
                     try {
                       await ref
                           .read(stopRequestModuleProvider)
-                          .expireStopRequest(stopId);
+                          .cancelStopRequest(stopId);
                     } catch (_) {}
                   },
                 ),

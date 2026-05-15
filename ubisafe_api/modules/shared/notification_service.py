@@ -96,6 +96,15 @@ class NotificationService:
         )
 
     @staticmethod
+    async def send_stop_cancelled(vendor_uid: str, stop_id: str) -> None:
+        await NotificationService.send_to_user(
+            uid=vendor_uid,
+            title="Parada cancelada",
+            body="El comprador canceló la solicitud de parada.",
+            data={"type": "stop_request_cancelled", "stop_id": stop_id},
+        )
+
+    @staticmethod
     async def send_community_report_nearby(
         tokens: list[str],
         report_id: str,

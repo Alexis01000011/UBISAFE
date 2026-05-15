@@ -20,6 +20,7 @@ import '../../safety/services/risk_zone_service.dart';
 import '../../shared/notifications/notification_handler.dart';
 import '../../shared/widgets/gps_required_empty_state.dart';
 import '../models/ride.dart';
+import '../models/stop_request.dart';
 import '../services/ride_request_module.dart';
 import '../services/stop_request_module.dart';
 
@@ -86,6 +87,17 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
           pickupLng: data['pickup_lng'] as String? ?? '0',
           destinationLat: data['destination_lat'] as String? ?? '0',
           destinationLng: data['destination_lng'] as String? ?? '0',
+        );
+      }
+    });
+
+    ref.listen<StopEvent?>(stopRequestEventProvider, (_, event) {
+      if (event == null) return;
+      if (event.status == StopRequestStatus.cancelled) {
+        ref.read(stopRequestEventProvider.notifier).state = null;
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('El comprador canceló la parada.')),
         );
       }
     });
