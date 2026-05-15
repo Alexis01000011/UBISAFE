@@ -41,6 +41,8 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
   String _mapsApiKey = '';
   String? _activeStopId;
   String? _pendingDialogStopId; // stopId del diálogo accept/reject actualmente abierto
+  double? _buyerLat; // Coordenadas del comprador de la parada activa
+  double? _buyerLng;
   String? _activeRideId;
   // 1 = going to pickup, 2 = ride in progress (passenger aboard)
   int _ridePhase = 0;
@@ -127,6 +129,8 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
           _activeStopId = null;
           _isNavigating = false;
           _routePolyline = [];
+          _buyerLat = null;
+          _buyerLng = null;
         });
       }
 
@@ -444,7 +448,11 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
       avoidWaypoints: avoidWaypoints,
     );
 
-    setState(() => _isNavigating = true);
+    setState(() {
+      _isNavigating = true;
+      _buyerLat = destLat;
+      _buyerLng = destLng;
+    });
   }
 
   Future<void> _fetchRoute({
@@ -485,6 +493,39 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
   Future<void> _confirmDelivery(BuildContext context) async {
     final stopId = _activeStopId;
     if (stopId == null) return;
+
+    // Verificar que el GPS esté disponible
+    final position = ref.read(gpsServiceProvider).valueOrNull;
+    if (position == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('GPS no disponible. Activa el GPS para confirmar la entrega.'),
+        ),
+      );
+      return;
+    }
+
+    // Verificar proximidad al comprador (máximo 15 m)
+    if (_buyerLat != null && _buyerLng != null) {
+      final dist = _distanceMeters(
+        position.latitude,
+        position.longitude,
+        _buyerLat!,
+        _buyerLng!,
+      );
+      if (dist > 15) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Debes estar a menos de 15 m del comprador para confirmar. '
+              'Distancia actual: ${dist.toStringAsFixed(0)} m.',
+            ),
+          ),
+        );
+        return;
+      }
+    }
+
     try {
       await ref.read(stopRequestModuleProvider).completeStopRequest(stopId);
     } catch (e) {
@@ -498,6 +539,8 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
       _isNavigating = false;
       _activeStopId = null;
       _routePolyline = [];
+      _buyerLat = null;
+      _buyerLng = null;
     });
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -884,6 +927,18 @@ List<String> _buildAvoidWaypoints({
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/// Haversine distance in meters between two WGS-84 coordinates.
+double _distanceMeters(double lat1, double lng1, double lat2, double lng2) {
+  const r = 6371000.0;
+  final phi1 = lat1 * math.pi / 180;
+  final phi2 = lat2 * math.pi / 180;
+  final dPhi = (lat2 - lat1) * math.pi / 180;
+  final dLam = (lng2 - lng1) * math.pi / 180;
+  final a = math.sin(dPhi / 2) * math.sin(dPhi / 2) +
+      math.cos(phi1) * math.cos(phi2) * math.sin(dLam / 2) * math.sin(dLam / 2);
+  return r * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+}
 
 /// Decodes a Google Maps encoded polyline string to a list of LatLng points.
 List<LatLng> _decodePolyline(String encoded) {

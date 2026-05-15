@@ -721,6 +721,19 @@
 
 ---
 
+### C-57 · Vendedor podía confirmar entrega sin estar cerca del comprador `2026-05-15 14:20`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-57 · Verificación de proximidad (15 m) al confirmar entrega |
+| **Qué se corrigió (técnico)** | Se añadieron los campos de estado `double? _buyerLat` y `double? _buyerLng` a `_MapScreenVendorState`. `_acceptStop` los rellena con `destLat`/`destLng` en el último `setState`. `_confirmDelivery` ahora: (1) verifica que el GPS esté disponible; (2) calcula la distancia Haversine entre la posición actual del vendedor y `_buyerLat`/`_buyerLng`; (3) si la distancia es > 15 m muestra un `SnackBar` con la distancia actual y retorna sin llamar `completeStopRequest`. Los campos se limpian (`null`) tanto en el path de éxito de `_confirmDelivery` como en el listener de eventos `cancelled`/`expired`. Se añadió la función pura `_distanceMeters(lat1, lng1, lat2, lng2)` usando la fórmula Haversine con `dart:math` (ya importado) |
+| **Qué se corrigió (simple)** | El botón "Confirmar Entrega" podía ser pulsado desde cualquier lugar. Ahora solo funciona si el vendedor está a 15 metros o menos del comprador; de lo contrario se muestra "Debes estar a menos de 15 m del comprador. Distancia actual: X m." |
+| **Clase / Método / Módulo** | `_MapScreenVendorState._confirmDelivery()` + `_acceptStop()` → `map_screen_vendor.dart` (`ubisafe_app/lib/features/dispatching/screens/map_screen_vendor.dart`) |
+| **Justificación** | Sin la verificación, el vendedor podía marcar la entrega como completada sin haberse desplazado hasta el comprador, completando la transacción de forma fraudulenta o accidental |
+| **Problema que resolvía** | El vendedor podía confirmar la entrega estando a cualquier distancia del comprador que la solicitó |
+
+---
+
 ## Notas de contexto para diagnóstico
 
 - **Dispositivo de prueba:** Físico Android (MIUI/Xiaomi recomendado para reproducibilidad), depuración inalámbrica ADB. **No se usa emulador de Android Studio.**
