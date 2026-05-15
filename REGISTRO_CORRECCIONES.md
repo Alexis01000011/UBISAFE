@@ -747,6 +747,19 @@
 
 ---
 
+### C-59 · 500 en GET /risk-zones y GET /community-reports — índice compuesto faltante en Firestore `2026-05-15 15:30`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-59 · Eliminar filtro Firestore de location.lat — filtrar en Python |
+| **Qué se corrigió (técnico)** | En `firestore_service.py`, se eliminaron los `.where("location.lat", ">=", ...)` y `.where("location.lat", "<=", ...)` de las funciones `get_active_risk_zones` y `get_community_reports_in_bbox`. Las queries de Firestore ahora usan únicamente el filtro de campo simple (`active == True` o `status in [...]`), que usa índices automáticos. El filtrado de proximidad (radio en km) se hace completamente en Python con `_haversine_km` |
+| **Qué se corrigió (simple)** | Al añadir un filtro de rango (`>=`, `<=`) sobre `location.lat` combinado con otro filtro de igualdad, Firestore exige un índice compuesto que no estaba creado en el proyecto de producción. Ambos endpoints devolvían 500 al cargar el mapa. Ahora Firestore sólo filtra por el campo simple y Python hace el cálculo de distancia |
+| **Clase / Método / Módulo** | `FirestoreService.get_active_risk_zones()` + `FirestoreService.get_community_reports_in_bbox()` → `firestore_service.py` (`ubisafe_api/modules/shared/firestore_service.py`) |
+| **Justificación** | Firestore requiere índice compuesto para cualquier query que combine una desigualdad en un campo con cualquier otro filtro en campo distinto. `query_active_risk_zones_bbox` ya usaba el patrón correcto (filtro simple + Python); se unificaron las dos funciones afectadas con el mismo patrón. Para el volumen esperado del proyecto (<1000 documentos activos) la diferencia de rendimiento es despreciable |
+| **Problema que resolvía** | `GET /risk-zones` y `GET /community-reports` → 500 Internal Server Error con `google.api_core.exceptions.FailedPrecondition: 400 The query requires an index` |
+
+---
+
 ## Notas de contexto para diagnóstico
 
 - **Dispositivo de prueba:** Físico Android (MIUI/Xiaomi recomendado para reproducibilidad), depuración inalámbrica ADB. **No se usa emulador de Android Studio.**

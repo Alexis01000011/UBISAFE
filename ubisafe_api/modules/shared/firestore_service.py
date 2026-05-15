@@ -160,31 +160,24 @@ class FirestoreService:
     async def get_active_risk_zones(
         cls, lat: float | None, lng: float | None, radius_km: float | None
     ) -> list[RiskZone]:
-        """Return active risk zones, optionally filtered by proximity."""
-        query = cls._db().collection("risk_zones").where("active", "==", True)
+        """Return active risk zones, optionally filtered by proximity.
 
-        if lat is not None and lng is not None and radius_km is not None:
-            # Bounding-box pre-filter (1° lat ≈ 111 km)
-            delta_lat = radius_km / 111.0
-            delta_lng = radius_km / (111.0 * math.cos(math.radians(lat)))
-            query = query.where("location.lat", ">=", lat - delta_lat).where(
-                "location.lat", "<=", lat + delta_lat
-            )
-            docs = query.stream()
-            results = []
-            for d in docs:
-                raw = d.to_dict()
-                loc = raw.get("location", {})
-                doc_lat = loc.get("lat", 0.0)
-                doc_lng = loc.get("lng", 0.0)
-                if (
-                    abs(doc_lng - lng) <= delta_lng
-                    and _haversine_km(lat, lng, doc_lat, doc_lng) <= radius_km
-                ):
-                    results.append(RiskZone(id=d.id, **raw))
-            return results
-
-        return [RiskZone(id=d.id, **d.to_dict()) for d in query.stream()]
+        Proximity filtering is done in Python to avoid requiring a Firestore
+        composite index on (active, location.lat).
+        """
+        docs = cls._db().collection("risk_zones").where("active", "==", True).stream()
+        results = []
+        for d in docs:
+            raw = d.to_dict()
+            if lat is None or lng is None or radius_km is None:
+                results.append(RiskZone(id=d.id, **raw))
+                continue
+            loc = raw.get("location", {})
+            doc_lat = loc.get("lat", 0.0)
+            doc_lng = loc.get("lng", 0.0)
+            if _haversine_km(lat, lng, doc_lat, doc_lng) <= radius_km:
+                results.append(RiskZone(id=d.id, **raw))
+        return results
 
     @classmethod
     async def find_duplicate_risk_zone(
@@ -350,32 +343,29 @@ class FirestoreService:
             ReportStatus.pending_validation.value,
             ReportStatus.confirmed.value,
         ]
-        query = cls._db().collection("community_reports").where("status", "in", active_statuses)
-
-        if lat is not None and lng is not None and radius_km is not None:
-            delta_lat = radius_km / 111.0
-            delta_lng = radius_km / (111.0 * math.cos(math.radians(lat)))
-            query = query.where("location.lat", ">=", lat - delta_lat).where(
-                "location.lat", "<=", lat + delta_lat
-            )
-            docs = query.stream()
-            results = []
-            for d in docs:
-                raw = d.to_dict() or {}
-                loc = raw.get("location", {})
-                if hasattr(loc, "latitude"):
-                    doc_lat, doc_lng = loc.latitude, loc.longitude
-                else:
-                    doc_lat = loc.get("lat", 0.0)
-                    doc_lng = loc.get("lng", 0.0)
-                if (
-                    abs(doc_lng - lng) <= delta_lng
-                    and _haversine_km(lat, lng, doc_lat, doc_lng) <= radius_km
-                ):
-                    results.append(cls._doc_to_community_report(d))
-            return results
-
-        return [cls._doc_to_community_report(d) for d in query.stream()]
+        # Proximity filtering is done in Python to avoid requiring a Firestore
+        # composite index on (status, location.lat).
+        docs = (
+            cls._db()
+            .collection("community_reports")
+            .where("status", "in", active_statuses)
+            .stream()
+        )
+        results = []
+        for d in docs:
+            if lat is None or lng is None or radius_km is None:
+                results.append(cls._doc_to_community_report(d))
+                continue
+            raw = d.to_dict() or {}
+            loc = raw.get("location", {})
+            if hasattr(loc, "latitude"):
+                doc_lat, doc_lng = loc.latitude, loc.longitude
+            else:
+                doc_lat = loc.get("lat", 0.0)
+                doc_lng = loc.get("lng", 0.0)
+            if _haversine_km(lat, lng, doc_lat, doc_lng) <= radius_km:
+                results.append(cls._doc_to_community_report(d))
+        return results
 
     @classmethod
     async def get_community_report(cls, report_id: str) -> CommunityReport | None:

@@ -75,8 +75,13 @@ class _RiskFormBottomSheetState extends ConsumerState<RiskFormBottomSheet> {
       if (e.response?.statusCode == 409) {
         setState(() => _duplicateError = 'Ya existe un reporte activo en esta zona');
       } else {
+        final code = e.response?.statusCode ?? 'sin respuesta';
+        final body = e.response?.data?.toString() ?? e.message ?? '?';
         messenger.showSnackBar(
-          const SnackBar(content: Text('Error al reportar la zona. Intenta de nuevo.')),
+          SnackBar(
+            content: Text('Error $code: $body'),
+            duration: const Duration(seconds: 8),
+          ),
         );
       }
     }
