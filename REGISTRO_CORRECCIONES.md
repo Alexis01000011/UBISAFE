@@ -3,7 +3,7 @@
 **Proyecto:** Los Borbotones · TSP · ITESM  
 **Rama activa:** `Rama-Miguel`  
 **Dispositivo de prueba:** Físico Android (depuración inalámbrica ADB, NO emulador de computadora)  
-**Última actualización:** 2026-05-16 (C-72)
+**Última actualización:** 2026-05-16 (C-75)
 
 ---
 
@@ -922,6 +922,45 @@
 | **Clase / Método / Módulo** | `NotificationHandler.syncTokenIfNeeded()` → `notification_handler.dart` (`ubisafe_app/lib/features/shared/notifications/notification_handler.dart`); `_SplashScreenState._checkSession()` → `splash_screen.dart` (`ubisafe_app/lib/features/identity/auth/screens/splash_screen.dart`) |
 | **Justificación** | `init()` corre en `main.dart` `initState` sin `await`. Firebase Auth puede tardar entre 200-800 ms en restaurar la sesión persistida desde disco; en ese margen el interceptor Dio no tiene Bearer token → 401 swallowed. Render además puede estar en cold start en ese instante → segundo fallo silencioso. El único punto determinístico donde (a) `currentUser != null` y (b) Render ya respondió es justo después de `GET /auth/me` exitoso en `_checkSession()`. El `unawaited()` evita bloquear la navegación; el resultado es best-effort idéntico al existente en `init()`. |
 | **Problema que resolvía** | En el primer uso tras un despliegue, al solicitar parada el vendedor no recibía ninguna notificación; en el segundo intento (app reiniciada) sí funcionaba. |
+
+---
+
+### C-73 · `_fetchRoute` silenciaba todos los errores y no reintentaba sin waypoints `2026-05-16`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-73 · `_fetchRoute` refactor: logging + fallback sin waypoints |
+| **Qué se corrigió (técnico)** | Se dividió `_fetchRoute` en dos métodos: (1) `_fetchRoute` (orquestador) que primero intenta con `avoidWaypoints` y, si `_requestRoute` devuelve `null`, reintenta sin ellos; (2) `_requestRoute` (single-attempt) que devuelve `List<LatLng>?` en éxito o `null` en fallo, y en ambos casos emite `debugPrint` con el status de la API o la excepción. El `setState` del resultado solo se llama desde `_fetchRoute` cuando `points != null && mounted`. |
+| **Qué se corrigió (simple)** | Si las zonas de riesgo HIGH generaban waypoints en ubicaciones sin calles, la Directions API devolvía `ZERO_RESULTS` y la ruta no aparecía sin ningún aviso. Ahora: (a) el error se registra en logs para diagnóstico; (b) si el intento con waypoints falla, se reintenta con la ruta directa sin desvíos, garantizando que siempre aparezca una polilínea cuando la key y la red son válidas. |
+| **Clase / Método / Módulo** | `_MapScreenVendorState._fetchRoute()` + nuevo `_MapScreenVendorState._requestRoute()` → `map_screen_vendor.dart` |
+| **Justificación** | `catch (_) {}` hacía imposible diagnosticar si el fallo era por key vacía, network, quota o ZERO_RESULTS. El fallback sin waypoints es el comportamiento correcto cuando los waypoints generados caen fuera de la red vial (situación frecuente en entornos urbanos densos) |
+| **Problema que resolvía** | La ruta del vendedor hacia el comprador no aparecía en el mapa al aceptar una parada cuando había zonas de riesgo HIGH activas cerca; la polilínea tampoco aparecía en otros fallos de la API porque ningún error era visible |
+
+---
+
+### C-74 · `_fetchRoute` no esperaba la carga de `_mapsApiKey` si el dialog llegaba antes que el MethodChannel `2026-05-16`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-74 · Retry de `_initMapsKey()` en `_fetchRoute` |
+| **Qué se corrigió (técnico)** | Al inicio de `_fetchRoute`, si `_mapsApiKey.isEmpty`, se llama `await _initMapsKey()` antes de continuar. Si tras el retry sigue vacío, se emite `debugPrint` y se retorna. |
+| **Qué se corrigió (simple)** | `_initMapsKey()` se lanza en `initState()` sin `await`. En el caso improbable de que el vendedor acepte la solicitud antes de que el MethodChannel responda, `_mapsApiKey` sería `''` y `_fetchRoute` retornaba silenciosamente. Ahora se espera a que el channel responda antes de declarar la key ausente. |
+| **Clase / Método / Módulo** | `_MapScreenVendorState._fetchRoute()` → `map_screen_vendor.dart` |
+| **Justificación** | El MethodChannel es sub-milisegundo en producción, pero en condiciones de cold start o DevTools activo puede tardar más. El retry es idempotente porque `_initMapsKey` ya guarda el resultado en `_mapsApiKey` |
+| **Problema que resolvía** | Ruta no trazada en arranques lentos si la solicitud de parada llegaba antes de que `_initMapsKey` completara |
+
+---
+
+### C-75 · `_buildAvoidWaypoints` calculaba la perpendicular en espacio de grados, no métrico `2026-05-16`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-75 · `_buildAvoidWaypoints` cálculo métrico correcto |
+| **Qué se corrigió (técnico)** | Se reemplazó el cálculo en espacio de grados por uno en espacio métrico: (1) se calcula `metersPerDegLng = 111000 * cos(midLat_rad)` usando la latitud media del trayecto; (2) el vector dirección, la longitud, el vector perpendicular y el producto cruzado se calculan todos en metros; (3) el offset se aplica en metros y luego se convierte de vuelta a grados de forma separada para latitud (`/ metersPerDegLat`) y longitud (`/ metersPerDegLng`). La constante única `degPerMeter = 1/111000` fue eliminada. |
+| **Qué se corrigió (simple)** | El código anterior usaba la misma escala (`1/111000 deg/m`) para desplazar tanto latitud como longitud, ignorando que los grados de longitud son más cortos que los de latitud (a ~20° lat, solo ~104 km/°). Esto hacía que el vector perpendicular apuntara en la dirección incorrecta y que el waypoint de desvío cayera sistemáticamente desplazado hacia el este u oeste respecto del punto correcto, con alta probabilidad de aterrizar fuera de la red vial. |
+| **Clase / Método / Módulo** | `_buildAvoidWaypoints()` → `map_screen_vendor.dart` (función top-level) |
+| **Justificación** | La fórmula de Haversine no es necesaria para desplazamientos pequeños (< 1 km), pero la distinción entre `metersPerDegLat` y `metersPerDegLng` sí es crítica: sin ella el waypoint puede quedar hasta ~60 m desplazado en dirección equivocada a latitudes mexicanas, lo que con frecuencia lo pone dentro de un edificio o zona sin calles y provoca `ZERO_RESULTS` en la Directions API |
+| **Problema que resolvía** | Waypoints de desvío generados en ubicaciones sin calles → Directions API devolvía `ZERO_RESULTS` → la polilínea de ruta no aparecía cuando había zonas HIGH activas cerca del trayecto |
 
 ---
 

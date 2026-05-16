@@ -484,8 +484,46 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
     required double destLng,
     List<String> avoidWaypoints = const [],
   }) async {
-    if (_mapsApiKey.isEmpty) return;
+    // _initMapsKey() may still be in flight when the dialog is accepted quickly.
+    if (_mapsApiKey.isEmpty) await _initMapsKey();
+    if (_mapsApiKey.isEmpty) {
+      debugPrint('[_fetchRoute] Maps API key unavailable — skipping route fetch');
+      return;
+    }
 
+    // First attempt — with avoid waypoints (if any).
+    var points = await _requestRoute(
+      originLat: originLat,
+      originLng: originLng,
+      destLat: destLat,
+      destLng: destLng,
+      avoidWaypoints: avoidWaypoints,
+    );
+
+    // Fallback — waypoints off-road can cause ZERO_RESULTS; retry without them.
+    if (points == null && avoidWaypoints.isNotEmpty) {
+      debugPrint('[_fetchRoute] Retrying without avoid waypoints');
+      points = await _requestRoute(
+        originLat: originLat,
+        originLng: originLng,
+        destLat: destLat,
+        destLng: destLng,
+      );
+    }
+
+    if (points != null && mounted) {
+      setState(() => _routePolyline = points!);
+    }
+  }
+
+  /// Single Directions API attempt. Returns decoded points or null on failure.
+  Future<List<LatLng>?> _requestRoute({
+    required double originLat,
+    required double originLng,
+    required double destLat,
+    required double destLng,
+    List<String> avoidWaypoints = const [],
+  }) async {
     try {
       final dio = Dio();
       final params = <String, dynamic>{
@@ -500,15 +538,19 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
         'https://maps.googleapis.com/maps/api/directions/json',
         queryParameters: params,
       );
+      final status = res.data?['status'] as String?;
       final routes = res.data?['routes'] as List?;
-      if (routes == null || routes.isEmpty) return;
+      if (routes == null || routes.isEmpty) {
+        debugPrint('[_fetchRoute] Directions API status=$status — no routes');
+        return null;
+      }
       final encoded =
           (routes[0] as Map)['overview_polyline']?['points'] as String?;
-      if (encoded == null) return;
-      final points = _decodePolyline(encoded);
-      setState(() => _routePolyline = points);
-    } catch (_) {
-      // Route fetch is non-critical; map still shows without polyline
+      if (encoded == null) return null;
+      return _decodePolyline(encoded);
+    } catch (e) {
+      debugPrint('[_fetchRoute] Request error: $e');
+      return null;
     }
   }
 
@@ -981,8 +1023,8 @@ Color _riskStrokeColor(String level) => switch (level) {
     };
 
 /// Returns perpendicular-offset waypoint strings to route around HIGH zones.
-/// Each waypoint is displaced from the zone center perpendicular to the
-/// origin→destination bearing, on the opposite side from the zone.
+/// All geometry is computed in metric space (meters) using the midpoint latitude
+/// to correct for the longitude-degree scale, then converted back to degrees.
 List<String> _buildAvoidWaypoints({
   required double originLat,
   required double originLng,
@@ -991,25 +1033,35 @@ List<String> _buildAvoidWaypoints({
   required List<RiskZone> highZones,
 }) {
   if (highZones.isEmpty) return const [];
-  const degPerMeter = 1.0 / 111000;
-  final dLat = destLat - originLat;
-  final dLng = destLng - originLng;
-  final length = math.sqrt(dLat * dLat + dLng * dLng);
+
+  // Scale factors: longitude degrees are shorter than latitude degrees
+  // by a factor of cos(latitude). Use the midpoint for best accuracy.
+  final midLat = (originLat + destLat) / 2;
+  final cosLat = math.cos(midLat * math.pi / 180);
+  const metersPerDegLat = 111000.0;
+  final metersPerDegLng = metersPerDegLat * cosLat;
+
+  // Direction vector in meters (metric space)
+  final dLatM = (destLat - originLat) * metersPerDegLat;
+  final dLngM = (destLng - originLng) * metersPerDegLng;
+  final length = math.sqrt(dLatM * dLatM + dLngM * dLngM);
   if (length == 0) return const [];
 
-  // Perpendicular unit vector (90° rotation of direction vector)
-  final perpLat = -dLng / length;
-  final perpLng = dLat / length;
+  // Perpendicular unit vector in metric space (90° CCW rotation)
+  final perpLatM = -dLngM / length;
+  final perpLngM = dLatM / length;
 
   return highZones.map((z) {
-    // Cross product determines which side of the route the zone is on
-    final cross =
-        dLat * (z.longitude - originLng) - dLng * (z.latitude - originLat);
+    // Zone position relative to origin, in meters
+    final zLatM = (z.latitude - originLat) * metersPerDegLat;
+    final zLngM = (z.longitude - originLng) * metersPerDegLng;
+    // Cross product determines which side of the route the zone lies on
+    final cross = dLatM * zLngM - dLngM * zLatM;
     final side = cross >= 0 ? 1.0 : -1.0;
     final offsetMeters = (z.radiusMeters + 50).toDouble();
-    final offsetDeg = offsetMeters * degPerMeter;
-    final wpLat = z.latitude + perpLat * offsetDeg * side;
-    final wpLng = z.longitude + perpLng * offsetDeg * side;
+    // Waypoint = zone center displaced perpendicular to route, converted back to degrees
+    final wpLat = z.latitude + perpLatM * offsetMeters * side / metersPerDegLat;
+    final wpLng = z.longitude + perpLngM * offsetMeters * side / metersPerDegLng;
     return '$wpLat,$wpLng';
   }).toList();
 }
