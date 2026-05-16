@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -26,23 +27,20 @@ const _authPaths = {
 };
 
 final appRouterProvider = Provider<GoRouter>((ref) {
-  // Only watch authStateProvider — NOT userProfileProvider.
-  //
-  // Watching userProfileProvider caused GoRouter to recreate a new instance
-  // every time the profile loaded, which reset the navigation stack to
-  // initialLocation ('/splash') mid-session. This produced a race between
-  // the redirect and SplashScreen._checkSession, always losing the role.
-  //
-  // Role-based routing is the responsibility of the screens:
-  //   • SplashScreen._checkSession — session restore on app start / after login
-  //   • SignupRoleScreen — navigates directly after registration
-  // The router redirect only enforces authentication guards.
-  final authState = ref.watch(authStateProvider);
+  // Use a ChangeNotifier as refreshListenable instead of ref.watch so that
+  // authStateProvider changes trigger only a redirect re-evaluation, NOT a
+  // full GoRouter recreation. Recreating GoRouter resets the navigation stack
+  // to initialLocation ('/splash'), which disposed all route widget states
+  // mid-session (e.g., DrawerModule._rideEnabled reset to null on token refresh).
+  final authNotifier = _AuthChangeNotifier();
+  ref.listen(authStateProvider, (_, __) => authNotifier.notify());
+  ref.onDispose(authNotifier.dispose);
 
   return GoRouter(
     initialLocation: '/splash',
+    refreshListenable: authNotifier,
     redirect: (context, state) {
-      final isLoggedIn = authState.valueOrNull != null;
+      final isLoggedIn = ref.read(authStateProvider).valueOrNull != null;
       final path = state.matchedLocation;
       final isAuthPath = _authPaths.contains(path);
 
@@ -111,3 +109,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     ],
   );
 });
+
+class _AuthChangeNotifier extends ChangeNotifier {
+  void notify() => notifyListeners();
+}

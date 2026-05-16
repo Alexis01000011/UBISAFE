@@ -825,6 +825,18 @@
 
 ---
 
+### C-66 · Toggle "Solicitar Raite" se reiniciaba a ON cada vez que el vendedor volvía al mapa `2026-05-15 19:00`
+
+| Campo | Detalle |
+|---|---|
+| **Qué se corrigió (técnico)** | `appRouterProvider` usaba `ref.watch(authStateProvider)` dentro de `Provider<GoRouter>`, lo que recreaba el GoRouter completo en cada emisión de Firebase Auth (incluyendo token refresh silencioso), reiniciando la pila de navegación a `/splash` y destruyendo el estado de `DrawerModule` (incluido `_rideEnabled`) |
+| **Qué se corrigió (simple)** | El router de la app ya no se re-crea cuando Firebase renueva el token de sesión; el toggle de "Solicitar Raite" conserva su estado al navegar entre pantallas |
+| **Clase / Módulo** | `appRouterProvider` → `app_router.dart`, nueva clase `_AuthChangeNotifier extends ChangeNotifier` |
+| **Justificación** | `ref.watch` dentro de `Provider<GoRouter>` invalida y recrea el `Provider` cada vez que `authStateProvider` emite, lo que destruye el árbol de widgets completo. Reemplazado por patrón `refreshListenable`: el router se crea una sola vez; los cambios de auth solo disparan re-evaluación del redirect sin resetear la pila |
+| **Problema que resolvía** | El toggle aparecía siempre como ON al regresar a `MapScreenVendor`, independientemente del valor real; la opción de raite se activaba sola para el comprador al seleccionar al vendedor por segunda vez |
+
+---
+
 ### C-62 · FABs "Zona de riesgo" y "Foco de infección" bloqueaban la pantalla al primer toque `2026-05-15 17:00`
 
 | Campo | Detalle |
