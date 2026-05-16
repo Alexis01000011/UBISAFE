@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../auth_module.dart';
 
@@ -27,23 +28,20 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _loading = true);
     try {
-      // login() = signIn + sync-profile (updated_at) + device-token (SDD §8.4.B)
       await ref.read(authModuleProvider).login(
             email: _emailCtrl.text.trim(),
             password: _passwordCtrl.text,
           );
-      // Navigation is handled by the GoRouter redirect in app_router.dart.
-      // When authStateProvider emits the new user, the router waits for
-      // userProfileProvider to load (isLoading guard) then routes to the
-      // correct home (/home/buyer or /home/vendor) based on role.
+      // login() returns as soon as signIn completes. Navigate explicitly here
+      // as a safety net — if GoRouter's refreshListenable already redirected,
+      // mounted is false and this is a no-op.
+      if (mounted) context.go('/splash');
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString())),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _loading = false);
+      if (!mounted) return;
+      setState(() => _loading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
     }
   }
 

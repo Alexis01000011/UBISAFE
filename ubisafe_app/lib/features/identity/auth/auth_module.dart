@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -34,12 +36,14 @@ class AuthModule {
       // otherwise we rethrow so the caller sees the real error.
       if (_auth.currentUser == null) rethrow;
     }
-    // sync-profile is best-effort: it only updates updated_at. A failure here
-    // (e.g. Render cold start) must not invalidate an otherwise valid session.
-    try {
-      await _dio.post<dynamic>('/auth/sync-profile', data: <String, dynamic>{});
-    } catch (_) {}
-    await _syncDeviceToken();
+    // Both calls are best-effort — run in the background so login() returns
+    // immediately after sign-in, preventing the UI from blocking on network.
+    unawaited(
+      _dio
+          .post<dynamic>('/auth/sync-profile', data: <String, dynamic>{})
+          .catchError((_) {}),
+    );
+    unawaited(_syncDeviceToken());
   }
 
   /// Creates a Firebase Auth account, syncs the profile to Firestore,

@@ -3,7 +3,7 @@
 **Proyecto:** Los Borbotones · TSP · ITESM  
 **Rama activa:** `Rama-Miguel`  
 **Dispositivo de prueba:** Físico Android (depuración inalámbrica ADB, NO emulador de computadora)  
-**Última actualización:** 2026-05-16 (C-69)
+**Última actualización:** 2026-05-16 (C-70)
 
 ---
 
@@ -45,6 +45,7 @@
 | **Clase / Método / Módulo** | `_LoginScreenState._submit()` → `login_screen.dart` (`ubisafe_app/lib/features/identity/auth/screens/login_screen.dart`) |
 | **Justificación** | La navegación manual desde LoginScreen competía con el redirect del GoRouter; ambos intentaban cambiar la ruta al mismo tiempo y sólo uno ganaba, de forma no determinista |
 | **Problema que resolvía** | Luego del login exitoso la app a veces no navegaba, o navegaba a la pantalla equivocada |
+| **Nota (C-70)** | C-70 agrega de vuelta `if (mounted) context.go('/splash')` pero como **fallback**, no como navegación concurrente. El Pigeon bug de `firebase_auth 4.16.0` impide que `authStateChanges()` emita y por tanto el redirect de GoRouter no dispara; el fallback lo suple. No compite porque navega al mismo destino (`/splash`) y solo actúa si el widget sigue montado |
 
 ---
 
@@ -883,6 +884,18 @@
 | **Clase / Módulo** | `_MapScreenBuyerState._requestRide` → `map_screen_buyer.dart`; `create_ride` → `ride_router.py` |
 | **Justificación** | `bool \| None = None` en el schema de usuario implica que cuentas creadas antes de agregar el campo tienen `ride_enabled = None`; `not None` es `True` en Python, generando un falso positivo. El catch block sin parsear el detail devolvía el objeto `DioException` completo que el usuario veía como un error críptico |
 | **Problema que resolvía** | Al tocar "Solicitar Raite" y confirmar destino, la app mostraba "Error al solicitar raite: DioException [bad response]..." en lugar de un mensaje legible; en algunos casos el error era un falso positivo por el campo ausente en Firestore |
+
+---
+
+### C-70 · Login nunca navegaba al mapa — `authStateChanges()` no emite tras Pigeon bug de firebase_auth 4.16.0 `2026-05-16`
+
+| Campo | Detalle |
+|---|---|
+| **Qué se corrigió (técnico)** | El fix C-66 introdujo el patrón `refreshListenable` con `_AuthChangeNotifier` suscrito a `FirebaseAuth.instance.authStateChanges()`. En Android con `firebase_auth 4.16.0`, `signInWithEmailAndPassword` lanza una excepción de serialización Pigeon durante el procesamiento de la respuesta del canal de plataforma, interrumpiéndolo antes de que `authStateChanges()` alcance a emitir. `currentUser` SÍ se actualiza (por eso el catch-and-continue en C-41 funciona), pero el stream nunca dispara, `notifyListeners()` nunca se llama y GoRouter nunca evalúa el redirect. Adicionalmente, `login()` awaaitaba `POST /auth/sync-profile` y `_syncDeviceToken()` bloqueando el retorno incluso después del sign-in |
+| **Qué se corrigió (simple)** | Al presionar "Entrar", la app navega al mapa inmediatamente después de que Firebase confirma la autenticación, sin depender del stream `authStateChanges()` |
+| **Clase / Módulo** | `AuthModule.login()` → `auth_module.dart`; `_LoginScreenState._submit()` → `login_screen.dart` |
+| **Justificación** | `sync-profile` y `_syncDeviceToken` son best-effort; se cambiaron a `unawaited()` para que `login()` retorne en cuanto Firebase confirma el sign-in. Se añadió `if (mounted) context.go('/splash')` en `_submit()` como navegación primaria que no depende del stream: `SplashScreen._checkSession()` lee `FirebaseAuth.instance.currentUser` directamente (no el stream), y como `currentUser` sí se actualiza incluso con el Pigeon bug, navega al mapa correctamente. El redirect de GoRouter sigue actuando si `authStateChanges()` llega a emitir; si ya navegó, `mounted = false` y el `context.go` es no-op |
+| **Problema que resolvía** | Spinner en la pantalla de login que nunca desaparecía; al volver a la pantalla de bienvenida y presionar "Iniciar sesión" de nuevo la app iba directo al mapa (el usuario ya estaba autenticado sin saberlo). El bug fue introducido en C-66 (commit `c9c1128`) al reemplazar `ref.watch(authStateProvider)` — que recreaba el router y accidentalmente navegaba a `/splash` — con el patrón `refreshListenable` que depende del stream |
 
 ---
 
