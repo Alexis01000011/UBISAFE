@@ -415,8 +415,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
   }
 
   void _onFabPressed(dynamic position) {
-    final gpsStatus = ref.read(gpsStatusProvider).valueOrNull;
-    if (gpsStatus != GpsStatus.ready || position == null) {
+    if (position == null) {
       showModalBottomSheet<void>(
         context: context,
         builder: (_) => const GpsRequiredEmptyState(),
@@ -436,8 +435,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
   }
 
   void _onCommunityFabPressed(dynamic position) {
-    final gpsStatus = ref.read(gpsStatusProvider).valueOrNull;
-    if (gpsStatus != GpsStatus.ready || position == null) {
+    if (position == null) {
       showModalBottomSheet<void>(
         context: context,
         builder: (_) => const GpsRequiredEmptyState(),

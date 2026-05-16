@@ -786,6 +786,19 @@
 
 ---
 
+### C-62 · FABs "Zona de riesgo" y "Foco de infección" bloqueaban la pantalla al primer toque `2026-05-15 17:00`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-62 · Eliminar check de `gpsStatusProvider` en `_onFabPressed` / `_onCommunityFabPressed` |
+| **Qué se corrigió (técnico)** | `_onFabPressed` y `_onCommunityFabPressed` en ambas pantallas leían `ref.read(gpsStatusProvider).valueOrNull` y comparaban con `GpsStatus.ready`. Al primer press, `gpsStatusProvider` (un `StreamProvider`) aún no había emitido valor → `.valueOrNull == null` → `null != GpsStatus.ready` evaluaba `true` → se abría `showModalBottomSheet(GpsRequiredEmptyState)` sin contenido visible pero con su scrim oscureciendo la pantalla. La condición se reemplazó por `position == null` usando la posición ya disponible del `gpsServiceProvider` |
+| **Qué se corrigió (simple)** | Al presionar "Zona de riesgo" o "Foco de infección" por primera vez, la pantalla se oscurecía sin mostrar nada, dando apariencia de congelamiento. Al segundo intento ya funcionaba. Se eliminó la comprobación redundante de estado GPS que causaba la apertura de un modal vacío |
+| **Clase / Método / Módulo** | `_MapScreenVendorState._onFabPressed()`, `_MapScreenVendorState._onCommunityFabPressed()`, `_MapScreenBuyerState._onFabPressed()`, `_MapScreenBuyerState._onCommunityFabPressed()` → `map_screen_vendor.dart` + `map_screen_buyer.dart` |
+| **Justificación** | `gpsServiceProvider` ya garantiza que la pantalla del mapa solo se renderiza cuando `position != null`. El `gpsStatusProvider` es redundante una vez que el mapa está visible y su naturaleza asíncrona (stream) causaba un falso negativo en el primer frame |
+| **Problema que resolvía** | Al presionar cualquier FAB de reporte por primera vez, el fondo se oscurecía (scrim del `showModalBottomSheet`) pero no aparecía ningún diálogo. La pantalla parecía congelada hasta que el usuario tocaba el fondo para descartar el modal invisible |
+
+---
+
 ## Notas de contexto para diagnóstico
 
 - **Dispositivo de prueba:** Físico Android (MIUI/Xiaomi recomendado para reproducibilidad), depuración inalámbrica ADB. **No se usa emulador de Android Studio.**
