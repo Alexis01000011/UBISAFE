@@ -3,7 +3,7 @@
 **Proyecto:** Los Borbotones · TSP · ITESM  
 **Rama activa:** `Rama-Miguel`  
 **Dispositivo de prueba:** Físico Android (depuración inalámbrica ADB, NO emulador de computadora)  
-**Última actualización:** 2026-05-16 (C-78)
+**Última actualización:** 2026-05-16 (C-80)
 
 ---
 
@@ -964,16 +964,16 @@
 
 ---
 
-### C-76 · `SplashScreen` timer de 500 ms causaba auto-login y skip de credenciales `2026-05-16`
+### C-76 · Auto-login sin credenciales al reabrir la app sin cerrar sesión `2026-05-16`
 
 | Campo | Detalle |
 |---|---|
-| **Nombre clave** | C-76 · Splash await authStateChanges en lugar de Timer |
-| **Qué se corrigió (técnico)** | Se eliminó `Timer? _timer` y el `Timer(const Duration(milliseconds: 500), _checkSession)` de `initState`. Se llama `_checkSession()` directamente en `initState`. Dentro de `_checkSession`, en lugar de `ref.read(authStateProvider).valueOrNull` (que devuelve null si el stream no emitió aún), se hace `await FirebaseAuth.instance.authStateChanges().first.timeout(const Duration(seconds: 5))` con `try/catch` que usa `FirebaseAuth.instance.currentUser` como fallback. Se añadió `import 'package:firebase_auth/firebase_auth.dart'` a `splash_screen.dart`. Se eliminó el campo `Timer? _timer` y su `cancel()` en `dispose()`. |
-| **Qué se corrigió (simple)** | Al abrir la app sin cerrar sesión, el timer de 500 ms a veces disparaba antes de que Firebase Auth restaurara la sesión desde disco. `_checkSession` veía user=null y enviaba al usuario a `/welcome`. Firebase Auth terminaba de restaurar la sesión segundos después; el `_AuthChangeNotifier` disparaba el redirect de GoRouter, pero `/welcome` está excluido del redirect. Cuando el usuario tocaba "Iniciar sesión", GoRouter detectaba `isLoggedIn=true` en `/login` y redirigía a `/splash`, que ya encontraba sesión válida y mandaba directamente al mapa, sin pedir correo ni contraseña. |
-| **Clase / Módulo** | `_SplashScreenState._checkSession()` + `initState()` + `dispose()` → `splash_screen.dart` |
-| **Justificación** | `authStateChanges().first` resuelve inmediatamente si ya existe una sesión persistida (Firebase Auth la lee desde disco en el mismo ciclo), o emite `null` una vez que Firebase confirma que no hay sesión. El timeout de 5 s cubre cold starts con red lenta. El fallback a `currentUser` cubre el bug de Pigeon (firebase_auth 4.16.0) donde el stream no emite aunque el usuario sí esté autenticado. |
-| **Problema que resolvía** | El usuario cerraba la app sin cerrar sesión, la volvía a abrir, llegaba a `/welcome` y al tocar "Iniciar sesión" era enviado al mapa sin que se validara correo ni contraseña. |
+| **Nombre clave** | C-76 · signOut en `paused` + `currentUser` en Splash (reescritura) |
+| **Qué se corrigió (técnico)** | **Dos cambios coordinados:** (1) `main.dart` — `didChangeAppLifecycleState` ahora llama `stopTransmission` + `FirebaseAuth.instance.signOut()` cuando el estado es `AppLifecycleState.paused` O `AppLifecycleState.detached` (antes solo era `detached`). (2) `splash_screen.dart` — `initState` usa `WidgetsBinding.instance.addPostFrameCallback((_) => _checkSession())` para renderizar el primer frame antes de hacer trabajo asíncrono. `_checkSession` lee `FirebaseAuth.instance.currentUser` directamente (sync), sin awaitar ningún stream. Si `currentUser == null` → `/welcome`; si `!= null` → `GET /auth/me` → navega al rol correcto. Se eliminó el campo `Timer? _timer` que existía de versiones anteriores. |
+| **Qué se corrigió (simple)** | El comportamiento esperado es que cerrar la app (sin logout explícito) cierre la sesión automáticamente. Al reabrir, el usuario siempre debe pasar por el login. Con la corrección anterior (C-76 v1), `authStateChanges().first` no era confiable en este flujo. La solución definitiva es más simple: cerrar sesión al momento en que la app va a segundo plano (`paused`), de forma que al regresar `currentUser` siempre sea `null`. |
+| **Clase / Módulo** | `_UbiSafeAppState.didChangeAppLifecycleState()` → `main.dart`; `_SplashScreenState._checkSession()` + `initState()` → `splash_screen.dart` |
+| **Justificación** | `AppLifecycleState.paused` es el evento más confiable en Android cuando el usuario presiona Home o cambia de app. `currentUser` es una propiedad síncrona de Firebase Auth que refleja el estado actual sin depender de streams. Combinados, estos dos puntos garantizan que la sesión siempre esté limpia en un arranque fresco sin necesidad de timeouts ni fallbacks. |
+| **Problema que resolvía** | El usuario cerraba la app sin cerrar sesión, la volvía a abrir, llegaba a `/welcome` y al tocar "Iniciar sesión" era enviado al mapa sin validar correo ni contraseña. |
 
 ---
 
@@ -1000,6 +1000,32 @@
 | **Clase / Módulo** | `GPSService.activeUid` getter → `gps_service.dart`; `DrawerModule` botón logout → `drawer_module.dart`; `_UbiSafeAppState.didChangeAppLifecycleState` → `main.dart` |
 | **Justificación** | El handler `onDisconnect().remove()` en `GPSService._subscribe()` cubre cierres abruptos donde el proceso muere sin ejecutar ningún código Dart. Sin embargo, para cierres normales (logout desde UI, `detached` lifecycle) el código sí se ejecuta, y el orden correcto es eliminar el nodo RTDB primero (con el token válido) y revocar el token después. |
 | **Problema que resolvía** | El nodo del vendedor permanecía como activo en Firebase RTDB después de cerrar sesión o cerrar la app, causando que el comprador viera vendedores "fantasma" que ya no estaban disponibles. |
+
+---
+
+### C-79 · `VendorTracker` ignoraba silenciosamente nodos RTDB por casteo incorrecto de `Map` `2026-05-16`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-79 · VendorTracker casteo seguro `is Map` en lugar de `as Map<dynamic,dynamic>` |
+| **Qué se corrigió (técnico)** | (1) En `VendorTracker()`, la expresión `.map((event) => event.snapshot.value as Map<dynamic, dynamic>? ?? {})` se reemplazó por `.map((event) { final v = event.snapshot.value; return v is Map ? v : const <Object?, Object?>{}; })`. (2) La firma `_init(Stream<Map<dynamic, dynamic>> stream)` se cambió a `_init(Stream<Map> stream)`. (3) El body del listener deja de usar `e.key as String` y `e.value as Map<dynamic, dynamic>`: ahora extrae `final key = e.key?.toString()` y verifica `if (key == null \|\| value is! Map) continue` antes de llamar `VendorMarker.fromMap(key, value)`. (4) `VendorTracker.fromStream` actualizado a `Stream<Map>`. (5) `VendorMarker.fromMap` cambia su parámetro de `Map<dynamic, dynamic>` a `Map`. |
+| **Qué se corrigió (simple)** | El Firebase RTDB SDK a veces devuelve el nodo raíz como `Map<Object?,Object?>` en lugar de `Map<dynamic,dynamic>`. El casteo explícito `as Map<dynamic,dynamic>` lanzaba un `TypeError` en tiempo de ejecución; aunque el `try-catch` interior lo atrapaba, el efecto era que todos los nodos de vendedores se ignoraban silenciosamente. El comprador no veía marcadores aunque el vendedor estuviera activo en la base de datos. |
+| **Clase / Módulo** | `VendorTracker._init()` + `VendorTracker()` + `VendorTracker.fromStream()` → `vendor_tracker.dart`; `VendorMarker.fromMap()` → `vendor_marker.dart` |
+| **Justificación** | En Dart, `is Map` acepta cualquier instancia de `Map` independientemente de sus parámetros de tipo; el casteo con `as Map<T,U>` es estricto en runtime si el objeto real tiene tipos diferentes. El Firebase RTDB SDK usa internamente `LinkedHashMap<Object?,Object?>` cuando deserializa JSON anidado con claves secuenciales o mixtas, por lo que el casteo explícito era frágil. |
+| **Problema que resolvía** | El vendedor activaba el radar, RTDB lo mostraba con `activo: true`, pero el mapa del comprador nunca mostraba el marcador. |
+
+---
+
+### C-80 · `onDisconnect().remove()` cancelado por cada `.set()` en `GPSService` — vendor fantasma al perder conexión `2026-05-16`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-80 · Re-registro de `onDisconnect` después de cada `set()` exitoso en GPSService |
+| **Qué se corrigió (técnico)** | Se eliminó el `unawaited(_rtdbRefFactory(vendorUid).onDisconnect().remove()...)` que estaba al inicio de `GPSService._subscribe()`, antes de que el stream GPS emitiera. Ahora ese mismo handler se re-registra dentro del callback `.then(_)` que sigue a cada `ref.set({...})` exitoso, usando la referencia local `final ref = _rtdbRefFactory(vendorUid)` para evitar crear objetos redundantes. El `catchError` de debug se preserva. |
+| **Qué se corrigió (simple)** | El protocolo de Firebase RTDB cancela cualquier handler `onDisconnect` registrado previamente cuando se llama `.set()` sobre la misma referencia. El handler se registraba una sola vez al inicio, antes del primer GPS write; en cuanto llegaba la primera coordenada y se ejecutaba `.set()`, el handler quedaba cancelado para siempre. Si el vendedor perdía la conexión a internet después de eso, su nodo permanecía en RTDB con `activo: true` indefinidamente (vendor fantasma). Al re-registrar el handler después de cada `set()` exitoso, el handler siempre está activo justo después de la última escritura conocida. |
+| **Clase / Módulo** | `GPSService._subscribe()` → `gps_service.dart` (`ubisafe_app/lib/features/presence/services/gps_service.dart`) |
+| **Justificación** | Documentado en la documentación interna de Firebase RTDB: cualquier `.set()`, `.update()`, o `.remove()` en una referencia cancela los `onDisconnect` handlers registrados en esa referencia o en rutas padre. El patrón correcto es re-registrar el handler inmediatamente después de cada write. |
+| **Problema que resolvía** | Al perder conexión de golpe (sin código Dart ejecutándose), el nodo del vendedor quedaba activo en RTDB indefinidamente; el comprador veía un vendedor fantasma que no podía ser contactado. |
 
 ---
 

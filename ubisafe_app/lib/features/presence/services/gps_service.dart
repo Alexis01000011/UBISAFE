@@ -149,15 +149,6 @@ class GPSService {
   // Returns Future so the old subscription is fully cancelled before the new
   // one starts — prevents duplicate RTDB writes during retry (BUG-014).
   Future<void> _subscribe(String vendorUid) async {
-    // Register the disconnect handler BEFORE any write (safety invariant).
-    // catchError so a permission_denied or offline rejection is visible in
-    // debug logs instead of becoming a silently-lost unhandled Future.
-    unawaited(
-      _rtdbRefFactory(vendorUid).onDisconnect().remove().catchError((Object e) {
-        if (kDebugMode) debugPrint('GPSService: onDisconnect register failed — $e');
-      }),
-    );
-
     final oldSub = _posSub;
     _posSub = null;
     await oldSub?.cancel();
@@ -170,7 +161,8 @@ class GPSService {
       (pos) {
         _retryTimer?.cancel();
         _retryTimer = null;
-        _rtdbRefFactory(vendorUid).set({
+        final ref = _rtdbRefFactory(vendorUid);
+        ref.set({
           'lat': pos.latitude,
           'lng': pos.longitude,
           'timestamp': DateTime.now().millisecondsSinceEpoch,
@@ -178,6 +170,15 @@ class GPSService {
           'ride_enabled': _rideEnabled,
         }).then(
           (_) {
+            // Re-register onDisconnect AFTER each successful set().
+            // Firebase RTDB protocol cancels any pending onDisconnect handler
+            // when set() is called on the same reference, so the handler must
+            // be re-registered after every write to stay active.
+            unawaited(
+              ref.onDisconnect().remove().catchError((Object e) {
+                if (kDebugMode) debugPrint('GPSService: onDisconnect re-register failed — $e');
+              }),
+            );
             if (kDebugMode) debugPrint('GPSService: RTDB write OK ($vendorUid)');
           },
           onError: (Object e) {

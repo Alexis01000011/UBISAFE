@@ -66,13 +66,14 @@ class _UbiSafeAppState extends ConsumerState<UbiSafeApp>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.detached) {
-      // Stop RTDB transmission BEFORE signing out so the node is deleted while
-      // the auth token is still valid. signOut() alone revokes the token first,
-      // which causes the subsequent RTDB remove() to fail with 401.
-      // Both calls are best-effort (not awaited) because the Flutter engine may
-      // be torn down before the futures resolve; the onDisconnect().remove()
-      // handler registered in GPSService._subscribe() covers force-kills.
+    // Sign out (and clean up RTDB) whenever the app leaves the foreground.
+    // `paused` fires reliably on Android when the user presses Home or switches
+    // apps; `detached` is included as a belt-and-suspenders fallback for iOS.
+    // Both are best-effort: not awaited because the engine may tear down first.
+    // onDisconnect().remove() (re-registered after each GPS write) covers the
+    // case where the process is killed before these futures resolve.
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
       final gps = ref.read(gpsServiceInstanceProvider);
       final uid = gps.activeUid;
       if (uid != null) unawaited(gps.stopTransmission(uid));

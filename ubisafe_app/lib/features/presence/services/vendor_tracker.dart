@@ -22,14 +22,17 @@ class VendorTracker {
   VendorTracker({DatabaseReference? rtdbRef}) {
     final ref = rtdbRef ?? FirebaseDatabase.instance.ref('vendedores_activos');
     _init(ref.onValue
-        .map((event) => event.snapshot.value as Map<dynamic, dynamic>? ?? {})
+        .map((event) {
+          final v = event.snapshot.value;
+          return v is Map ? v : const <Object?, Object?>{};
+        })
         .asBroadcastStream());
   }
 
   /// Test-friendly constructor: inject a raw map stream directly.
   /// Converts to broadcast so tests can attach multiple listeners (e.g. the
   /// provider + the test assertion) without a StateError.
-  VendorTracker.fromStream(Stream<Map<dynamic, dynamic>> rawStream) {
+  VendorTracker.fromStream(Stream<Map> rawStream) {
     _init(rawStream.isBroadcast ? rawStream : rawStream.asBroadcastStream());
   }
 
@@ -42,16 +45,16 @@ class VendorTracker {
   /// Filtered stream of active vendors within [_kRadiusKm].
   Stream<List<VendorMarker>> get vendorStream => _controller.stream;
 
-  void _init(Stream<Map<dynamic, dynamic>> stream) {
+  void _init(Stream<Map> stream) {
     _sub = stream.listen(
       (raw) {
         final updated = <String, VendorMarker>{};
         for (final e in raw.entries) {
           try {
-            updated[e.key as String] = VendorMarker.fromMap(
-              e.key as String,
-              e.value as Map<dynamic, dynamic>,
-            );
+            final key = e.key?.toString();
+            final value = e.value;
+            if (key == null || value is! Map) continue;
+            updated[key] = VendorMarker.fromMap(key, value);
           } catch (err) {
             if (kDebugMode) {
               debugPrint('VendorTracker: entry ${e.key} malformed — $err');
