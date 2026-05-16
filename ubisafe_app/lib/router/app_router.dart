@@ -1,8 +1,9 @@
+import 'dart:async';
+
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-
-import '../features/identity/auth/auth_module.dart';
 import '../features/community/models/community_report.dart';
 import '../features/community/screens/active_reports_screen.dart';
 import '../features/community/screens/report_detail_screen.dart';
@@ -27,20 +28,22 @@ const _authPaths = {
 };
 
 final appRouterProvider = Provider<GoRouter>((ref) {
-  // Use a ChangeNotifier as refreshListenable instead of ref.watch so that
-  // authStateProvider changes trigger only a redirect re-evaluation, NOT a
-  // full GoRouter recreation. Recreating GoRouter resets the navigation stack
-  // to initialLocation ('/splash'), which disposed all route widget states
-  // mid-session (e.g., DrawerModule._rideEnabled reset to null on token refresh).
+  // _AuthChangeNotifier subscribes DIRECTLY to Firebase Auth's stream so that
+  // GoRouter's redirect fires in the same microtask as the auth state change,
+  // with no Riverpod scheduling in between. Using ref.listen caused a race
+  // where the redirect was evaluated before authStateProvider had processed
+  // the new user, leaving the login screen stuck on the loading spinner.
   final authNotifier = _AuthChangeNotifier();
-  ref.listen(authStateProvider, (_, __) => authNotifier.notify());
   ref.onDispose(authNotifier.dispose);
 
   return GoRouter(
     initialLocation: '/splash',
     refreshListenable: authNotifier,
     redirect: (context, state) {
-      final isLoggedIn = ref.read(authStateProvider).valueOrNull != null;
+      // FirebaseAuth.instance.currentUser is synchronous and always reflects
+      // the current user immediately after signIn/signOut, so it is safe to
+      // read here even before authStateProvider has processed the stream event.
+      final isLoggedIn = FirebaseAuth.instance.currentUser != null;
       final path = state.matchedLocation;
       final isAuthPath = _authPaths.contains(path);
 
@@ -111,5 +114,17 @@ final appRouterProvider = Provider<GoRouter>((ref) {
 });
 
 class _AuthChangeNotifier extends ChangeNotifier {
-  void notify() => notifyListeners();
+  _AuthChangeNotifier() {
+    _sub = FirebaseAuth.instance.authStateChanges().listen((_) {
+      notifyListeners();
+    });
+  }
+
+  late final StreamSubscription<User?> _sub;
+
+  @override
+  void dispose() {
+    _sub.cancel();
+    super.dispose();
+  }
 }

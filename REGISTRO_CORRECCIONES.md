@@ -1,9 +1,9 @@
 # Registro de Correcciones — UBISAFE
 
 **Proyecto:** Los Borbotones · TSP · ITESM  
-**Rama activa:** `feat/shared/f8-hardening-e2e-polish`  
+**Rama activa:** `Rama-Miguel`  
 **Dispositivo de prueba:** Físico Android (depuración inalámbrica ADB, NO emulador de computadora)  
-**Última actualización:** 2026-05-14 (C-48)
+**Última actualización:** 2026-05-16 (C-68)
 
 ---
 
@@ -786,29 +786,16 @@
 
 ---
 
-### C-65 · Toggle "Solicitar Raite" requería dos toques para funcionar; estado visual no coincidía con lo que veía el comprador `2026-05-15 18:30`
+### C-62 · FABs "Zona de riesgo" y "Foco de infección" bloqueaban la pantalla al primer toque `2026-05-15 17:00`
 
 | Campo | Detalle |
 |---|---|
-| **Nombre clave** | C-65 · `startTransmission` sobreescribía `ride_enabled` con valor stale del perfil |
-| **Qué se corrigió (técnico)** | `GPSService.startTransmission(uid, rideEnabled: ...)` siempre sobreescribía `_rideEnabled` con el valor leído de `userProfileProvider`. Como `userProfileProvider` es un `FutureProvider` que NO se invalida tras el toggle del cajón, su valor era stale (el anterior). Cuando el vendor desactivaba y reactivaba la visibilidad GPS, `startTransmission` restauraba el valor antiguo en `_rideEnabled`, lo que hacía que cada write de posición al RTDB escribiera el valor incorrecto. Solución: añadir flag `_rideEnabledSet` en `GPSService`. `startTransmission` solo usa el parámetro `rideEnabled` en la primera llamada de la sesión; después, si `updateRideEnabled` ya fue llamado (toggle explícito), el valor se preserva a través de ciclos de activación/desactivación. `updateRideEnabled` también setea `_rideEnabledSet = true`. |
-| **Qué se corrigió (simple)** | El toggle "Solicitar Raite" mostraba el estado correcto visualmente, pero para que el comprador viera la opción se necesitaban dos toques (apagar-prender o prender-apagar), porque al reactivar la visibilidad GPS se restauraba el valor viejo. Ahora un solo toque es suficiente y el estado del RTDB siempre coincide con el toggle |
-| **Clase / Método / Módulo** | `GPSService.startTransmission()` + `GPSService.updateRideEnabled()` → `gps_service.dart` |
-| **Justificación** | `userProfileProvider` es un `FutureProvider` que no se auto-refresca tras un PATCH a la API. Leer `profile?.rideEnabled` en `startTransmission` producía un read de dato stale después del primer toggle del cajón |
-| **Problema que resolvía** | Para activar el toggle había que apagarlo y prenderlo; para desactivarlo había que prenderlo y apagarlo. El estado visual del toggle no era consistente con lo que el comprador veía al seleccionar al vendor |
-
----
-
-### C-64 · Comprador no podía cancelar un raite pendiente; el raite quedaba huérfano en Firestore `2026-05-15 18:00`
-
-| Campo | Detalle |
-|---|---|
-| **Nombre clave** | C-64 · Transición `pending→cancelled` faltante para BUYER en rides |
-| **Qué se corrigió (técnico)** | `RIDE_VALID_TRANSITIONS` en `ride_schemas.py` solo tenía `("pending", "rejected"): "VENDOR"`. El buyer map enviaba `PATCH /rides/{id}/status` con `status=rejected, rejected_reason=buyer_cancelled` al cancelar un raite pendiente, pero el backend requería rol VENDOR para esa transición → 403. El error era tragado silenciosamente (`catch (_) {}`), dejando el raite en `pending` en Firestore indefinidamente. El vendor seguía viendo el diálogo de solicitud entrante sin saber que el comprador se fue. Solución: (1) añadir `cancelled` a `RideStatus` enum; (2) añadir `("pending", "cancelled"): "BUYER"` a `RIDE_VALID_TRANSITIONS`; (3) manejar notificación `send_ride_cancelled_by_buyer` al vendor en el router; (4) buyer map cambia de `updateStatus('rejected')` → `updateStatus('cancelled')`; (5) vendor map añade `_pendingDialogRideId` para cerrar el diálogo automáticamente al recibir el FCM de cancelación |
-| **Qué se corrigió (simple)** | Cuando el comprador presionaba "Cancelar" mientras esperaba respuesta del vendor, la UI volvía a idle pero el raite seguía vivo en la base de datos y el vendor seguía viendo la solicitud. Al aceptar, el vendor obtenía un error. Ahora el raite se cancela correctamente, el vendor recibe una notificación, y el diálogo del vendor se cierra automáticamente |
-| **Clase / Método / Módulo** | `RideStatus` + `RIDE_VALID_TRANSITIONS` → `ride_schemas.py`; `update_ride_status()` → `ride_router.py`; `_WaitingOverlay.onCancel` → `map_screen_buyer.dart`; `_showIncomingRideDialog()` + `rideEventProvider listener` → `map_screen_vendor.dart` |
-| **Justificación** | La máquina de estados del raite no contemplaba cancelación por comprador mientras el raite estaba pendiente. El `("accepted", "rejected")` existente solo cubre cancelación post-aceptación |
-| **Problema que resolvía** | Raites huérfanos en Firestore; vendor aceptaba solicitudes de compradores que ya se fueron; datos inconsistentes entre UI y backend |
+| **Nombre clave** | C-62 · Eliminar check de `gpsStatusProvider` en `_onFabPressed` / `_onCommunityFabPressed` |
+| **Qué se corrigió (técnico)** | `_onFabPressed` y `_onCommunityFabPressed` en ambas pantallas leían `ref.read(gpsStatusProvider).valueOrNull` y comparaban con `GpsStatus.ready`. Al primer press, `gpsStatusProvider` (un `StreamProvider`) aún no había emitido valor → `.valueOrNull == null` → `null != GpsStatus.ready` evaluaba `true` → se abría `showModalBottomSheet(GpsRequiredEmptyState)` sin contenido visible pero con su scrim oscureciendo la pantalla. La condición se reemplazó por `position == null` usando la posición ya disponible del `gpsServiceProvider` |
+| **Qué se corrigió (simple)** | Al presionar "Zona de riesgo" o "Foco de infección" por primera vez, la pantalla se oscurecía sin mostrar nada, dando apariencia de congelamiento. Al segundo intento ya funcionaba. Se eliminó la comprobación redundante de estado GPS que causaba la apertura de un modal vacío |
+| **Clase / Método / Módulo** | `_MapScreenVendorState._onFabPressed()`, `_MapScreenVendorState._onCommunityFabPressed()`, `_MapScreenBuyerState._onFabPressed()`, `_MapScreenBuyerState._onCommunityFabPressed()` → `map_screen_vendor.dart` + `map_screen_buyer.dart` |
+| **Justificación** | `gpsServiceProvider` ya garantiza que la pantalla del mapa solo se renderiza cuando `position != null`. El `gpsStatusProvider` es redundante una vez que el mapa está visible y su naturaleza asíncrona (stream) causaba un falso negativo en el primer frame |
+| **Problema que resolvía** | Al presionar cualquier FAB de reporte por primera vez, el fondo se oscurecía (scrim del `showModalBottomSheet`) pero no aparecía ningún diálogo. La pantalla parecía congelada hasta que el usuario tocaba el fondo para descartar el modal invisible |
 
 ---
 
@@ -825,15 +812,29 @@
 
 ---
 
-### C-67 · Reporte de zona de riesgo se guardaba aunque el punto estuviera fuera del radio de 4 km `2026-05-15 19:30`
+### C-64 · Comprador no podía cancelar un raite pendiente; el raite quedaba huérfano en Firestore `2026-05-15 18:00`
 
 | Campo | Detalle |
 |---|---|
-| **Qué se corrigió (técnico)** | `_onMapTap` en `MapScreenBuyer` no validaba la distancia entre el punto seleccionado y la posición actual del usuario antes de abrir `RiskFormBottomSheet`; el formulario se abría y la petición POST llegaba al backend independientemente de la distancia |
-| **Qué se corrigió (simple)** | Si el comprador toca un punto en el mapa que está a más de 4 km de su ubicación real, la app bloquea el reporte con un mensaje de error antes de abrir el formulario; nada se guarda en la base de datos |
-| **Clase / Módulo** | `_MapScreenBuyerState._onMapTap` → `map_screen_buyer.dart` |
-| **Justificación** | La validación de 4 km existía solo en el backend para filtrar zonas al mostrarlas en el mapa, pero no había ninguna guarda en el cliente que impidiera enviar el reporte; `Geolocator.distanceBetween()` calcula la distancia geodésica y corta el flujo en la UI |
-| **Problema que resolvía** | Al reportar fuera del radio de 4 km, la zona se guardaba en Firestore, se enviaba notificación FCM de éxito al reportante, pero no aparecía en el mapa porque el filtro de visualización sí aplicaba el radio |
+| **Nombre clave** | C-64 · Transición `pending→cancelled` faltante para BUYER en rides |
+| **Qué se corrigió (técnico)** | `RIDE_VALID_TRANSITIONS` en `ride_schemas.py` solo tenía `("pending", "rejected"): "VENDOR"`. El buyer map enviaba `PATCH /rides/{id}/status` con `status=rejected, rejected_reason=buyer_cancelled` al cancelar un raite pendiente, pero el backend requería rol VENDOR para esa transición → 403. El error era tragado silenciosamente (`catch (_) {}`), dejando el raite en `pending` en Firestore indefinidamente. El vendor seguía viendo el diálogo de solicitud entrante sin saber que el comprador se fue. Solución: (1) añadir `cancelled` a `RideStatus` enum; (2) añadir `("pending", "cancelled"): "BUYER"` a `RIDE_VALID_TRANSITIONS`; (3) manejar notificación `send_ride_cancelled_by_buyer` al vendor en el router; (4) buyer map cambia de `updateStatus('rejected')` → `updateStatus('cancelled')`; (5) vendor map añade `_pendingDialogRideId` para cerrar el diálogo automáticamente al recibir el FCM de cancelación |
+| **Qué se corrigió (simple)** | Cuando el comprador presionaba "Cancelar" mientras esperaba respuesta del vendor, la UI volvía a idle pero el raite seguía vivo en la base de datos y el vendor seguía viendo la solicitud. Al aceptar, el vendor obtenía un error. Ahora el raite se cancela correctamente, el vendor recibe una notificación, y el diálogo del vendor se cierra automáticamente |
+| **Clase / Método / Módulo** | `RideStatus` + `RIDE_VALID_TRANSITIONS` → `ride_schemas.py`; `update_ride_status()` → `ride_router.py`; `_WaitingOverlay.onCancel` → `map_screen_buyer.dart`; `_showIncomingRideDialog()` + `rideEventProvider listener` → `map_screen_vendor.dart` |
+| **Justificación** | La máquina de estados del raite no contemplaba cancelación por comprador mientras el raite estaba pendiente. El `("accepted", "rejected")` existente solo cubre cancelación post-aceptación |
+| **Problema que resolvía** | Raites huérfanos en Firestore; vendor aceptaba solicitudes de compradores que ya se fueron; datos inconsistentes entre UI y backend |
+
+---
+
+### C-65 · Toggle "Solicitar Raite" requería dos toques para funcionar; estado visual no coincidía con lo que veía el comprador `2026-05-15 18:30`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-65 · `startTransmission` sobreescribía `ride_enabled` con valor stale del perfil |
+| **Qué se corrigió (técnico)** | `GPSService.startTransmission(uid, rideEnabled: ...)` siempre sobreescribía `_rideEnabled` con el valor leído de `userProfileProvider`. Como `userProfileProvider` es un `FutureProvider` que NO se invalida tras el toggle del cajón, su valor era stale (el anterior). Cuando el vendor desactivaba y reactivaba la visibilidad GPS, `startTransmission` restauraba el valor antiguo en `_rideEnabled`, lo que hacía que cada write de posición al RTDB escribiera el valor incorrecto. Solución: añadir flag `_rideEnabledSet` en `GPSService`. `startTransmission` solo usa el parámetro `rideEnabled` en la primera llamada de la sesión; después, si `updateRideEnabled` ya fue llamado (toggle explícito), el valor se preserva a través de ciclos de activación/desactivación. `updateRideEnabled` también setea `_rideEnabledSet = true`. |
+| **Qué se corrigió (simple)** | El toggle "Solicitar Raite" mostraba el estado correcto visualmente, pero para que el comprador viera la opción se necesitaban dos toques (apagar-prender o prender-apagar), porque al reactivar la visibilidad GPS se restauraba el valor viejo. Ahora un solo toque es suficiente y el estado del RTDB siempre coincide con el toggle |
+| **Clase / Método / Módulo** | `GPSService.startTransmission()` + `GPSService.updateRideEnabled()` → `gps_service.dart` |
+| **Justificación** | `userProfileProvider` es un `FutureProvider` que no se auto-refresca tras un PATCH a la API. Leer `profile?.rideEnabled` en `startTransmission` producía un read de dato stale después del primer toggle del cajón |
+| **Problema que resolvía** | Para activar el toggle había que apagarlo y prenderlo; para desactivarlo había que prenderlo y apagarlo. El estado visual del toggle no era consistente con lo que el comprador veía al seleccionar al vendor |
 
 ---
 
@@ -849,16 +850,27 @@
 
 ---
 
-### C-62 · FABs "Zona de riesgo" y "Foco de infección" bloqueaban la pantalla al primer toque `2026-05-15 17:00`
+### C-67 · Reporte de zona de riesgo se guardaba aunque el punto estuviera fuera del radio de 4 km `2026-05-15 19:30`
 
 | Campo | Detalle |
 |---|---|
-| **Nombre clave** | C-62 · Eliminar check de `gpsStatusProvider` en `_onFabPressed` / `_onCommunityFabPressed` |
-| **Qué se corrigió (técnico)** | `_onFabPressed` y `_onCommunityFabPressed` en ambas pantallas leían `ref.read(gpsStatusProvider).valueOrNull` y comparaban con `GpsStatus.ready`. Al primer press, `gpsStatusProvider` (un `StreamProvider`) aún no había emitido valor → `.valueOrNull == null` → `null != GpsStatus.ready` evaluaba `true` → se abría `showModalBottomSheet(GpsRequiredEmptyState)` sin contenido visible pero con su scrim oscureciendo la pantalla. La condición se reemplazó por `position == null` usando la posición ya disponible del `gpsServiceProvider` |
-| **Qué se corrigió (simple)** | Al presionar "Zona de riesgo" o "Foco de infección" por primera vez, la pantalla se oscurecía sin mostrar nada, dando apariencia de congelamiento. Al segundo intento ya funcionaba. Se eliminó la comprobación redundante de estado GPS que causaba la apertura de un modal vacío |
-| **Clase / Método / Módulo** | `_MapScreenVendorState._onFabPressed()`, `_MapScreenVendorState._onCommunityFabPressed()`, `_MapScreenBuyerState._onFabPressed()`, `_MapScreenBuyerState._onCommunityFabPressed()` → `map_screen_vendor.dart` + `map_screen_buyer.dart` |
-| **Justificación** | `gpsServiceProvider` ya garantiza que la pantalla del mapa solo se renderiza cuando `position != null`. El `gpsStatusProvider` es redundante una vez que el mapa está visible y su naturaleza asíncrona (stream) causaba un falso negativo en el primer frame |
-| **Problema que resolvía** | Al presionar cualquier FAB de reporte por primera vez, el fondo se oscurecía (scrim del `showModalBottomSheet`) pero no aparecía ningún diálogo. La pantalla parecía congelada hasta que el usuario tocaba el fondo para descartar el modal invisible |
+| **Qué se corrigió (técnico)** | `_onMapTap` en `MapScreenBuyer` no validaba la distancia entre el punto seleccionado y la posición actual del usuario antes de abrir `RiskFormBottomSheet`; el formulario se abría y la petición POST llegaba al backend independientemente de la distancia |
+| **Qué se corrigió (simple)** | Si el comprador toca un punto en el mapa que está a más de 4 km de su ubicación real, la app bloquea el reporte con un mensaje de error antes de abrir el formulario; nada se guarda en la base de datos |
+| **Clase / Módulo** | `_MapScreenBuyerState._onMapTap` → `map_screen_buyer.dart` |
+| **Justificación** | La validación de 4 km existía solo en el backend para filtrar zonas al mostrarlas en el mapa, pero no había ninguna guarda en el cliente que impidiera enviar el reporte; `Geolocator.distanceBetween()` calcula la distancia geodésica y corta el flujo en la UI |
+| **Problema que resolvía** | Al reportar fuera del radio de 4 km, la zona se guardaba en Firestore, se enviaba notificación FCM de éxito al reportante, pero no aparecía en el mapa porque el filtro de visualización sí aplicaba el radio |
+
+---
+
+### C-68 · Login quedaba cargando indefinidamente tras el fix C-66; navegación post-autenticación no ocurría `2026-05-16 10:00`
+
+| Campo | Detalle |
+|---|---|
+| **Qué se corrigió (técnico)** | `ref.listen(authStateProvider, ...)` dentro de `Provider<GoRouter>` introducía una condición de carrera: GoRouter evaluaba el redirect antes de que Riverpod procesara el nuevo valor del stream, por lo que `ref.read(authStateProvider).valueOrNull` devolvía `null` y el redirect no redirigía a `/splash`. La pantalla de login quedaba con el spinner activo indefinidamente |
+| **Qué se corrigió (simple)** | Al iniciar sesión, la app ahora navega correctamente a la pantalla de mapa en lugar de quedarse bloqueada en el formulario de login |
+| **Clase / Módulo** | `appRouterProvider` + `_AuthChangeNotifier` → `app_router.dart` |
+| **Justificación** | `_AuthChangeNotifier` ahora se suscribe directamente a `FirebaseAuth.instance.authStateChanges()` sin pasar por Riverpod. `notifyListeners()` se llama en el mismo microtask que el evento de Firebase Auth, antes de que Riverpod lo procese. El redirect usa `FirebaseAuth.instance.currentUser` (propiedad sincrónica, siempre correcta post-signIn) en lugar de `ref.read(authStateProvider).valueOrNull` para evitar cualquier desfase entre el stream de Firebase y el estado de Riverpod |
+| **Problema que resolvía** | Primera sesión: spinner de carga infinito en la pantalla de login; segunda vez al intentar iniciar sesión: la app saltaba directo al mapa (porque el usuario ya estaba autenticado pero sin haberlo notado) |
 
 ---
 
