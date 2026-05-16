@@ -9,6 +9,7 @@ import '../../../../core/api/api_client.dart';
 import '../../../../core/design_system/colors.dart';
 import '../../../../core/design_system/typography.dart';
 import '../../../../core/providers/auth_providers.dart';
+import '../../../shared/notifications/notification_handler.dart';
 import '../auth_module.dart';
 
 /// Shows the brand splash and resolves the initial route based on session state.
@@ -59,6 +60,9 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
         options: Options(extra: {'_retryCount': 2}),
       );
       final profile = UserProfile.fromJson(response.data!);
+      // Re-sync FCM token: at this point auth is confirmed and backend is awake,
+      // so the token is guaranteed to reach Firestore even on cold starts.
+      unawaited(ref.read(notificationHandlerProvider).syncTokenIfNeeded());
       _go(profile.role == 'VENDOR' ? '/home/vendor' : '/home/buyer');
     } on DioException catch (e) {
       if (e.response?.statusCode == 404) {

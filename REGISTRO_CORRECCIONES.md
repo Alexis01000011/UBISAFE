@@ -3,7 +3,7 @@
 **Proyecto:** Los Borbotones · TSP · ITESM  
 **Rama activa:** `Rama-Miguel`  
 **Dispositivo de prueba:** Físico Android (depuración inalámbrica ADB, NO emulador de computadora)  
-**Última actualización:** 2026-05-16 (C-70)
+**Última actualización:** 2026-05-16 (C-72)
 
 ---
 
@@ -896,6 +896,32 @@
 | **Clase / Módulo** | `AuthModule.login()` → `auth_module.dart`; `_LoginScreenState._submit()` → `login_screen.dart` |
 | **Justificación** | `sync-profile` y `_syncDeviceToken` son best-effort; se cambiaron a `unawaited()` para que `login()` retorne en cuanto Firebase confirma el sign-in. Se añadió `if (mounted) context.go('/splash')` en `_submit()` como navegación primaria que no depende del stream: `SplashScreen._checkSession()` lee `FirebaseAuth.instance.currentUser` directamente (no el stream), y como `currentUser` sí se actualiza incluso con el Pigeon bug, navega al mapa correctamente. El redirect de GoRouter sigue actuando si `authStateChanges()` llega a emitir; si ya navegó, `mounted = false` y el `context.go` es no-op |
 | **Problema que resolvía** | Spinner en la pantalla de login que nunca desaparecía; al volver a la pantalla de bienvenida y presionar "Iniciar sesión" de nuevo la app iba directo al mapa (el usuario ya estaba autenticado sin saberlo). El bug fue introducido en C-66 (commit `c9c1128`) al reemplazar `ref.watch(authStateProvider)` — que recreaba el router y accidentalmente navegaba a `/splash` — con el patrón `refreshListenable` que depende del stream |
+
+---
+
+### C-71 · Validación de radio 4 km faltante en `_onMapTap` del vendedor `2026-05-16`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-71 · Validación 4 km en `_onMapTap` del vendedor |
+| **Qué se corrigió (técnico)** | Se añadió `import 'package:geolocator/geolocator.dart'` a `map_screen_vendor.dart`. Se expandió `_onMapTap` del vendedor para replicar exactamente la misma guardia de distancia que ya existía en el buyer: lee `gpsServiceProvider.valueOrNull`, calcula `Geolocator.distanceBetween` entre la posición actual y el punto tocado, y si `distanceMeters > 4000` muestra un `SnackBar` y retorna sin abrir `RiskFormBottomSheet` |
+| **Qué se corrigió (simple)** | El vendedor podía tocar cualquier punto del mapa y reportar una zona de riesgo aunque estuviera a más de 4 km de su ubicación real; ahora recibe el aviso "Solo puedes reportar zonas dentro de un radio de 4 km desde tu ubicación." y el formulario no se abre |
+| **Clase / Método / Módulo** | `_MapScreenVendorState._onMapTap()` → `map_screen_vendor.dart` (`ubisafe_app/lib/features/dispatching/screens/map_screen_vendor.dart`) |
+| **Justificación** | C-58 introdujo `_onMapTap` en ambas pantallas (buyer y vendor). C-67 añadió la validación de radio solo en el buyer; el vendor quedó sin el guard. La regresión pasó desapercibida porque C-67 fue registrado como corrección del buyer únicamente |
+| **Problema que resolvía** | El vendedor podía crear zonas de riesgo en coordenadas arbitrarias del mapa; los reportes se guardaban en Firestore y se enviaban notificaciones FCM aunque el punto estuviera fuera del radio permitido de 4 km |
+
+---
+
+### C-72 · Primera solicitud de parada no notificaba al vendedor — token FCM no registrado en cold start `2026-05-16`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-72 · Re-sync FCM token en SplashScreen tras sesión verificada |
+| **Qué se corrigió (técnico)** | (1) Se añadió el método público `syncTokenIfNeeded()` a `NotificationHandler`: llama a `_messaging.getToken()` con timeout de 5 s y luego a `_syncToken()` exactamente igual que `init()`. (2) En `SplashScreen._checkSession()`, inmediatamente después de un `GET /auth/me` exitoso y antes de `_go()`, se llama `unawaited(ref.read(notificationHandlerProvider).syncTokenIfNeeded())`. Se añadió el import de `notification_handler.dart` a `splash_screen.dart`. |
+| **Qué se corrigió (simple)** | En el primer arranque tras un despliegue, `NotificationHandler.init()` se ejecuta antes de que Firebase Auth haya restaurado la sesión persistida, por lo que el `PATCH /auth/device-token` falla con 401 y el token FCM del vendedor no queda registrado en Firestore. Cuando el comprador hace la primera solicitud de parada, el backend no encuentra el token del vendedor y descarta la notificación silenciosamente. Al reiniciar la app ya funciona porque Firebase Auth restaura la sesión más rápido en el segundo arranque. Ahora el token se re-sincroniza en el único punto donde se garantiza que el usuario está autenticado y el backend está activo. |
+| **Clase / Método / Módulo** | `NotificationHandler.syncTokenIfNeeded()` → `notification_handler.dart` (`ubisafe_app/lib/features/shared/notifications/notification_handler.dart`); `_SplashScreenState._checkSession()` → `splash_screen.dart` (`ubisafe_app/lib/features/identity/auth/screens/splash_screen.dart`) |
+| **Justificación** | `init()` corre en `main.dart` `initState` sin `await`. Firebase Auth puede tardar entre 200-800 ms en restaurar la sesión persistida desde disco; en ese margen el interceptor Dio no tiene Bearer token → 401 swallowed. Render además puede estar en cold start en ese instante → segundo fallo silencioso. El único punto determinístico donde (a) `currentUser != null` y (b) Render ya respondió es justo después de `GET /auth/me` exitoso en `_checkSession()`. El `unawaited()` evita bloquear la navegación; el resultado es best-effort idéntico al existente en `init()`. |
+| **Problema que resolvía** | En el primer uso tras un despliegue, al solicitar parada el vendedor no recibía ninguna notificación; en el segundo intento (app reiniciada) sí funcionaba. |
 
 ---
 

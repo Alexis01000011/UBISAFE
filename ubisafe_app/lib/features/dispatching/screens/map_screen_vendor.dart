@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
@@ -767,6 +768,29 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
   Future<void> _onMapTap(LatLng point) async {
     if (!_selectingRiskPoint) return;
     setState(() => _selectingRiskPoint = false);
+
+    final currentPosition = ref.read(gpsServiceProvider).valueOrNull;
+    if (currentPosition != null) {
+      final distanceMeters = Geolocator.distanceBetween(
+        currentPosition.latitude,
+        currentPosition.longitude,
+        point.latitude,
+        point.longitude,
+      );
+      if (distanceMeters > 4000) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Solo puedes reportar zonas dentro de un radio de 4 km desde tu ubicación.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+    }
+
     final submitted = await RiskFormBottomSheet.show(context, point);
     if (submitted && mounted) {
       ref.invalidate(activeRiskZonesProvider);

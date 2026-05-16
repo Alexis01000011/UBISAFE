@@ -104,6 +104,23 @@ class NotificationHandler {
     FirebaseMessaging.onMessageOpenedApp.listen(_handleMessage);
   }
 
+  /// Re-syncs the FCM token with the backend.
+  /// Call this after confirming the user is authenticated and the backend is
+  /// reachable (e.g. from SplashScreen after a successful GET /auth/me), so
+  /// that the token is always registered even when init() ran before Firebase
+  /// Auth restored the persisted session.
+  Future<void> syncTokenIfNeeded() async {
+    try {
+      final token =
+          await _messaging.getToken().timeout(const Duration(seconds: 5));
+      if (token != null) {
+        await _syncToken(token);
+      }
+    } catch (e) {
+      debugPrint('FCM syncTokenIfNeeded failed: $e');
+    }
+  }
+
   Future<void> _syncToken(String token) async {
     try {
       await _dio.patch<dynamic>(
