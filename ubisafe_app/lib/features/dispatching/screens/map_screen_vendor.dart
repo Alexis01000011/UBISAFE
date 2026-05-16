@@ -42,6 +42,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
   String _mapsApiKey = '';
   String? _activeStopId;
   String? _pendingDialogStopId; // stopId del diálogo accept/reject actualmente abierto
+  String? _pendingDialogRideId; // rideId del diálogo incoming ride actualmente abierto
   double? _buyerLat; // Coordenadas del comprador de la parada activa
   double? _buyerLng;
   String? _activeRideId;
@@ -149,6 +150,11 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
       if (event == null) return;
       if (_activeRideId != null && event.rideId != _activeRideId) return;
       if (event.type == RideEventType.cancelledByBuyer) {
+        // Dismiss incoming ride dialog if it's still open for this ride
+        if (_pendingDialogRideId == event.rideId && context.mounted) {
+          setState(() => _pendingDialogRideId = null);
+          Navigator.of(context).pop();
+        }
         _rideSub?.cancel();
         _rideSub = null;
         setState(() {
@@ -575,6 +581,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
     required String destinationLat,
     required String destinationLng,
   }) {
+    setState(() => _pendingDialogRideId = rideId);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(incomingRideProvider.notifier).state = null;
     });
@@ -587,11 +594,13 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
         destinationLat: double.tryParse(destinationLat) ?? 0,
         destinationLng: double.tryParse(destinationLng) ?? 0,
         onAccept: () async {
+          setState(() => _pendingDialogRideId = null);
           Navigator.of(context).pop();
           await _acceptRide(context, rideId,
               pickupLat: pickupLat, pickupLng: pickupLng);
         },
         onReject: () async {
+          setState(() => _pendingDialogRideId = null);
           Navigator.of(context).pop();
           try {
             await ref.read(rideRequestModuleProvider).updateStatus(

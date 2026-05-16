@@ -184,6 +184,11 @@ async def update_ride_status(
         asyncio.ensure_future(
             NotificationService.send_ride_completed(buyer_uid, vendor_uid, ride_id)
         )
+    elif body.status == "cancelled":
+        # Buyer cancelled while ride was still pending (vendor hadn't responded yet)
+        asyncio.ensure_future(
+            NotificationService.send_ride_cancelled_by_buyer(vendor_uid, ride_id)
+        )
 
     return updated
 

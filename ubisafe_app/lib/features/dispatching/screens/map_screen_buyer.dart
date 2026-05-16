@@ -272,8 +272,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
                     if (rideId != null) {
                       try {
                         await ref.read(rideRequestModuleProvider).updateStatus(
-                            rideId, 'rejected',
-                            rejectedReason: 'buyer_cancelled');
+                            rideId, 'cancelled');
                       } catch (_) {}
                     }
                   },

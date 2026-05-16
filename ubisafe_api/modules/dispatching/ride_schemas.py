@@ -16,6 +16,7 @@ class RideStatus(StrEnum):
     completed = "completed"
     rejected = "rejected"
     expired = "expired"
+    cancelled = "cancelled"
 
 
 class Ride(BaseModel):
@@ -51,8 +52,9 @@ class UpdateRideStatusBody(BaseModel):
 RIDE_VALID_TRANSITIONS: dict[tuple[str, str], str] = {
     ("pending", "accepted"): "VENDOR",
     ("pending", "rejected"): "VENDOR",  # manual reject or destination_too_far
-    ("pending", "expired"): "BUYER",  # client timer fired
+    ("pending", "expired"): "BUYER",    # client timer fired
+    ("pending", "cancelled"): "BUYER",  # buyer cancels before vendor responds
     ("accepted", "in_progress"): "VENDOR",  # buyer boarded
-    ("accepted", "rejected"): "BUYER",  # buyer cancelled before pickup
+    ("accepted", "rejected"): "BUYER",  # buyer cancelled after acceptance
     ("in_progress", "completed"): "VENDOR",
 }

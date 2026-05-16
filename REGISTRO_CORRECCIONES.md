@@ -786,6 +786,19 @@
 
 ---
 
+### C-64 · Comprador no podía cancelar un raite pendiente; el raite quedaba huérfano en Firestore `2026-05-15 18:00`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-64 · Transición `pending→cancelled` faltante para BUYER en rides |
+| **Qué se corrigió (técnico)** | `RIDE_VALID_TRANSITIONS` en `ride_schemas.py` solo tenía `("pending", "rejected"): "VENDOR"`. El buyer map enviaba `PATCH /rides/{id}/status` con `status=rejected, rejected_reason=buyer_cancelled` al cancelar un raite pendiente, pero el backend requería rol VENDOR para esa transición → 403. El error era tragado silenciosamente (`catch (_) {}`), dejando el raite en `pending` en Firestore indefinidamente. El vendor seguía viendo el diálogo de solicitud entrante sin saber que el comprador se fue. Solución: (1) añadir `cancelled` a `RideStatus` enum; (2) añadir `("pending", "cancelled"): "BUYER"` a `RIDE_VALID_TRANSITIONS`; (3) manejar notificación `send_ride_cancelled_by_buyer` al vendor en el router; (4) buyer map cambia de `updateStatus('rejected')` → `updateStatus('cancelled')`; (5) vendor map añade `_pendingDialogRideId` para cerrar el diálogo automáticamente al recibir el FCM de cancelación |
+| **Qué se corrigió (simple)** | Cuando el comprador presionaba "Cancelar" mientras esperaba respuesta del vendor, la UI volvía a idle pero el raite seguía vivo en la base de datos y el vendor seguía viendo la solicitud. Al aceptar, el vendor obtenía un error. Ahora el raite se cancela correctamente, el vendor recibe una notificación, y el diálogo del vendor se cierra automáticamente |
+| **Clase / Método / Módulo** | `RideStatus` + `RIDE_VALID_TRANSITIONS` → `ride_schemas.py`; `update_ride_status()` → `ride_router.py`; `_WaitingOverlay.onCancel` → `map_screen_buyer.dart`; `_showIncomingRideDialog()` + `rideEventProvider listener` → `map_screen_vendor.dart` |
+| **Justificación** | La máquina de estados del raite no contemplaba cancelación por comprador mientras el raite estaba pendiente. El `("accepted", "rejected")` existente solo cubre cancelación post-aceptación |
+| **Problema que resolvía** | Raites huérfanos en Firestore; vendor aceptaba solicitudes de compradores que ya se fueron; datos inconsistentes entre UI y backend |
+
+---
+
 ### C-63 · Toggle "Solicitar Raite" aparecía activo pero no funcionaba; se desactivaba al navegar `2026-05-15 17:30`
 
 | Campo | Detalle |
