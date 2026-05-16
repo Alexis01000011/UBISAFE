@@ -3,7 +3,7 @@
 **Proyecto:** Los Borbotones · TSP · ITESM  
 **Rama activa:** `Rama-Miguel`  
 **Dispositivo de prueba:** Físico Android (depuración inalámbrica ADB, NO emulador de computadora)  
-**Última actualización:** 2026-05-16 (C-68)
+**Última actualización:** 2026-05-16 (C-69)
 
 ---
 
@@ -871,6 +871,18 @@
 | **Clase / Módulo** | `appRouterProvider` + `_AuthChangeNotifier` → `app_router.dart` |
 | **Justificación** | `_AuthChangeNotifier` ahora se suscribe directamente a `FirebaseAuth.instance.authStateChanges()` sin pasar por Riverpod. `notifyListeners()` se llama en el mismo microtask que el evento de Firebase Auth, antes de que Riverpod lo procese. El redirect usa `FirebaseAuth.instance.currentUser` (propiedad sincrónica, siempre correcta post-signIn) en lugar de `ref.read(authStateProvider).valueOrNull` para evitar cualquier desfase entre el stream de Firebase y el estado de Riverpod |
 | **Problema que resolvía** | Primera sesión: spinner de carga infinito en la pantalla de login; segunda vez al intentar iniciar sesión: la app saltaba directo al mapa (porque el usuario ya estaba autenticado pero sin haberlo notado) |
+
+---
+
+### C-69 · Error 409 al solicitar raite mostraba excepción cruda; `vendor_ride_disabled` falso positivo para cuentas sin campo explícito `2026-05-16`
+
+| Campo | Detalle |
+|---|---|
+| **Qué se corrigió (técnico)** | (1) `_requestRide` en `MapScreenBuyer` capturaba `DioException` con status 409 pero mostraba `$e` crudo al usuario. (2) `create_ride` en `ride_router.py` usaba `if not vendor.ride_enabled` que evalúa `None` como falsy, rechazando cuentas de vendedor cuyo Firestore nunca tuvo el campo `ride_enabled` explícitamente escrito |
+| **Qué se corrigió (simple)** | Al solicitar un raite y el vendedor no puede atender, la app muestra un mensaje claro ("El vendedor está atendiendo otra solicitud" / "El vendedor tiene el raite desactivado") en lugar de un error técnico; además, cuentas de vendedor sin el campo `ride_enabled` ya no son rechazadas como si tuvieran raite desactivado |
+| **Clase / Módulo** | `_MapScreenBuyerState._requestRide` → `map_screen_buyer.dart`; `create_ride` → `ride_router.py` |
+| **Justificación** | `bool \| None = None` en el schema de usuario implica que cuentas creadas antes de agregar el campo tienen `ride_enabled = None`; `not None` es `True` en Python, generando un falso positivo. El catch block sin parsear el detail devolvía el objeto `DioException` completo que el usuario veía como un error críptico |
+| **Problema que resolvía** | Al tocar "Solicitar Raite" y confirmar destino, la app mostraba "Error al solicitar raite: DioException [bad response]..." en lugar de un mensaje legible; en algunos casos el error era un falso positivo por el campo ausente en Firestore |
 
 ---
 

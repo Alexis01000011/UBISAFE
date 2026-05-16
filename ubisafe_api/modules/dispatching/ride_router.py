@@ -52,7 +52,7 @@ async def create_ride(
     vendor = await FirestoreService.get_user(body.vendor_uid)
     if not vendor:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vendor not found")
-    if not vendor.ride_enabled:
+    if vendor.ride_enabled is False:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="vendor_ride_disabled",

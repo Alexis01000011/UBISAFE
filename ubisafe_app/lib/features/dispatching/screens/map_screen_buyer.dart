@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
@@ -408,9 +409,17 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _mapState = _BuyerMapState.idle);
-      messenger.showSnackBar(
-        SnackBar(content: Text('Error al solicitar raite: $e')),
-      );
+      String msg = 'Error al solicitar raite. Intenta de nuevo.';
+      if (e is DioException && e.response?.statusCode == 409) {
+        final detail =
+            (e.response?.data as Map<String, dynamic>?)?['detail'] as String?;
+        if (detail == 'vendor_ride_disabled') {
+          msg = 'El vendedor tiene el servicio de raite desactivado.';
+        } else if (detail == 'vendor_not_available') {
+          msg = 'El vendedor está atendiendo otra solicitud.';
+        }
+      }
+      messenger.showSnackBar(SnackBar(content: Text(msg)));
     }
   }
 
