@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
@@ -7,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/design_system/theme.dart';
+import 'features/presence/services/gps_service.dart';
 import 'features/shared/notifications/notification_handler.dart';
 import 'router/app_router.dart';
 
@@ -64,9 +67,15 @@ class _UbiSafeAppState extends ConsumerState<UbiSafeApp>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.detached) {
-      // Sign out when the app is closed so the next launch always starts
-      // from the welcome screen.  Best-effort: not awaited because the
-      // engine may be torn down before the future resolves.
+      // Stop RTDB transmission BEFORE signing out so the node is deleted while
+      // the auth token is still valid. signOut() alone revokes the token first,
+      // which causes the subsequent RTDB remove() to fail with 401.
+      // Both calls are best-effort (not awaited) because the Flutter engine may
+      // be torn down before the futures resolve; the onDisconnect().remove()
+      // handler registered in GPSService._subscribe() covers force-kills.
+      final gps = ref.read(gpsServiceInstanceProvider);
+      final uid = gps.activeUid;
+      if (uid != null) unawaited(gps.stopTransmission(uid));
       FirebaseAuth.instance.signOut();
     }
   }

@@ -3,7 +3,7 @@
 **Proyecto:** Los Borbotones · TSP · ITESM  
 **Rama activa:** `Rama-Miguel`  
 **Dispositivo de prueba:** Físico Android (depuración inalámbrica ADB, NO emulador de computadora)  
-**Última actualización:** 2026-05-16 (C-75)
+**Última actualización:** 2026-05-16 (C-78)
 
 ---
 
@@ -961,6 +961,45 @@
 | **Clase / Método / Módulo** | `_buildAvoidWaypoints()` → `map_screen_vendor.dart` (función top-level) |
 | **Justificación** | La fórmula de Haversine no es necesaria para desplazamientos pequeños (< 1 km), pero la distinción entre `metersPerDegLat` y `metersPerDegLng` sí es crítica: sin ella el waypoint puede quedar hasta ~60 m desplazado en dirección equivocada a latitudes mexicanas, lo que con frecuencia lo pone dentro de un edificio o zona sin calles y provoca `ZERO_RESULTS` en la Directions API |
 | **Problema que resolvía** | Waypoints de desvío generados en ubicaciones sin calles → Directions API devolvía `ZERO_RESULTS` → la polilínea de ruta no aparecía cuando había zonas HIGH activas cerca del trayecto |
+
+---
+
+### C-76 · `SplashScreen` timer de 500 ms causaba auto-login y skip de credenciales `2026-05-16`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-76 · Splash await authStateChanges en lugar de Timer |
+| **Qué se corrigió (técnico)** | Se eliminó `Timer? _timer` y el `Timer(const Duration(milliseconds: 500), _checkSession)` de `initState`. Se llama `_checkSession()` directamente en `initState`. Dentro de `_checkSession`, en lugar de `ref.read(authStateProvider).valueOrNull` (que devuelve null si el stream no emitió aún), se hace `await FirebaseAuth.instance.authStateChanges().first.timeout(const Duration(seconds: 5))` con `try/catch` que usa `FirebaseAuth.instance.currentUser` como fallback. Se añadió `import 'package:firebase_auth/firebase_auth.dart'` a `splash_screen.dart`. Se eliminó el campo `Timer? _timer` y su `cancel()` en `dispose()`. |
+| **Qué se corrigió (simple)** | Al abrir la app sin cerrar sesión, el timer de 500 ms a veces disparaba antes de que Firebase Auth restaurara la sesión desde disco. `_checkSession` veía user=null y enviaba al usuario a `/welcome`. Firebase Auth terminaba de restaurar la sesión segundos después; el `_AuthChangeNotifier` disparaba el redirect de GoRouter, pero `/welcome` está excluido del redirect. Cuando el usuario tocaba "Iniciar sesión", GoRouter detectaba `isLoggedIn=true` en `/login` y redirigía a `/splash`, que ya encontraba sesión válida y mandaba directamente al mapa, sin pedir correo ni contraseña. |
+| **Clase / Módulo** | `_SplashScreenState._checkSession()` + `initState()` + `dispose()` → `splash_screen.dart` |
+| **Justificación** | `authStateChanges().first` resuelve inmediatamente si ya existe una sesión persistida (Firebase Auth la lee desde disco en el mismo ciclo), o emite `null` una vez que Firebase confirma que no hay sesión. El timeout de 5 s cubre cold starts con red lenta. El fallback a `currentUser` cubre el bug de Pigeon (firebase_auth 4.16.0) donde el stream no emite aunque el usuario sí esté autenticado. |
+| **Problema que resolvía** | El usuario cerraba la app sin cerrar sesión, la volvía a abrir, llegaba a `/welcome` y al tocar "Iniciar sesión" era enviado al mapa sin que se validara correo ni contraseña. |
+
+---
+
+### C-77 · `VendorTracker` cancelaba la suscripción RTDB en errores transitorios + falta de posición inicial `2026-05-16`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-77 · cancelOnError:false en VendorTracker + getLastKnownPosition fallback |
+| **Qué se corrigió (técnico)** | (1) Se añadió `cancelOnError: false` al `stream.listen(...)` en `VendorTracker._init()`. (2) En `_vendorTrackerInstanceProvider`, cuando `ref.read(gpsServiceProvider).valueOrNull` es null (stream aún no emitió), se llama `Geolocator.getLastKnownPosition().then((pos) { if (pos != null) tracker.updateBuyerPosition(...); }).catchError((_) {})` como semilla inmediata. |
+| **Qué se corrigió (simple)** | (1) Si RTDB enviaba un error transitorio (permission_denied durante reconexión, caída de red breve), Dart cancelaba la suscripción automáticamente porque `cancelOnError` era `true` por defecto. A partir de ese momento el comprador nunca más recibía actualizaciones de vendedores, aunque RTDB los mostrara como activos. Con `cancelOnError: false`, la suscripción sobrevive al error y recibe el siguiente evento. (2) Si el GPS no había emitido la primera posición cuando RTDB disparaba el snapshot inicial con vendedores activos, `_emit()` filtraba con lat/lng=null y emitía lista vacía; los vendedores no aparecían hasta el próximo evento RTDB o GPS. El `getLastKnownPosition()` da la posición del último fix conocido del SO como semilla inmediata. |
+| **Clase / Módulo** | `VendorTracker._init()` → `vendor_tracker.dart`; `_vendorTrackerInstanceProvider` → `vendor_tracker.dart` |
+| **Justificación** | `stream.listen` en Dart cancela la suscripción en el primer error cuando `cancelOnError=true` (valor por defecto). Firebase RTDB SDK auto-reconecta la conexión WebSocket, pero si la suscripción Dart ya fue cancelada, los eventos de la reconexión no llegan al listener. `cancelOnError: false` mantiene el listener activo y permite que el SDK entregue el siguiente snapshot tras reconectar. |
+| **Problema que resolvía** | El vendedor activaba el radar y aparecía como activo en RTDB, pero el comprador no veía el marcador en el mapa; en particular si había habido un error RTDB previo en la sesión. |
+
+---
+
+### C-78 · RTDB no se limpiaba al cerrar sesión ni al cerrar la app `2026-05-16`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-78 · stopTransmission antes de signOut en drawer y lifecycle |
+| **Qué se corrigió (técnico)** | (1) Se añadió `String? get activeUid => _activeUid` a `GPSService`. (2) En `DrawerModule`, el `onPressed` del botón "Cerrar Sesión" (en el drawer normal y en `_buildFallbackDrawer`) ahora llama `await ref.read(gpsServiceInstanceProvider).stopTransmission(uid)` antes de `signOut()`, solo si `gps.activeUid != null`. (3) En `main.dart` se añadieron `import 'dart:async'` e `import 'features/presence/services/gps_service.dart'`. En `didChangeAppLifecycleState`, si `state == AppLifecycleState.detached`, se llama `unawaited(gps.stopTransmission(uid))` antes de `FirebaseAuth.instance.signOut()`, solo si `gps.activeUid != null`. |
+| **Qué se corrigió (simple)** | Al cerrar sesión, `signOut()` revocaba el token de Firebase Auth antes de que el nodo RTDB se eliminara. Las llamadas de `stopTransmission` posteriores (o el handler `onDisconnect().remove()`) fallaban con 401 porque el token ya no era válido. El nodo quedaba con `activo: true` en RTDB aunque el vendedor hubiera cerrado sesión. Al cerrar la app abruptamente (`detached`), igual: `signOut()` se ejecutaba antes de intentar limpiar RTDB. Ahora en ambos flujos se elimina el nodo primero y se revoca el token después. |
+| **Clase / Módulo** | `GPSService.activeUid` getter → `gps_service.dart`; `DrawerModule` botón logout → `drawer_module.dart`; `_UbiSafeAppState.didChangeAppLifecycleState` → `main.dart` |
+| **Justificación** | El handler `onDisconnect().remove()` en `GPSService._subscribe()` cubre cierres abruptos donde el proceso muere sin ejecutar ningún código Dart. Sin embargo, para cierres normales (logout desde UI, `detached` lifecycle) el código sí se ejecuta, y el orden correcto es eliminar el nodo RTDB primero (con el token válido) y revocar el token después. |
+| **Problema que resolvía** | El nodo del vendedor permanecía como activo en Firebase RTDB después de cerrar sesión o cerrar la app, causando que el comprador viera vendedores "fantasma" que ya no estaban disponibles. |
 
 ---
 

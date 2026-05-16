@@ -173,6 +173,12 @@ class _DrawerModuleState extends ConsumerState<DrawerModule> {
                   ),
                   onPressed: () async {
                     Navigator.pop(context);
+                    // Stop RTDB transmission before revoking the auth token.
+                    // Without this, the node remains active after signOut because
+                    // the delete request fails with 401 (token already invalid).
+                    final gps = ref.read(gpsServiceInstanceProvider);
+                    final uid = gps.activeUid;
+                    if (uid != null) await gps.stopTransmission(uid);
                     await ref.read(authModuleProvider).signOut();
                   },
                 ),

@@ -68,6 +68,11 @@ class VendorTracker {
         if (kDebugMode) debugPrint('VendorTracker RTDB error: $err');
         if (!_controller.isClosed) _controller.add([]);
       },
+      // cancelOnError: false so a transient RTDB error (network blip,
+      // permission_denied during reconnect) does not permanently kill the
+      // subscription. Firebase SDK auto-reconnects and the next onValue event
+      // will reach _init's listener without needing to recreate VendorTracker.
+      cancelOnError: false,
     );
   }
 
@@ -134,6 +139,13 @@ final _vendorTrackerInstanceProvider = Provider<VendorTracker>((ref) {
   final initialPos = ref.read(gpsServiceProvider).valueOrNull;
   if (initialPos != null) {
     tracker.updateBuyerPosition(initialPos.latitude, initialPos.longitude);
+  } else {
+    // Stream hasn't emitted yet (GPS permission still being resolved or first
+    // fix not received). Try the last cached OS position as an immediate seed
+    // so RTDB events that arrive before the first GPS fix are not filtered out.
+    Geolocator.getLastKnownPosition().then((pos) {
+      if (pos != null) tracker.updateBuyerPosition(pos.latitude, pos.longitude);
+    }).catchError((_) {});
   }
 
   // Keep in sync with subsequent GPS position changes.

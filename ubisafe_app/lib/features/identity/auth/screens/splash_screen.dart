@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -26,26 +27,38 @@ class SplashScreen extends ConsumerStatefulWidget {
 }
 
 class _SplashScreenState extends ConsumerState<SplashScreen> {
-  Timer? _timer;
   bool _navigated = false;
 
   @override
   void initState() {
     super.initState();
-    // Give Firebase Auth time to restore the persisted session.
-    _timer = Timer(const Duration(milliseconds: 500), _checkSession);
+    _checkSession();
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
     super.dispose();
   }
 
   Future<void> _checkSession() async {
     if (!mounted || _navigated) return;
 
-    final user = ref.read(authStateProvider).valueOrNull;
+    // Wait for Firebase Auth to resolve the persisted session.
+    // authStateChanges() emits the current user immediately when already signed
+    // in, or null once Firebase confirms there is no session — whichever comes
+    // first. A 5-second timeout guards against indefinite hangs on cold starts
+    // with no network; the fallback reads currentUser (may be null).
+    User? user;
+    try {
+      user = await FirebaseAuth.instance
+          .authStateChanges()
+          .first
+          .timeout(const Duration(seconds: 5));
+    } catch (_) {
+      user = FirebaseAuth.instance.currentUser;
+    }
+
+    if (!mounted || _navigated) return;
     if (user == null) {
       _go('/welcome');
       return;

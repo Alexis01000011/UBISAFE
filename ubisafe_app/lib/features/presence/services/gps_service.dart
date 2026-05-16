@@ -202,6 +202,9 @@ class GPSService {
     });
   }
 
+  /// Returns the vendor UID currently transmitting, or null if inactive.
+  String? get activeUid => _activeUid;
+
   /// Updates the `ride_enabled` flag in memory and on the active RTDB node.
   void updateRideEnabled(String vendorUid, bool value) {
     _rideEnabled = value;
