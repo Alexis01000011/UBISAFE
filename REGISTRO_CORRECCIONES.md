@@ -825,6 +825,18 @@
 
 ---
 
+### C-67 · Reporte de zona de riesgo se guardaba aunque el punto estuviera fuera del radio de 4 km `2026-05-15 19:30`
+
+| Campo | Detalle |
+|---|---|
+| **Qué se corrigió (técnico)** | `_onMapTap` en `MapScreenBuyer` no validaba la distancia entre el punto seleccionado y la posición actual del usuario antes de abrir `RiskFormBottomSheet`; el formulario se abría y la petición POST llegaba al backend independientemente de la distancia |
+| **Qué se corrigió (simple)** | Si el comprador toca un punto en el mapa que está a más de 4 km de su ubicación real, la app bloquea el reporte con un mensaje de error antes de abrir el formulario; nada se guarda en la base de datos |
+| **Clase / Módulo** | `_MapScreenBuyerState._onMapTap` → `map_screen_buyer.dart` |
+| **Justificación** | La validación de 4 km existía solo en el backend para filtrar zonas al mostrarlas en el mapa, pero no había ninguna guarda en el cliente que impidiera enviar el reporte; `Geolocator.distanceBetween()` calcula la distancia geodésica y corta el flujo en la UI |
+| **Problema que resolvía** | Al reportar fuera del radio de 4 km, la zona se guardaba en Firestore, se enviaba notificación FCM de éxito al reportante, pero no aparecía en el mapa porque el filtro de visualización sí aplicaba el radio |
+
+---
+
 ### C-66 · Toggle "Solicitar Raite" se reiniciaba a ON cada vez que el vendedor volvía al mapa `2026-05-15 19:00`
 
 | Campo | Detalle |
