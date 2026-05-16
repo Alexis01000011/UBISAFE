@@ -760,6 +760,32 @@
 
 ---
 
+### C-60 · 500 en GET /risk-zones — DatetimeWithNanoseconds no serializable como str en RiskZone `2026-05-15 15:45`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-60 · _doc_to_risk_zone helper — conversión de timestamps |
+| **Qué se corrigió (técnico)** | Se añadió el método de clase `_doc_to_risk_zone(doc)` a `FirestoreService`, aplicando el mismo patrón que `_doc_to_stop_request` de C-45: convierte los campos `created_at`, `expires_at` y `expired_at` de `DatetimeWithNanoseconds` a string ISO antes de construir el modelo Pydantic `RiskZone`. Se reemplazaron los cuatro sitios que usaban `RiskZone(id=doc.id, **raw)` directamente: `get_risk_zone`, `get_active_risk_zones` (x2), `create_risk_zone` y `expire_risk_zone` |
+| **Qué se corrigió (simple)** | Al leer una zona de riesgo de Firestore, el campo `created_at` (guardado con `SERVER_TIMESTAMP`) llega como objeto `DatetimeWithNanoseconds`. Pydantic v2 espera un `str` y lanzaba `ValidationError`, provocando 500 en todos los endpoints de `/risk-zones` |
+| **Clase / Método / Módulo** | `FirestoreService._doc_to_risk_zone()` + `get_risk_zone` + `get_active_risk_zones` + `create_risk_zone` + `expire_risk_zone` → `firestore_service.py` |
+| **Justificación** | Mismo root cause que C-45 (stops) y el mismo patrón de corrección. `SERVER_TIMESTAMP` es un centinela que Firestore reemplaza con su timestamp de servidor; al leer de vuelta el SDK de Python devuelve `DatetimeWithNanoseconds`, no `str`. El helper normaliza todos los campos de timestamp antes de pasarlos a Pydantic |
+| **Problema que resolvía** | `GET /risk-zones` → 500 con `pydantic_core.ValidationError: created_at — Input should be a valid string`. Los reportes se creaban en Firestore (el POST funcionaba) pero no se podían listar, lo que hacía que el mapa no mostrara ninguna zona y que el sistema de duplicados detectara zonas invisibles |
+
+---
+
+### C-61 · Zona de riesgo reportada no aparecía en el mapa hasta recibir FCM `2026-05-15 16:10`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-61 · Invalidar activeRiskZonesProvider inmediatamente tras reporte exitoso |
+| **Qué se corrigió (técnico)** | `_onMapTap` en `map_screen_vendor.dart` y `map_screen_buyer.dart` cambió de `void` a `Future<void>`. Ahora awaita `RiskFormBottomSheet.show(context, point)` y si el resultado es `true` (reporte exitoso) llama `ref.invalidate(activeRiskZonesProvider)` antes de que llegue la notificación FCM |
+| **Qué se corrigió (simple)** | Al crear una zona de riesgo, el círculo no aparecía en el mapa inmediatamente. El mapa solo se actualizaba cuando llegaba la notificación FCM del backend (demora de varios segundos) o, si la notificación no llegaba, nunca. Ahora el círculo aparece en cuanto se cierra el formulario |
+| **Clase / Método / Módulo** | `_MapScreenVendorState._onMapTap()` + `_MapScreenBuyerState._onMapTap()` → `map_screen_vendor.dart` + `map_screen_buyer.dart` |
+| **Justificación** | `RiskFormBottomSheet.show()` devuelve `Future<bool>` pero no se awaiteaba. La notificación FCM llega después del redeploy del backend (Render cold-start o latencia de red), por lo que confiar solo en FCM para el refresco es insuficiente para dar feedback visual inmediato al reportador |
+| **Problema que resolvía** | El usuario reportaba una zona de riesgo, el formulario confirmaba éxito, pero el círculo en el mapa no aparecía hasta segundos después (o no aparecía si FCM fallaba) |
+
+---
+
 ## Notas de contexto para diagnóstico
 
 - **Dispositivo de prueba:** Físico Android (MIUI/Xiaomi recomendado para reproducibilidad), depuración inalámbrica ADB. **No se usa emulador de Android Studio.**

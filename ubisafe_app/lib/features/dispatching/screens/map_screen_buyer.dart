@@ -426,10 +426,13 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
     setState(() => _selectingRiskPoint = true);
   }
 
-  void _onMapTap(LatLng point) {
+  Future<void> _onMapTap(LatLng point) async {
     if (!_selectingRiskPoint) return;
     setState(() => _selectingRiskPoint = false);
-    RiskFormBottomSheet.show(context, point);
+    final submitted = await RiskFormBottomSheet.show(context, point);
+    if (submitted && mounted) {
+      ref.invalidate(activeRiskZonesProvider);
+    }
   }
 
   void _onCommunityFabPressed(dynamic position) {

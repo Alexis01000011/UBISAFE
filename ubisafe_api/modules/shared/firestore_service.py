@@ -149,12 +149,24 @@ class FirestoreService:
 
     # ------------------------------------------------------------ risk zones
     @classmethod
+    def _doc_to_risk_zone(cls, doc: Any) -> RiskZone:
+        raw = doc.to_dict() or {}
+        for field in ("created_at", "expires_at", "expired_at"):
+            val = raw.get(field)
+            if val is None:
+                continue
+            if hasattr(val, "isoformat"):
+                raw[field] = val.isoformat()
+            elif hasattr(val, "timestamp"):
+                raw[field] = datetime.fromtimestamp(val.timestamp(), tz=UTC).isoformat()
+        return RiskZone(id=doc.id, **raw)
+
+    @classmethod
     async def get_risk_zone(cls, zone_id: str) -> RiskZone | None:
         doc = cls._db().collection("risk_zones").document(zone_id).get()
         if not doc.exists:
             return None
-        raw = doc.to_dict() or {}
-        return RiskZone(id=doc.id, **raw)
+        return cls._doc_to_risk_zone(doc)
 
     @classmethod
     async def get_active_risk_zones(
@@ -170,13 +182,13 @@ class FirestoreService:
         for d in docs:
             raw = d.to_dict()
             if lat is None or lng is None or radius_km is None:
-                results.append(RiskZone(id=d.id, **raw))
+                results.append(cls._doc_to_risk_zone(d))
                 continue
             loc = raw.get("location", {})
             doc_lat = loc.get("lat", 0.0)
             doc_lng = loc.get("lng", 0.0)
             if _haversine_km(lat, lng, doc_lat, doc_lng) <= radius_km:
-                results.append(RiskZone(id=d.id, **raw))
+                results.append(cls._doc_to_risk_zone(d))
         return results
 
     @classmethod
@@ -204,8 +216,7 @@ class FirestoreService:
         data["expired_at"] = None
         _, ref = cls._db().collection("risk_zones").add(data)
         doc = ref.get()
-        raw = doc.to_dict() or {}
-        return RiskZone(id=doc.id, **raw)
+        return cls._doc_to_risk_zone(doc)
 
     @classmethod
     async def expire_risk_zone(cls, zone_id: str) -> RiskZone | None:
@@ -220,8 +231,7 @@ class FirestoreService:
             }
         )
         doc = ref.get()
-        raw = doc.to_dict() or {}
-        return RiskZone(id=doc.id, **raw)
+        return cls._doc_to_risk_zone(doc)
 
     @classmethod
     async def query_active_risk_zones_bbox(
