@@ -9,6 +9,7 @@ import 'package:go_router/go_router.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../core/design_system/colors.dart';
+import '../../../core/providers/auth_providers.dart';
 import '../../identity/auth/auth_module.dart';
 import '../../community/models/community_report.dart';
 import '../../community/screens/community_form_bottom_sheet.dart';
@@ -366,7 +367,8 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
         ),
       );
       if (confirmed != true) return;
-      ref.read(gpsServiceInstanceProvider).startTransmission(uid);
+      final rideEnabled = ref.read(userProfileProvider).valueOrNull?.rideEnabled ?? false;
+      ref.read(gpsServiceInstanceProvider).startTransmission(uid, rideEnabled: rideEnabled);
       if (mounted) setState(() => _isVisible = true);
     }
   }

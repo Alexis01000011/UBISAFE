@@ -786,6 +786,19 @@
 
 ---
 
+### C-63 · Toggle "Solicitar Raite" aparecía activo pero no funcionaba; se desactivaba al navegar `2026-05-15 17:30`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-63 · ride_enabled borrado por cada write de posición GPS |
+| **Qué se corrigió (técnico)** | `GPSService._subscribe` usaba `_rtdbRefFactory(vendorUid).set({lat, lng, timestamp, activo})`. Cada actualización de posición (cada segundo) sobreescribía el nodo RTDB completo con `.set()`, borrando el campo `ride_enabled` que `updateRideEnabled()` había escrito con `.update()`. Además, `startTransmission()` no incluía `ride_enabled` en la escritura inicial, por lo que `VendorMarker.rideEnabled` siempre leía `false` (default) al activar visibilidad aunque el perfil tuviera `ride_enabled: true`. Solución: (1) agregar campo `_rideEnabled` al `GPSService`; (2) incluirlo en cada `.set()`; (3) `updateRideEnabled` actualiza `_rideEnabled` antes de llamar a RTDB; (4) `startTransmission` acepta parámetro `rideEnabled` y lo inicializa; (5) `_onToggle` en vendor map lee `userProfileProvider` y pasa el valor a `startTransmission` |
+| **Qué se corrigió (simple)** | El toggle "Solicitar Raite" en el cajón lateral aparecía prendido (por el perfil de Firestore) pero los compradores no veían la opción porque el RTDB no tenía el campo. Al activar/desactivar el toggle funcionaba, pero en la siguiente actualización de GPS el campo se borraba solo. Ahora el valor de `ride_enabled` se preserva en cada escritura de posición y se inicializa correctamente al activar visibilidad |
+| **Clase / Método / Módulo** | `GPSService._subscribe()` + `GPSService.startTransmission()` + `GPSService.updateRideEnabled()` → `gps_service.dart`; `_MapScreenVendorState._onToggle()` → `map_screen_vendor.dart` |
+| **Justificación** | `.set()` reemplaza el nodo completo en RTDB; `.update()` hace patch parcial. Usar `.set()` para posición y `.update()` separado para `ride_enabled` crea una race condition donde el `.set()` siempre gana y borra el campo |
+| **Problema que resolvía** | Toggle mostraba ON pero compradores no veían "Solicitar Raite". Después de apagar/prender el toggle funcionaba, pero al siguiente tick de GPS (≈1 s) se volvía a perder |
+
+---
+
 ### C-62 · FABs "Zona de riesgo" y "Foco de infección" bloqueaban la pantalla al primer toque `2026-05-15 17:00`
 
 | Campo | Detalle |

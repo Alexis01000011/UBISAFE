@@ -101,6 +101,7 @@ class GPSService {
   StreamSubscription<Position>? _posSub;
   Timer? _retryTimer;
   String? _activeUid;
+  bool _rideEnabled = false;
 
   /// Broadcasts [GPSServiceState] transitions.
   Stream<GPSServiceState> get stateStream => _stateCtrl.stream;
@@ -109,8 +110,9 @@ class GPSService {
   ///
   /// Registers onDisconnect().remove() before the first write so that a
   /// crash or network drop automatically removes the stale RTDB node.
-  void startTransmission(String vendorUid) {
+  void startTransmission(String vendorUid, {bool rideEnabled = false}) {
     _activeUid = vendorUid;
+    _rideEnabled = rideEnabled;
     _stateCtrl.add(GPSServiceState.active);
     _subscribe(vendorUid);
   }
@@ -164,6 +166,7 @@ class GPSService {
           'lng': pos.longitude,
           'timestamp': DateTime.now().millisecondsSinceEpoch,
           'activo': true,
+          'ride_enabled': _rideEnabled,
         }).then(
           (_) {
             if (kDebugMode) debugPrint('GPSService: RTDB write OK ($vendorUid)');
@@ -190,8 +193,9 @@ class GPSService {
     });
   }
 
-  /// Updates the `ride_enabled` flag on the RTDB node if transmission is active.
+  /// Updates the `ride_enabled` flag in memory and on the active RTDB node.
   void updateRideEnabled(String vendorUid, bool value) {
+    _rideEnabled = value;
     if (_activeUid != vendorUid) return;
     _rtdbRefFactory(vendorUid).update({'ride_enabled': value});
   }
