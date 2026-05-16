@@ -786,6 +786,19 @@
 
 ---
 
+### C-65 · Toggle "Solicitar Raite" requería dos toques para funcionar; estado visual no coincidía con lo que veía el comprador `2026-05-15 18:30`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-65 · `startTransmission` sobreescribía `ride_enabled` con valor stale del perfil |
+| **Qué se corrigió (técnico)** | `GPSService.startTransmission(uid, rideEnabled: ...)` siempre sobreescribía `_rideEnabled` con el valor leído de `userProfileProvider`. Como `userProfileProvider` es un `FutureProvider` que NO se invalida tras el toggle del cajón, su valor era stale (el anterior). Cuando el vendor desactivaba y reactivaba la visibilidad GPS, `startTransmission` restauraba el valor antiguo en `_rideEnabled`, lo que hacía que cada write de posición al RTDB escribiera el valor incorrecto. Solución: añadir flag `_rideEnabledSet` en `GPSService`. `startTransmission` solo usa el parámetro `rideEnabled` en la primera llamada de la sesión; después, si `updateRideEnabled` ya fue llamado (toggle explícito), el valor se preserva a través de ciclos de activación/desactivación. `updateRideEnabled` también setea `_rideEnabledSet = true`. |
+| **Qué se corrigió (simple)** | El toggle "Solicitar Raite" mostraba el estado correcto visualmente, pero para que el comprador viera la opción se necesitaban dos toques (apagar-prender o prender-apagar), porque al reactivar la visibilidad GPS se restauraba el valor viejo. Ahora un solo toque es suficiente y el estado del RTDB siempre coincide con el toggle |
+| **Clase / Método / Módulo** | `GPSService.startTransmission()` + `GPSService.updateRideEnabled()` → `gps_service.dart` |
+| **Justificación** | `userProfileProvider` es un `FutureProvider` que no se auto-refresca tras un PATCH a la API. Leer `profile?.rideEnabled` en `startTransmission` producía un read de dato stale después del primer toggle del cajón |
+| **Problema que resolvía** | Para activar el toggle había que apagarlo y prenderlo; para desactivarlo había que prenderlo y apagarlo. El estado visual del toggle no era consistente con lo que el comprador veía al seleccionar al vendor |
+
+---
+
 ### C-64 · Comprador no podía cancelar un raite pendiente; el raite quedaba huérfano en Firestore `2026-05-15 18:00`
 
 | Campo | Detalle |

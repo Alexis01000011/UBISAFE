@@ -102,17 +102,26 @@ class GPSService {
   Timer? _retryTimer;
   String? _activeUid;
   bool _rideEnabled = false;
+  // True once _rideEnabled has been set from profile or by an explicit toggle.
+  // Prevents startTransmission from overwriting a user-toggled value with a
+  // stale profile read when the vendor deactivates and reactivates visibility.
+  bool _rideEnabledSet = false;
 
   /// Broadcasts [GPSServiceState] transitions.
   Stream<GPSServiceState> get stateStream => _stateCtrl.stream;
 
   /// Activates GPS stream and RTDB writes for [vendorUid].
   ///
-  /// Registers onDisconnect().remove() before the first write so that a
-  /// crash or network drop automatically removes the stale RTDB node.
+  /// [rideEnabled] is used as the initial value only on the first call per app
+  /// session (when [_rideEnabledSet] is false). After any explicit toggle via
+  /// [updateRideEnabled], the stored value is preserved across
+  /// deactivation/reactivation cycles.
   void startTransmission(String vendorUid, {bool rideEnabled = false}) {
     _activeUid = vendorUid;
-    _rideEnabled = rideEnabled;
+    if (!_rideEnabledSet) {
+      _rideEnabled = rideEnabled;
+      _rideEnabledSet = true;
+    }
     _stateCtrl.add(GPSServiceState.active);
     _subscribe(vendorUid);
   }
@@ -196,6 +205,7 @@ class GPSService {
   /// Updates the `ride_enabled` flag in memory and on the active RTDB node.
   void updateRideEnabled(String vendorUid, bool value) {
     _rideEnabled = value;
+    _rideEnabledSet = true;
     if (_activeUid != vendorUid) return;
     _rtdbRefFactory(vendorUid).update({'ride_enabled': value});
   }
