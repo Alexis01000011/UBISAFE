@@ -402,6 +402,19 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
         buyerLat: double.tryParse(buyerLat) ?? 0,
         buyerLng: double.tryParse(buyerLng) ?? 0,
         onAccept: () async {
+          // B11: verificar GPS ANTES de cerrar el diálogo para que el
+          // vendedor pueda reintentar si el GPS no está disponible aún.
+          final position = ref.read(gpsServiceProvider).valueOrNull;
+          if (position == null) {
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('GPS no disponible. Activa el GPS para aceptar.'),
+                ),
+              );
+            }
+            return; // El diálogo permanece abierto para reintentar
+          }
           setState(() => _pendingDialogStopId = null);
           Navigator.of(context).pop();
           await _acceptStop(context, stopId, buyerLat, buyerLng);

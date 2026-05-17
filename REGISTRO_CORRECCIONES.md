@@ -3,7 +3,7 @@
 **Proyecto:** Los Borbotones · TSP · ITESM  
 **Rama activa:** `Rama-Miguel`  
 **Dispositivo de prueba:** Físico Android (depuración inalámbrica ADB, NO emulador de computadora)  
-**Última actualización:** 2026-05-17 (C-92)
+**Última actualización:** 2026-05-17 (C-94)
 
 ---
 
@@ -1182,6 +1182,32 @@
 | **Clase / Módulo** | `FirestoreService.update_stop_status_if_pending()` → `ubisafe_api/modules/shared/firestore_service.py` |
 | **Justificación** | El documento CU-01 §5.1 describe esta función como "transacción atómica", pero el código original era un read-then-write no atómico. La misma función `vote_community_report` ya usaba `@fs_transactional` como referencia de patrón correcto en el proyecto |
 | **Problema que resolvía** | En el escenario de race condition (vendor acepta en el último segundo mientras el timer del buyer dispara), `expired` podía sobreescribir `accepted` en Firestore, dejando al comprador en `TrackingScreen` con un stop ya expirado del que no podía salir |
+
+---
+
+### C-93 · Diálogo de parada se cerraba antes de verificar GPS — vendedor no podía reintentar `2026-05-17`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-93 · Verificación de GPS antes de cerrar el diálogo en `onAccept` de parada |
+| **Qué se corrigió (técnico)** | En el callback `onAccept` dentro de `_showIncomingDialog`, se añadió un check `ref.read(gpsServiceProvider).valueOrNull` al inicio, antes de `setState` y `Navigator.pop()`. Si `position == null`, se muestra el SnackBar "GPS no disponible" y se hace `return` sin cerrar el diálogo, dejándolo abierto. Solo si el GPS está disponible se procede con `setState`, `Navigator.pop()` y `_acceptStop`. El check de GPS que ya existía en `_acceptStop` se mantiene como defensa secundaria ante la pequeña ventana en que el GPS podría apagarse entre el check del callback y la ejecución de `_acceptStop` |
+| **Qué se corrigió (simple)** | Antes, cuando el vendedor presionaba "Aceptar" sin GPS, el diálogo se cerraba y mostraba el error — pero la solicitud seguía en estado `pending` sin que el vendedor pudiera volver a aceptarla. Ahora el diálogo permanece abierto y el vendedor puede activar el GPS y volver a intentarlo |
+| **Clase / Módulo** | `_MapScreenVendorState._showIncomingDialog()` — callback `onAccept` → `ubisafe_app/lib/features/dispatching/screens/map_screen_vendor.dart` |
+| **Justificación** | El patrón correcto es validar las precondiciones antes de ejecutar acciones irreversibles como cerrar un diálogo. `Navigator.pop()` antes del check de GPS hacía que el vendedor perdiera la ventana de 60 s para aceptar si el GPS tardaba en inicializarse |
+| **Problema que resolvía** | El vendedor veía el error "GPS no disponible" con el diálogo ya cerrado y sin posibilidad de reintentar; debía esperar los 60 s a que el stop expirara para poder atender la siguiente solicitud |
+
+---
+
+### C-94 · FCM enviaba mensajes con `notification` body en lugar de data-only `2026-05-17`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-94 · Mensajes FCM convertidos a data-only en `NotificationService.send()` |
+| **Qué se corrigió (técnico)** | Se eliminó `notification=messaging.Notification(title=title, body=body)` del constructor `fcm.Message()` en `NotificationService.send()`. El `Message` ahora solo contiene el campo `data`, convirtiéndose en un mensaje data-only. Los parámetros `title` y `body` se conservan en la firma del método para no romper los call-sites (`send_async`, `send_to_user` y todos los `send_stop_*` / `send_ride_*`), pero ya no se incluyen en el mensaje enviado a FCM |
+| **Qué se corrigió (simple)** | Los mensajes FCM que llegaban con `notification` body hacían que Android/iOS mostraran una notificación del SO. Si el usuario abría la app por otra vía (sin tocar la notificación), el evento ya no disparaba los providers de Riverpod; si luego tocaba la notificación guardada en la barra, se abría un diálogo para un stop ya expirado. Con mensajes data-only Flutter siempre procesa el payload en `onMessage` (foreground) y de forma idéntica en ambos casos |
+| **Clase / Módulo** | `NotificationService.send()` → `ubisafe_api/modules/shared/notification_service.py` |
+| **Justificación** | El documento CU-01 §5.3 especifica mensajes data-only. La discrepancia causaba notificaciones del SO que podían redirigir al usuario a un diálogo stale vía `onMessageOpenedApp`. Los multicast (`send_community_report_nearby`, `notify_risk_zone_alert`) ya eran data-only; este cambio homogeniza el comportamiento de todos los mensajes unicast |
+| **Problema que resolvía** | Posible doble UI (notificación del SO + diálogo in-app en foreground) y eventos stale procesados al tocar notificaciones antiguas en la barra del SO |
 
 ---
 

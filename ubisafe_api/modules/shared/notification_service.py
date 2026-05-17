@@ -13,9 +13,14 @@ logger = logging.getLogger(__name__)
 class NotificationService:
     @staticmethod
     def send(token: str, title: str, body: str, data: dict | None = None) -> str:
+        # B12: mensaje data-only — sin notification body para que Flutter procese
+        # el payload de forma idéntica en foreground y background, y para evitar
+        # que Android/iOS muestren una notificación del SO que luego puede
+        # disparar onMessageOpenedApp con datos ya expirados.
+        # Los parámetros title y body se conservan en la firma para no romper
+        # los call-sites, pero no se incluyen en el Message.
         fcm = FirebaseAdminInit.get_fcm()
         message = fcm.Message(
-            notification=messaging.Notification(title=title, body=body),
             data={k: str(v) for k, v in (data or {}).items()},
             token=token,
         )
