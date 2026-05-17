@@ -3,7 +3,7 @@
 **Proyecto:** Los Borbotones · TSP · ITESM  
 **Rama activa:** `Rama-Miguel`  
 **Dispositivo de prueba:** Físico Android (depuración inalámbrica ADB, NO emulador de computadora)  
-**Última actualización:** 2026-05-17 (C-87)
+**Última actualización:** 2026-05-17 (C-92)
 
 ---
 
@@ -1117,6 +1117,71 @@
 | **Clase / Módulo** | `historyProvider` (FutureProvider) · `HistoryScreen` (itemBuilder) → `ubisafe_app/lib/features/identity/profile/screens/history_screen.dart` |
 | **Justificación** | Las solicitudes de parada se almacenan en la colección `stop_requests`, separada de `rides`. El provider original consultaba únicamente `rides`, lo que hacía invisible cualquier interacción de parada. La consulta paralela con `Future.wait` evita latencia adicional. Se mantiene el ordenamiento en cliente para no requerir índices compuestos de Firestore (patrón establecido en C-04) |
 | **Problema que resolvía** | Los usuarios (compradores y vendedores) no veían ningún registro de solicitudes de parada en su historial, aunque hubieran completado, rechazado o cancelado paradas |
+
+---
+
+### C-88 · Doble SnackBar "Tiempo de espera agotado" cuando timer y FCM `expired` coinciden `2026-05-17`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-88 · Guard early-return en handler FCM `expired` del comprador |
+| **Qué se corrigió (técnico)** | En el `ref.listen<StopEvent?>` de `MapScreenBuyer.build()`, el bloque `StopRequestStatus.expired` fue reorganizado: (1) se limpia el provider (`stopRequestEventProvider.state = null`) antes de cualquier otra acción; (2) se añadió `if (_mapState == _BuyerMapState.idle) return;` inmediatamente después, de modo que si el callback `onExpired()` del timer local ya procesó el evento (poniendo `_mapState` en `idle` y mostrando el primer SnackBar), el handler del FCM salga sin ejecutar `setState` ni mostrar un segundo SnackBar |
+| **Qué se corrigió (simple)** | Cuando el timer de 60 s y el FCM `expired` llegaban en rápida sucesión, el comprador veía el mensaje "Tiempo de espera agotado" dos veces. Ahora solo aparece una vez |
+| **Clase / Módulo** | `ref.listen<StopEvent?>` en `_MapScreenBuyerState.build()` → `ubisafe_app/lib/features/dispatching/screens/map_screen_buyer.dart` |
+| **Justificación** | El timer local ejecuta `onExpired()` → `_mapState = idle`. Cuando el FCM llega después, la guarda `_activeStopId != null && ...` ya no filtra porque `_activeStopId` fue limpiado. El chequeo de `_mapState == idle` es la señal definitiva de que el evento ya fue procesado localmente |
+| **Problema que resolvía** | El comprador veía el SnackBar "Tiempo de espera agotado" dos veces en rápida sucesión |
+
+---
+
+### C-89 · `_activeStopId` no se limpiaba al recibir FCM `accepted` en `MapScreenBuyer` `2026-05-17`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-89 · Limpiar `_activeStopId` en transición `accepted` |
+| **Qué se corrigió (técnico)** | Se reemplazó `setState(() => _mapState = _BuyerMapState.idle)` por `setState(() { _mapState = _BuyerMapState.idle; _activeStopId = null; })` en la rama `StopRequestStatus.accepted` del listener `stopRequestEventProvider` en `MapScreenBuyer` |
+| **Qué se corrigió (simple)** | Al aceptar una parada, el ID de la solicitud activa ahora se limpia correctamente. Antes se dejaba el valor antiguo, lo que podía hacer que FCM stale del stop anterior filtraran incorrectamente al volver de `TrackingScreen` |
+| **Clase / Módulo** | `ref.listen<StopEvent?>` en `_MapScreenBuyerState.build()` → `ubisafe_app/lib/features/dispatching/screens/map_screen_buyer.dart` |
+| **Justificación** | Aunque en la práctica no producía un crash (la nueva solicitud sobreescribía `_activeStopId`), dejaba una ventana temporal donde FCM tardíos del stop aceptado podrían ser procesados de nuevo por `MapScreenBuyer` mientras `TrackingScreen` todavía está activa en el stack |
+| **Problema que resolvía** | `_activeStopId` quedaba con el ID de la parada aceptada mientras el comprador estaba en `TrackingScreen`, exponiendo al listener a procesar eventos stale de ese mismo stop |
+
+---
+
+### C-90 · `onExpired()` no garantizado si `expireStopRequest` lanza excepción no-`DioException` `2026-05-17`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-90 · `finally` en timer de expiración de stop request |
+| **Qué se corrigió (técnico)** | Se movió `onExpired()` de fuera del bloque `try/catch` a un bloque `finally`, de modo que se ejecute siempre, independientemente de si `expireStopRequest` lanza `DioException` u cualquier otra excepción |
+| **Qué se corrigió (simple)** | Si la llamada de expiración al backend fallaba con un error inesperado (no de red), la UI del comprador quedaba bloqueada permanentemente en estado "esperando". Ahora `onExpired()` se garantiza siempre |
+| **Clase / Módulo** | `StopRequestModule.startTimer()` → `ubisafe_app/lib/features/dispatching/services/stop_request_module.dart` |
+| **Justificación** | El `catch` solo capturaba `DioException`. Cualquier otro error (serialización, error de Dart runtime) se propagaba sin ejecutar `onExpired()`, dejando `_mapState` en `waiting` indefinidamente. Con `finally` se garantiza la limpieza de la UI en cualquier escenario |
+| **Problema que resolvía** | En el escenario (muy poco probable) de error no-Dio, el comprador no podía solicitar ninguna parada más porque `_mapState` quedaba atascado en `waiting` |
+
+---
+
+### C-91 · Verificación de proximidad 15 m se saltaba si `_buyerLat`/`_buyerLng` eran `null` `2026-05-17`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-91 · Guard fail-fast para coordenadas nulas en `_confirmDelivery` |
+| **Qué se corrigió (técnico)** | Se reemplazó `if (_buyerLat != null && _buyerLng != null) { ... check de 15 m ... }` por `if (_buyerLat == null \|\| _buyerLng == null) { SnackBar + return; }` seguido del check de distancia sin envoltura condicional. Con el nuevo código, si las coordenadas son `null`, se muestra "Error: coordenadas del comprador no disponibles." y se cancela la operación; si no son `null`, el check de 15 m siempre se ejecuta antes de llamar `completeStopRequest` |
+| **Qué se corrigió (simple)** | Si por algún motivo las coordenadas del comprador no estaban disponibles, el vendedor podía confirmar la entrega sin validación de distancia. Ahora esa situación es un error explícito que bloquea la confirmación |
+| **Clase / Módulo** | `_MapScreenVendorState._confirmDelivery()` → `ubisafe_app/lib/features/dispatching/screens/map_screen_vendor.dart` |
+| **Justificación** | En el flujo normal `_buyerLat`/`_buyerLng` nunca son `null` al llegar a `_confirmDelivery` (se establecen junto con `_isNavigating = true`). Sin embargo, tratarlos como opcionales con la guarda anterior los convertía en efectivamente ignorables. El estado inválido debe bloquear, no pasar silencioso |
+| **Problema que resolvía** | Estado inválido (`_buyerLat == null` mientras `_isNavigating == true`) podía causar que `completeStopRequest` se llamara sin verificar la distancia de 15 m |
+
+---
+
+### C-92 · `update_stop_status_if_pending` no era atómico — race condition entre `expired` y `accepted` `2026-05-17`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-92 · Transacción Firestore en `update_stop_status_if_pending` |
+| **Qué se corrigió (técnico)** | Se reemplazó el patrón check-then-act (`ref.get()` + `ref.update()`) por una función `_txn` decorada con `@fs_transactional` de `google.cloud.firestore`. La transacción lee el documento, verifica que `status == "pending"` y escribe el nuevo status — todo de forma atómica en el servidor. Si la transacción detecta que ya no es `pending`, retorna `(doc, False)` sin escribir. El documento actualizado se lee en una segunda operación fuera de la transacción (las transacciones de Firestore Python no permiten leer después de escribir en el mismo scope) |
+| **Qué se corrigió (simple)** | Existía una ventana de tiempo en la que el timer del comprador y el PATCH del vendedor podían leer simultáneamente `status: "pending"` y ambos creer que ganaban la carrera, resultando en que `expired` sobreescribía `accepted`. Con la transacción, solo una operación puede ganar |
+| **Clase / Módulo** | `FirestoreService.update_stop_status_if_pending()` → `ubisafe_api/modules/shared/firestore_service.py` |
+| **Justificación** | El documento CU-01 §5.1 describe esta función como "transacción atómica", pero el código original era un read-then-write no atómico. La misma función `vote_community_report` ya usaba `@fs_transactional` como referencia de patrón correcto en el proyecto |
+| **Problema que resolvía** | En el escenario de race condition (vendor acepta en el último segundo mientras el timer del buyer dispara), `expired` podía sobreescribir `accepted` en Firestore, dejando al comprador en `TrackingScreen` con un stop ya expirado del que no podía salir |
 
 ---
 

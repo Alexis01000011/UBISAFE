@@ -137,20 +137,34 @@ class FirestoreService:
     async def update_stop_status_if_pending(
         cls, stop_id: str, new_status: str
     ) -> tuple[StopRequest | None, bool]:
-        """Update status only if current status is 'pending'.
+        """Update status only if current status is 'pending' — atomically.
+
+        Uses a Firestore transaction to eliminate the check-then-act race condition
+        where a concurrent vendor 'accepted' write could be overwritten by the buyer's
+        'expired' write if both read 'pending' before either one commits (B07).
 
         Returns (doc, was_updated). If not pending, returns (current_doc, False).
-        Used for race-condition detection when buyer sends 'expired'.
         """
-        ref = cls._db().collection("stop_requests").document(stop_id)
-        doc = ref.get()
-        if not doc.exists:
-            return None, False
-        if (doc.to_dict() or {}).get("status") != "pending":
-            return cls._doc_to_stop_request(doc), False
-        ref.update({"status": new_status, "updated_at": SERVER_TIMESTAMP})
-        doc = ref.get()
-        return cls._doc_to_stop_request(doc), True
+        from google.cloud.firestore import transactional as fs_transactional  # noqa: PLC0415
+
+        db = cls._db()
+        ref = db.collection("stop_requests").document(stop_id)
+
+        @fs_transactional
+        def _txn(transaction):
+            doc = ref.get(transaction=transaction)
+            if not doc.exists:
+                return None, False
+            if (doc.to_dict() or {}).get("status") != "pending":
+                return cls._doc_to_stop_request(doc), False
+            transaction.update(ref, {"status": new_status, "updated_at": SERVER_TIMESTAMP})
+            return None, True
+
+        result, was_updated = _txn(db.transaction())
+        if was_updated:
+            doc = ref.get()
+            return cls._doc_to_stop_request(doc), True
+        return result, was_updated
 
     # ------------------------------------------------------------ risk zones
     @classmethod

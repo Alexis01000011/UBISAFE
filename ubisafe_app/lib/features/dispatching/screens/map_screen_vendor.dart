@@ -574,24 +574,31 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
     }
 
     // Verificar proximidad al comprador (máximo 15 m)
-    if (_buyerLat != null && _buyerLng != null) {
-      final dist = _distanceMeters(
-        position.latitude,
-        position.longitude,
-        _buyerLat!,
-        _buyerLng!,
+    // B10: coordenadas null es estado inválido — bloquear en lugar de saltarse el check
+    if (_buyerLat == null || _buyerLng == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Error: coordenadas del comprador no disponibles.'),
+        ),
       );
-      if (dist > 15) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Debes estar a menos de 15 m del comprador para confirmar. '
-              'Distancia actual: ${dist.toStringAsFixed(0)} m.',
-            ),
+      return;
+    }
+    final dist = _distanceMeters(
+      position.latitude,
+      position.longitude,
+      _buyerLat!,
+      _buyerLng!,
+    );
+    if (dist > 15) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Debes estar a menos de 15 m del comprador para confirmar. '
+            'Distancia actual: ${dist.toStringAsFixed(0)} m.',
           ),
-        );
-        return;
-      }
+        ),
+      );
+      return;
     }
 
     try {

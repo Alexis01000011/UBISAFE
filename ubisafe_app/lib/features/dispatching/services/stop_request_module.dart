@@ -47,8 +47,9 @@ class StopRequestModule {
         if (e.response?.statusCode != 409 && e.response?.statusCode != 400) {
           debugPrint('StopRequestModule: expiry PATCH failed — $e');
         }
+      } finally {
+        onExpired(); // B09: garantizar ejecución incluso ante excepciones inesperadas
       }
-      onExpired();
     });
   }
 

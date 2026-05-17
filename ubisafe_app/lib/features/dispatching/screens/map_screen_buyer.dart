@@ -52,7 +52,10 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
 
       if (event.status == StopRequestStatus.accepted) {
         ref.read(stopRequestModuleProvider).cancelTimer();
-        setState(() => _mapState = _BuyerMapState.idle);
+        setState(() {
+          _mapState = _BuyerMapState.idle;
+          _activeStopId = null; // B08: limpiar siempre al aceptar
+        });
         ref.read(stopRequestEventProvider.notifier).state = null;
         if (!context.mounted) return;
         context.push('/tracking?stop_id=${event.stopId}');
@@ -67,11 +70,14 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
           const SnackBar(content: Text('El vendedor no pudo atenderte.')),
         );
       } else if (event.status == StopRequestStatus.expired) {
+        // B06: limpiar el provider primero; si el timer local ya procesó el
+        // evento (_mapState ya es idle), salir sin mostrar un segundo SnackBar.
+        ref.read(stopRequestEventProvider.notifier).state = null;
+        if (_mapState == _BuyerMapState.idle) return;
         setState(() {
           _mapState = _BuyerMapState.idle;
           _activeStopId = null;
         });
-        ref.read(stopRequestEventProvider.notifier).state = null;
         if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Tiempo de espera agotado.')),
