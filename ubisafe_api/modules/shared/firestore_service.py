@@ -83,7 +83,7 @@ class FirestoreService:
     @classmethod
     def _doc_to_stop_request(cls, doc: Any) -> StopRequest:
         raw = doc.to_dict() or {}
-        for field in ("created_at", "updated_at", "expires_at"):
+        for field in ("created_at", "updated_at", "expires_at", "accepted_at", "completed_at"):
             val = raw.get(field)
             if val is None:
                 continue
@@ -107,6 +107,8 @@ class FirestoreService:
         data["buyer_uid"] = uid
         data["status"] = "pending"
         data["expires_at"] = expires_at
+        data["created_at"] = SERVER_TIMESTAMP
+        data["updated_at"] = SERVER_TIMESTAMP
         _, ref = cls._db().collection("stop_requests").add(data)
         doc = ref.get()
         return cls._doc_to_stop_request(doc)
@@ -119,12 +121,15 @@ class FirestoreService:
         return cls._doc_to_stop_request(doc)
 
     @classmethod
-    async def update_stop_status(cls, stop_id: str, new_status: str) -> StopRequest | None:
+    async def update_stop_status(cls, stop_id: str, new_status: str, extra: dict | None = None) -> StopRequest | None:
         ref = cls._db().collection("stop_requests").document(stop_id)
         doc = ref.get()
         if not doc.exists:
             return None
-        ref.update({"status": new_status, "updated_at": SERVER_TIMESTAMP})
+        update_data: dict[str, Any] = {"status": new_status, "updated_at": SERVER_TIMESTAMP}
+        if extra:
+            update_data.update({k: SERVER_TIMESTAMP for k, v in extra.items() if v is True})
+        ref.update(update_data)
         doc = ref.get()
         return cls._doc_to_stop_request(doc)
 

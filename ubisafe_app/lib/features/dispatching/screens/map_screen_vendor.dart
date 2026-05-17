@@ -149,6 +149,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
 
     ref.listen<RideEvent?>(rideEventProvider, (_, event) {
       if (event == null) return;
+      if (_activeRideId == null && event.rideId != _pendingDialogRideId) return;
       if (_activeRideId != null && event.rideId != _activeRideId) return;
       if (event.type == RideEventType.cancelledByBuyer) {
         // Dismiss incoming ride dialog if it's still open for this ride
@@ -525,7 +526,10 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
     List<String> avoidWaypoints = const [],
   }) async {
     try {
-      final dio = Dio();
+      final dio = Dio(BaseOptions(
+        connectTimeout: const Duration(seconds: 8),
+        receiveTimeout: const Duration(seconds: 10),
+      ));
       final params = <String, dynamic>{
         'origin': '$originLat,$originLng',
         'destination': '$destLat,$destLng',

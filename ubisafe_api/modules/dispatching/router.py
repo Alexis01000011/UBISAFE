@@ -106,7 +106,12 @@ async def update_stop_status(
             )
         return updated_doc
 
-    updated = await FirestoreService.update_stop_status(stop_id, body.status)
+    extra: dict | None = None
+    if body.status == "accepted":
+        extra = {"accepted_at": True}
+    elif body.status == "completed":
+        extra = {"completed_at": True}
+    updated = await FirestoreService.update_stop_status(stop_id, body.status, extra=extra)
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stop request not found")
 
