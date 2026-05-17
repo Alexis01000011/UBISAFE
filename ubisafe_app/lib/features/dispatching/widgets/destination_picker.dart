@@ -15,6 +15,8 @@ class DestinationPicker extends StatefulWidget {
     return showModalBottomSheet<LatLng>(
       context: context,
       isScrollControlled: true,
+      isDismissible: false,
+      enableDrag: false,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -42,16 +44,7 @@ class _DestinationPickerState extends State<DestinationPicker> {
       height: screenHeight * 0.75,
       child: Column(
         children: [
-          const SizedBox(height: 12),
-          Container(
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: AppColors.border,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 24),
             child: Text(
