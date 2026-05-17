@@ -22,15 +22,26 @@ final historyProvider = FutureProvider<List<Map<String, dynamic>>>((ref) async {
   final fieldToFilter = role == 'vendor' ? 'vendor_uid' : 'buyer_uid';
 
   // Avoid composite-index requirement by sorting client-side.
-  final snapshot = await FirebaseFirestore.instance
+  final ridesFuture = FirebaseFirestore.instance
       .collection('rides')
       .where(fieldToFilter, isEqualTo: user.uid)
       .where('status', whereIn: ['completed', 'rejected', 'expired'])
       .get();
 
-  final docs = snapshot.docs
-      .map((doc) => {'id': doc.id, ...doc.data()})
-      .toList();
+  final stopsFuture = FirebaseFirestore.instance
+      .collection('stop_requests')
+      .where(fieldToFilter, isEqualTo: user.uid)
+      .where('status', whereIn: ['completed', 'rejected', 'expired', 'cancelled'])
+      .get();
+
+  final results = await Future.wait([ridesFuture, stopsFuture]);
+  final ridesSnap = results[0];
+  final stopsSnap = results[1];
+
+  final docs = [
+    ...ridesSnap.docs.map((doc) => {...doc.data(), 'id': doc.id, '_type': 'ride'}),
+    ...stopsSnap.docs.map((doc) => {...doc.data(), 'id': doc.id, '_type': 'stop'}),
+  ];
 
   docs.sort((a, b) {
     final aTs = a['updated_at'] as Timestamp?;
@@ -81,6 +92,7 @@ class HistoryScreen extends ConsumerWidget {
             itemBuilder: (context, index) {
               final ride = rides[index];
               final status = ride['status'] as String? ?? 'unknown';
+              final isStop = ride['_type'] == 'stop';
               final timestamp = ride['updated_at'] as Timestamp?;
               final dateStr = timestamp != null
                   ? DateFormat('dd MMM yyyy, HH:mm').format(timestamp.toDate())
@@ -89,23 +101,48 @@ class HistoryScreen extends ConsumerWidget {
               final Color statusColor;
               final IconData statusIcon;
               final String statusLabel;
-              switch (status) {
-                case 'completed':
-                  statusColor = AppColors.success500;
-                  statusIcon = Icons.check_circle_outline;
-                  statusLabel = 'Viaje Completado';
-                case 'rejected':
-                  statusColor = AppColors.danger500;
-                  statusIcon = Icons.cancel_outlined;
-                  statusLabel = 'Viaje Rechazado';
-                case 'expired':
-                  statusColor = AppColors.textSecondary;
-                  statusIcon = Icons.timer_off_outlined;
-                  statusLabel = 'Viaje Expirado';
-                default:
-                  statusColor = AppColors.textSecondary;
-                  statusIcon = Icons.help_outline;
-                  statusLabel = 'Estado desconocido';
+              if (isStop) {
+                switch (status) {
+                  case 'completed':
+                    statusColor = AppColors.success500;
+                    statusIcon = Icons.storefront_outlined;
+                    statusLabel = 'Parada Completada';
+                  case 'rejected':
+                    statusColor = AppColors.danger500;
+                    statusIcon = Icons.cancel_outlined;
+                    statusLabel = 'Parada Rechazada';
+                  case 'expired':
+                    statusColor = AppColors.textSecondary;
+                    statusIcon = Icons.timer_off_outlined;
+                    statusLabel = 'Parada Expirada';
+                  case 'cancelled':
+                    statusColor = AppColors.textSecondary;
+                    statusIcon = Icons.block_outlined;
+                    statusLabel = 'Parada Cancelada';
+                  default:
+                    statusColor = AppColors.textSecondary;
+                    statusIcon = Icons.help_outline;
+                    statusLabel = 'Estado desconocido';
+                }
+              } else {
+                switch (status) {
+                  case 'completed':
+                    statusColor = AppColors.success500;
+                    statusIcon = Icons.check_circle_outline;
+                    statusLabel = 'Viaje Completado';
+                  case 'rejected':
+                    statusColor = AppColors.danger500;
+                    statusIcon = Icons.cancel_outlined;
+                    statusLabel = 'Viaje Rechazado';
+                  case 'expired':
+                    statusColor = AppColors.textSecondary;
+                    statusIcon = Icons.timer_off_outlined;
+                    statusLabel = 'Viaje Expirado';
+                  default:
+                    statusColor = AppColors.textSecondary;
+                    statusIcon = Icons.help_outline;
+                    statusLabel = 'Estado desconocido';
+                }
               }
 
               return Container(

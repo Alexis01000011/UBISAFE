@@ -3,7 +3,7 @@
 **Proyecto:** Los Borbotones · TSP · ITESM  
 **Rama activa:** `Rama-Miguel`  
 **Dispositivo de prueba:** Físico Android (depuración inalámbrica ADB, NO emulador de computadora)  
-**Última actualización:** 2026-05-16 (C-81)
+**Última actualización:** 2026-05-17 (C-87)
 
 ---
 
@@ -1039,6 +1039,84 @@
 | **Clase / Módulo** | `FirestoreService.vendor_has_active_requests()` → `ubisafe_api/modules/shared/firestore_service.py` |
 | **Justificación** | El único responsable de expirar rides es el timer de 60 segundos en Flutter (`RideRequestModule.startExpiryTimer()`). Si ese timer no se ejecuta (crash, red caída con error no-409), el documento `pending` queda en Firestore indefinidamente. El backend debe ignorar documentos `pending` cuyo `expires_at` ya pasó en lugar de depender exclusivamente del cliente para la limpieza. |
 | **Problema que resolvía** | Al solicitar un raite, aparecía la notificación "el vendedor ya tiene otra solicitud activa" (HTTP 409 `vendor_not_available`) aunque el vendedor no tuviera ningún ride activo en curso. |
+
+---
+
+### C-82 · `create_stop_request` no escribía `created_at` en Firestore `2026-05-17`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-82 · `created_at` y `updated_at` en `create_stop_request` |
+| **Qué se corrigió (técnico)** | Se añadieron `data["created_at"] = SERVER_TIMESTAMP` y `data["updated_at"] = SERVER_TIMESTAMP` al diccionario que se pasa a `cls._db().collection("stop_requests").add(data)` en `FirestoreService.create_stop_request()` |
+| **Qué se corrigió (simple)** | Al crear una solicitud de parada, el campo de fecha de creación ahora se guarda correctamente en Firestore; antes ese campo siempre llegaba como `null` al modelo Flutter y a cualquier historial |
+| **Clase / Módulo** | `FirestoreService.create_stop_request()` → `ubisafe_api/modules/shared/firestore_service.py` |
+| **Justificación** | El campo `created_at` está definido en el esquema Pydantic (`StopRequest`) y en el modelo Flutter (`StopRequest.createdAt`), pero nunca se escribía. El documento CU-01 §3.1 lo lista como obligatorio |
+| **Problema que resolvía** | `StopRequest.createdAt` siempre era `null` en la app; imposible auditar cuándo se creó una solicitud o calcular tiempos de respuesta del vendedor |
+
+---
+
+### C-83 · `update_stop_status` no escribía `accepted_at` ni `completed_at` `2026-05-17`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-83 · `accepted_at` / `completed_at` en transiciones de stop request |
+| **Qué se corrigió (técnico)** | Se añadió lógica de `extra` en `stop_router.py`: `extra = {"accepted_at": True}` cuando `body.status == "accepted"` y `extra = {"completed_at": True}` cuando `body.status == "completed"`. Se extendió `FirestoreService.update_stop_status()` para aceptar un parámetro `extra: dict | None = None` y convertir sus valores `True` a `SERVER_TIMESTAMP` antes de llamar `ref.update()` |
+| **Qué se corrigió (simple)** | Las marcas de tiempo de cuándo el vendedor aceptó la parada y cuándo la confirmó como entregada ahora se guardan en Firestore. Antes esos campos siempre eran `null` |
+| **Clase / Módulo** | `update_stop_status()` en `PATCH /stops/{id}/status` → `ubisafe_api/modules/dispatching/router.py` · `FirestoreService.update_stop_status()` → `ubisafe_api/modules/shared/firestore_service.py` |
+| **Justificación** | El flujo de raites ya hacía esto correctamente (`accepted_at`, `completed_at`); el flujo de paradas carecía del mismo mecanismo. Referencia: CU-01 §3.1 |
+| **Problema que resolvía** | `StopRequest.acceptedAt` y `StopRequest.completedAt` siempre eran `null`; el historial no podía mostrar tiempos de aceptación ni de entrega |
+
+---
+
+### C-84 · `_doc_to_stop_request` no convertía `accepted_at` ni `completed_at` desde Timestamp `2026-05-17`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-84 · Conversión de timestamps en `_doc_to_stop_request` |
+| **Qué se corrigió (técnico)** | Se añadieron `"accepted_at"` y `"completed_at"` al loop de conversión de timestamps en `FirestoreService._doc_to_stop_request()`: `for field in ("created_at", "updated_at", "expires_at", "accepted_at", "completed_at")` |
+| **Qué se corrigió (simple)** | Al leer un stop request de Firestore, los campos de tiempo de aceptación y de entrega ahora se convierten correctamente a strings ISO-8601 que el modelo Pydantic puede deserializar. Sin esta corrección, C-83 habría causado un `ValidationError` HTTP 500 en el primer stop aceptado o completado |
+| **Clase / Módulo** | `FirestoreService._doc_to_stop_request()` → `ubisafe_api/modules/shared/firestore_service.py` |
+| **Justificación** | Corrección bloqueante dependiente de C-83: sin ella, los `Timestamp` de Firestore de `accepted_at`/`completed_at` llegaban al constructor Pydantic como objetos nativos de Firestore, no como strings, causando un error de validación en producción |
+| **Problema que resolvía** | Sin esta corrección, el endpoint `PATCH /stops/{id}/status` habría devuelto HTTP 500 al intentar serializar los nuevos timestamps introducidos por C-83 |
+
+---
+
+### C-85 · `_requestRoute` usaba `Dio()` sin timeout — `_acceptStop` podía colgarse indefinidamente `2026-05-17`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-85 · Timeout en `Dio` de `_requestRoute` |
+| **Qué se corrigió (técnico)** | Se reemplazó `final dio = Dio()` por `final dio = Dio(BaseOptions(connectTimeout: const Duration(seconds: 8), receiveTimeout: const Duration(seconds: 10)))` en `_MapScreenVendorState._requestRoute()` |
+| **Qué se corrigió (simple)** | La llamada a Google Directions API ahora tiene límite de tiempo. Antes, si la API no respondía, la función podía quedar esperando indefinidamente y el vendedor nunca veía el botón de "Confirmar entrega" aunque ya había aceptado la parada |
+| **Clase / Método / Módulo** | `_MapScreenVendorState._requestRoute()` → `ubisafe_app/lib/features/dispatching/screens/map_screen_vendor.dart` |
+| **Justificación** | El stop ya había sido marcado como `accepted` en el backend antes de llamar `_fetchRoute`. Si `_requestRoute` colgaba sin timeout, `_isNavigating` nunca se establecía en `true` y `_ConfirmDeliverySheet` nunca aparecía, dejando al comprador esperando indefinidamente en `TrackingScreen` |
+| **Problema que resolvía** | Vendedor aceptaba la parada pero nunca veía el sheet de confirmar entrega; la app del comprador quedaba bloqueada en seguimiento sin que el flujo pudiera completarse |
+
+---
+
+### C-86 · FCM `ride_cancelled_by_buyer` stale reseteaba `_isNavigating` durante parada activa `2026-05-17`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-86 · Guarda del listener `rideEventProvider` en `MapScreenVendor` |
+| **Qué se corrigió (técnico)** | Se reemplazó la guarda `if (_activeRideId != null && event.rideId != _activeRideId) return;` por dos condiciones: `if (_activeRideId == null && event.rideId != _pendingDialogRideId) return;` seguida de `if (_activeRideId != null && event.rideId != _activeRideId) return;` en el `ref.listen<RideEvent?>` de `MapScreenVendor.build()` |
+| **Qué se corrigió (simple)** | Un mensaje FCM tardío de cancelación de raite (de una operación anterior) ya no puede apagar el indicador de navegación de una parada activa. La guarda anterior permitía pasar el evento cuando no había raite activo (`_activeRideId == null`), haciendo que `_isNavigating = false` y eliminando el sheet de confirmar entrega |
+| **Clase / Método / Módulo** | `ref.listen<RideEvent?>` en `_MapScreenVendorState.build()` → `ubisafe_app/lib/features/dispatching/screens/map_screen_vendor.dart` |
+| **Justificación** | FCM puede llegar con retraso de segundos a minutos por condiciones de red. La guarda correcta es: si no hay raite activo NI un diálogo de raite abierto, ignorar cualquier evento de raite. Solo se procesa el evento si coincide con el raite o diálogo actualmente en curso |
+| **Problema que resolvía** | Secuencia: vendor completa raite → acepta parada → FCM tardío de `ride_cancelled_by_buyer` del raite anterior llega → `_ConfirmDeliverySheet` desaparece → vendor no puede confirmar la entrega |
+
+---
+
+### C-87 · `historyProvider` excluía stop requests — solo consultaba la colección `rides` `2026-05-17`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-87 · Stop requests incluidos en el historial de viajes |
+| **Qué se corrigió (técnico)** | Se reemplazó la consulta única a `FirebaseFirestore.instance.collection('rides')` por dos consultas paralelas (`Future.wait`): una a `rides` (statuses: `completed`, `rejected`, `expired`) y otra a `stop_requests` (statuses: `completed`, `rejected`, `expired`, `cancelled`). Ambas usan el mismo `fieldToFilter` (`buyer_uid` para BUYER, `vendor_uid` para VENDOR). Los resultados se mezclan en una sola lista y se ordenan por `updated_at` en cliente. Se añadió el campo discriminador `'_type': 'ride'` / `'_type': 'stop'` a cada entrada para que el widget sepa qué etiqueta e ícono mostrar. El `itemBuilder` de `HistoryScreen` fue actualizado para manejar ambos tipos: paradas usan ícono `storefront_outlined` / `block_outlined` y etiquetas "Parada Completada", "Parada Rechazada", "Parada Expirada", "Parada Cancelada"; raites mantienen el comportamiento anterior. |
+| **Qué se corrigió (simple)** | El historial de viajes ahora muestra tanto raites como solicitudes de parada. Antes solo aparecían raites porque el provider nunca consultaba la colección `stop_requests` |
+| **Clase / Módulo** | `historyProvider` (FutureProvider) · `HistoryScreen` (itemBuilder) → `ubisafe_app/lib/features/identity/profile/screens/history_screen.dart` |
+| **Justificación** | Las solicitudes de parada se almacenan en la colección `stop_requests`, separada de `rides`. El provider original consultaba únicamente `rides`, lo que hacía invisible cualquier interacción de parada. La consulta paralela con `Future.wait` evita latencia adicional. Se mantiene el ordenamiento en cliente para no requerir índices compuestos de Firestore (patrón establecido en C-04) |
+| **Problema que resolvía** | Los usuarios (compradores y vendedores) no veían ningún registro de solicitudes de parada en su historial, aunque hubieran completado, rechazado o cancelado paradas |
 
 ---
 
