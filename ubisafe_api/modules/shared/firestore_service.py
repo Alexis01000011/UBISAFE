@@ -458,27 +458,54 @@ class FirestoreService:
 
     @classmethod
     async def vendor_has_active_requests(cls, vendor_uid: str) -> bool:
-        """Return True if vendor has pending/accepted/in_progress rides or stop_requests."""
+        """Return True if vendor has active (non-expired) rides or stop_requests.
+
+        "pending" rides/stops are skipped if their expires_at is in the past —
+        the client timer is the only enforcer of TTL, so stale pending docs must
+        not block new requests indefinitely (e.g. after an app crash).
+        "accepted" and "in_progress" rides always block (no automatic TTL).
+        """
+        now = datetime.now(tz=UTC)
+
+        def _is_expired_pending(data: dict) -> bool:
+            """True when a pending doc has passed its TTL."""
+            if data.get("status") != "pending":
+                return False
+            raw_exp = data.get("expires_at")
+            if raw_exp is None:
+                return False
+            if hasattr(raw_exp, "timestamp"):  # Firestore Timestamp object
+                exp_dt = datetime.fromtimestamp(raw_exp.timestamp(), tz=UTC)
+            else:
+                exp_dt = datetime.fromisoformat(str(raw_exp))
+            return exp_dt < now
+
         active_ride_statuses = ["pending", "accepted", "in_progress"]
         ride_docs = (
             cls._db()
             .collection("rides")
             .where("vendor_uid", "==", vendor_uid)
             .where("status", "in", active_ride_statuses)
-            .limit(1)
+            .limit(10)
             .stream()
         )
-        if any(True for _ in ride_docs):
-            return True
+        for doc in ride_docs:
+            if not _is_expired_pending(doc.to_dict() or {}):
+                return True
+
         stop_docs = (
             cls._db()
             .collection("stop_requests")
             .where("vendor_uid", "==", vendor_uid)
             .where("status", "in", ["pending", "accepted"])
-            .limit(1)
+            .limit(10)
             .stream()
         )
-        return any(True for _ in stop_docs)
+        for doc in stop_docs:
+            if not _is_expired_pending(doc.to_dict() or {}):
+                return True
+
+        return False
 
     @classmethod
     async def create_ride(cls, buyer_uid: str, body: CreateRideBody) -> Ride:

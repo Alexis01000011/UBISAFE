@@ -3,7 +3,7 @@
 **Proyecto:** Los Borbotones · TSP · ITESM  
 **Rama activa:** `Rama-Miguel`  
 **Dispositivo de prueba:** Físico Android (depuración inalámbrica ADB, NO emulador de computadora)  
-**Última actualización:** 2026-05-16 (C-80)
+**Última actualización:** 2026-05-16 (C-81)
 
 ---
 
@@ -1026,6 +1026,19 @@
 | **Clase / Módulo** | `GPSService._subscribe()` → `gps_service.dart` (`ubisafe_app/lib/features/presence/services/gps_service.dart`) |
 | **Justificación** | Documentado en la documentación interna de Firebase RTDB: cualquier `.set()`, `.update()`, o `.remove()` en una referencia cancela los `onDisconnect` handlers registrados en esa referencia o en rutas padre. El patrón correcto es re-registrar el handler inmediatamente después de cada write. |
 | **Problema que resolvía** | Al perder conexión de golpe (sin código Dart ejecutándose), el nodo del vendedor quedaba activo en RTDB indefinidamente; el comprador veía un vendedor fantasma que no podía ser contactado. |
+
+---
+
+### C-81 · `vendor_has_active_requests` bloqueaba nuevas solicitudes por rides expirados sin limpiar `2026-05-16`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-81 · Filtro de `expires_at` en `vendor_has_active_requests` para rides/stops en estado `pending` vencidos |
+| **Qué se corrigió (técnico)** | Se reemplazó el cuerpo de `FirestoreService.vendor_has_active_requests()`. Antes: `limit(1).stream()` seguido de `any(True for _ in docs)` — devolvía `True` al primer documento con status en `["pending","accepted","in_progress"]` sin importar su TTL. Ahora: `limit(10).stream()` con iteración manual; para cada documento con `status == "pending"` se extrae `expires_at` (manejando tanto `Firestore Timestamp` como ISO string), se convierte a `datetime` con zona UTC y se compara con `datetime.now(tz=UTC)`; si `expires_at < now` el documento se omite (`continue`). Los estados `"accepted"` e `"in_progress"` no tienen TTL automático y siempre bloquean. La misma lógica aplica al bloque de `stop_requests`. El helper `_is_expired_pending(data: dict) -> bool` encapsula la lógica de decisión. |
+| **Qué se corrigió (simple)** | Cuando un ride de 60 segundos no se cerraba correctamente en el cliente (app cerrada abruptamente, fallo de red durante `expireRide()`), el documento en Firestore quedaba con `status: "pending"` pasada su fecha de expiración. En el siguiente intento del comprador de solicitar un raite al mismo vendedor, el backend encontraba ese documento "fantasma" y respondía 409 `vendor_not_available`, aunque el vendedor en realidad estuviera disponible. |
+| **Clase / Módulo** | `FirestoreService.vendor_has_active_requests()` → `ubisafe_api/modules/shared/firestore_service.py` |
+| **Justificación** | El único responsable de expirar rides es el timer de 60 segundos en Flutter (`RideRequestModule.startExpiryTimer()`). Si ese timer no se ejecuta (crash, red caída con error no-409), el documento `pending` queda en Firestore indefinidamente. El backend debe ignorar documentos `pending` cuyo `expires_at` ya pasó en lugar de depender exclusivamente del cliente para la limpieza. |
+| **Problema que resolvía** | Al solicitar un raite, aparecía la notificación "el vendedor ya tiene otra solicitud activa" (HTTP 409 `vendor_not_available`) aunque el vendedor no tuviera ningún ride activo en curso. |
 
 ---
 
