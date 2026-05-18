@@ -171,6 +171,9 @@ class NotificationHandler {
       case 'risk_zone_alert':
         _invalidateRiskZones();
 
+      case 'risk_zone_expired':
+        _invalidateRiskZones();
+
       case 'community_report_nearby':
         _onCommunityReportNearby();
 
