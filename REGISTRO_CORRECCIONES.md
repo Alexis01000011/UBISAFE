@@ -3,7 +3,7 @@
 **Proyecto:** Los Borbotones · TSP · ITESM  
 **Rama activa:** `Rama-Miguel`  
 **Dispositivo de prueba:** Físico Android (depuración inalámbrica ADB, NO emulador de computadora)  
-**Última actualización:** 2026-05-17 (C-105)
+**Última actualización:** 2026-05-17 (C-110)
 
 ---
 
@@ -1343,6 +1343,69 @@
 | **Clase / Método / Módulo** | `activeRiskZonesProvider` → `ubisafe_app/lib/features/safety/services/risk_zone_service.dart` · call sites en `map_screen_buyer.dart` · `map_screen_vendor.dart` |
 | **Justificación** | Opción B elegida: eliminar el parámetro `LatLng` del family y leer la posición con `ref.read` (no `ref.watch`) dentro del provider. Esto rompe la dependencia reactiva con el stream GPS y hace que el provider sea controlado únicamente por `riskZoneRefreshProvider` (señal de eventos explícitos). El comportamiento funcional es idéntico — las zonas se actualizan al abrir la pantalla y al recibir FCM — sin el bucle de polling accidental. |
 | **Problema que resolvía** | En demostración con la API de Render, el endpoint `GET /risk-zones` recibía ~60 requests/minuto por usuario activo, saturando el plan gratuito y consumiendo batería del dispositivo innecesariamente. |
+
+### C-106 · `_bbox_delta()` usaba el mismo factor m/° para latitud y longitud (B20) `2026-05-17`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-106 · `_bbox_delta` con corrección coseno para longitud (B20) |
+| **Qué se corrigió (técnico)** | En `safety/router.py`: `_bbox_delta(radius_meters)` pasó a `_bbox_delta(radius_meters, lat) → tuple[float, float]`. Calcula `lat_delta = radius_meters / 111_000` y `lng_delta = radius_meters / (111_000 * math.cos(math.radians(lat)))`. En `create_risk_zone` se desempaca la tupla: `lat_delta, lng_delta = _bbox_delta(body.radius_meters, body.location.lat)` y se pasan ambos valores a `FirestoreService.query_active_risk_zones_bbox(lat, lng, lat_delta, lng_delta)`. En `firestore_service.py`: `query_active_risk_zones_bbox(cls, lat, lng, delta)` → `(cls, lat, lng, lat_delta, lng_delta)`, y el filtro usa `abs(zone_lat - lat) <= lat_delta and abs(zone_lng - lng) <= lng_delta`. |
+| **Qué se corrigió (simple)** | El bounding box de deduplicación usaba el mismo delta en grados para latitud y longitud. Como un grado de longitud equivale a menos metros conforme aumenta la latitud (`m/° = 111 000 × cos(lat)`), el bbox era ~10% más estrecho en sentido este-oeste en Monterrey (~25°N). Una zona a 96 m al este podía quedar fuera del bbox, saltar la verificación Haversine y crear una zona duplicada. |
+| **Clase / Método / Módulo** | `_bbox_delta()` + `create_risk_zone()` → `ubisafe_api/modules/safety/router.py` · `query_active_risk_zones_bbox()` → `firestore_service.py` |
+| **Justificación** | El factor de corrección `cos(lat)` es el estándar para convertir distancia en metros a grados de longitud. No afecta la latitud (cuya escala es constante). El único llamador de `_bbox_delta` es `create_risk_zone`, por lo que el cambio de firma no rompe ningún otro código. |
+| **Problema que resolvía** | Zonas duplicadas podían crearse cerca del borde este-oeste del radio de deduplicación a latitudes distintas de 0°. |
+
+---
+
+### C-107 · `DELETE /risk-zones/{id}` sobreescribía `expired_at` si la zona ya estaba inactiva (B21) `2026-05-17`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-107 · Guard `zone.active` en `expire_risk_zone` (B21) |
+| **Qué se corrigió (técnico)** | En `expire_risk_zone()` de `safety/router.py`, tras el check de propietario se añadió: `if not zone.active: raise HTTPException(status_code=HTTP_409_CONFLICT, detail="Risk zone is already expired")`. Se añadió el test `test_expire_zone_already_expired_returns_409` en `tests/test_risk_zones.py` que verifica el 409 cuando la zona tiene `active=False`. |
+| **Qué se corrigió (simple)** | Llamar `DELETE /risk-zones/{id}` dos veces (doble tap o retry automático) sobreescribía el campo `expired_at` original con la hora de la segunda llamada, corrompiendo el registro histórico de cuándo se expiró la zona. Ahora la segunda llamada devuelve 409 y no modifica Firestore. |
+| **Clase / Método / Módulo** | `expire_risk_zone()` → `ubisafe_api/modules/safety/router.py` · `test_expire_zone_already_expired_returns_409` → `tests/test_risk_zones.py` |
+| **Justificación** | El patrón estándar para operaciones idempotentes que no deben ejecutarse dos veces es 409 Conflict. Retornar 204 en la segunda llamada daría la falsa impresión de éxito mientras corrompe datos de auditoría silenciosamente. |
+| **Problema que resolvía** | Un doble tap o un retry automático en red lenta corrompía el `expired_at` original de la zona, perdiendo información de auditoría sobre cuándo fue desactivada. |
+
+---
+
+### C-108 · `RideStatus` Flutter sin `cancelled` → estado del vendedor no se limpiaba (B22) `2026-05-17`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-108 · Añadir `RideStatus.cancelled` al enum y al listener `_rideSub` (B22) |
+| **Qué se corrigió (técnico)** | En `ride.dart`: se añadió `cancelled` al `enum RideStatus`; en `_statusFromString` se añadió `case 'cancelled': return RideStatus.cancelled;` antes del `default`; en `_statusToString` se añadió `case RideStatus.cancelled: return 'cancelled';`. En `map_screen_vendor.dart`, en el listener `_rideSub` dentro de `_acceptRide()`, se añadió `ride.status == RideStatus.cancelled` a la condición de estados terminales que cancela la suscripción y limpia `_activeRideId`, `_ridePhase` y `_routePolyline`. |
+| **Qué se corrigió (simple)** | Si el comprador cancelaba el raite desde su app, el backend actualizaba el documento Firestore a `status: "cancelled"`. Flutter recibía esa cadena pero no tenía `cancelled` en el enum, por lo que `_statusFromString` lo mapeaba silenciosamente a `RideStatus.pending`. El listener `_rideSub` nunca detectaba el estado terminal, `_activeRideId` permanecía seteado y la UI del vendedor quedaba congelada en el estado de raite activo hasta reiniciar la app. |
+| **Clase / Método / Módulo** | `enum RideStatus`, `_statusFromString()`, `_statusToString()` → `ride.dart` · listener `_rideSub` dentro de `_acceptRide()` → `map_screen_vendor.dart` |
+| **Justificación** | El backend ya tenía `cancelled` como estado válido en `RIDE_VALID_TRANSITIONS` (Python `ride_schemas.py`). Flutter simplemente no lo contemplaba. La discrepancia entre el enum de Dart y el enum del backend hacía que cualquier transición `→ cancelled` fuera invisible para el cliente. |
+| **Problema que resolvía** | Tras la cancelación del comprador, la pantalla del vendedor quedaba bloqueada mostrando el raite como activo, impidiéndole recibir nuevas solicitudes hasta reiniciar la app. |
+
+---
+
+### C-109 · Dialog de raite se cerraba antes de verificar GPS → sin opción de reintentar (B23) `2026-05-17`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-109 · GPS check antes de `Navigator.pop()` en `_showIncomingRideDialog` (B23) |
+| **Qué se corrigió (técnico)** | En `_showIncomingRideDialog()` → `onAccept` callback: se movió el check `ref.read(gpsServiceProvider).valueOrNull` al inicio del callback, antes de `setState` y `Navigator.pop()`. Si `position == null`, se muestra un `SnackBar` con mensaje de GPS no disponible y se hace `return` sin cerrar el dialog. Solo si el GPS está disponible se procede con `setState(() => _pendingDialogRideId = null)`, `Navigator.of(context).pop()` y `_acceptRide()`. |
+| **Qué se corrigió (simple)** | Al tocar "Aceptar" en el dialog de raite, el dialog se cerraba inmediatamente aunque el GPS no estuviera disponible aún. `_acceptRide()` detectaba la falta de GPS y mostraba un SnackBar, pero el dialog ya estaba cerrado. El vendedor no tenía forma de reintentar la aceptación sin esperar otra notificación FCM. Ahora, si el GPS falla, el dialog permanece abierto y el vendedor puede tocar "Aceptar" de nuevo cuando el GPS esté listo. |
+| **Clase / Método / Módulo** | `_showIncomingRideDialog()` → `onAccept` callback → `map_screen_vendor.dart` |
+| **Justificación** | El patrón correcto ya estaba implementado para las paradas en `_showIncomingDialog()` (corrección B11 / C-93). Se aplicó el mismo patrón simétricamente para los raites. Adicionalmente, `_acceptRide()` ya no necesita repetir el check de GPS porque `onAccept` lo garantiza antes de llamarla, eliminando así la lógica duplicada de validación. |
+| **Problema que resolvía** | El vendedor perdía la oportunidad de aceptar el raite si el GPS tardaba unos segundos en fijar posición al arrancar, sin posibilidad de reintentar hasta que el comprador hiciera otra solicitud. |
+
+---
+
+### C-110 · `_signalVendorArrived` — FCM y PATCH no atómicos + falta `mounted` en `setState` (B24) `2026-05-17`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-110 · Separar try-catch FCM/PATCH y añadir `mounted` en `_signalVendorArrived` (B24) |
+| **Qué se corrigió (técnico)** | En `_signalVendorArrived()`: se separó el bloque `try-catch` único en dos bloques independientes. El primero cubre exclusivamente `vendorArrived(rideId)` (FCM): si falla, muestra SnackBar con mensaje específico "Error al notificar llegada" y hace `return` sin intentar el PATCH. El segundo cubre exclusivamente `updateStatus(rideId, 'in_progress')` (PATCH): si falla, muestra SnackBar con "Error al actualizar estado" y hace `return`. El `setState(() => _ridePhase = 2)` al final del camino exitoso se cambió a `if (mounted) setState(() => _ridePhase = 2)`. |
+| **Qué se corrigió (simple)** | Antes, FCM (`vendorArrived`) y PATCH (`updateStatus`) estaban en el mismo `try-catch`. Si el FCM tenía éxito pero el PATCH fallaba, el vendedor podía reintentar el botón "Llegué". En el reintento, el FCM volvía a enviarse: el comprador recibía dos notificaciones "El vendedor llegó". Ahora el primer bloque solo cubre el FCM: si ya tuvo éxito, el reintento solo reintenta el PATCH. Adicionalmente, el `setState` al final del camino exitoso podía lanzar una excepción si el widget fue desmontado mientras esperaba los `await`; el guard `if (mounted)` previene eso. |
+| **Clase / Método / Módulo** | `_signalVendorArrived()` → `map_screen_vendor.dart` |
+| **Justificación** | El patrón de separar operaciones no atómicas en bloques try-catch independientes es estándar cuando la primera operación no debe repetirse (notificación push idempotente solo en primera ejecución exitosa). El guard `mounted` antes de `setState` es una buena práctica obligatoria en Flutter tras cualquier `await` en un `State`. |
+| **Problema que resolvía** | En red inestable, un retry del botón "Llegué" enviaba al comprador una segunda notificación push "El vendedor llegó", creando confusión sobre el estado del raite. |
 
 ---
 

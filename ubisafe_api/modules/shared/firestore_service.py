@@ -273,7 +273,7 @@ class FirestoreService:
 
     @classmethod
     async def query_active_risk_zones_bbox(
-        cls, lat: float, lng: float, delta: float
+        cls, lat: float, lng: float, lat_delta: float, lng_delta: float
     ) -> list[dict]:
         """Return active zones whose location falls within a lat/lng bounding box."""
         docs = cls._db().collection("risk_zones").where("active", "==", True).stream()
@@ -283,7 +283,7 @@ class FirestoreService:
             loc = data.get("location") or {}
             zone_lat = loc.get("lat", 0)
             zone_lng = loc.get("lng", 0)
-            if abs(zone_lat - lat) <= delta and abs(zone_lng - lng) <= delta:
+            if abs(zone_lat - lat) <= lat_delta and abs(zone_lng - lng) <= lng_delta:
                 candidates.append({"id": doc.id, **data})
         return candidates
 

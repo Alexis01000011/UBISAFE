@@ -27,8 +27,10 @@ def _haversine_meters(lat1: float, lng1: float, lat2: float, lng2: float) -> flo
     return 2 * _EARTH_RADIUS_M * math.asin(math.sqrt(a))
 
 
-def _bbox_delta(radius_meters: float) -> float:
-    return radius_meters / 111_000
+def _bbox_delta(radius_meters: float, lat: float) -> tuple[float, float]:
+    lat_delta = radius_meters / 111_000
+    lng_delta = radius_meters / (111_000 * math.cos(math.radians(lat)))
+    return lat_delta, lng_delta
 
 
 @router.get("/health")
@@ -57,9 +59,9 @@ async def create_risk_zone(
             detail=f"risk_level must be one of {sorted(_VALID_RISK_LEVELS)}",
         )
 
-    delta = _bbox_delta(body.radius_meters)
+    lat_delta, lng_delta = _bbox_delta(body.radius_meters, body.location.lat)
     candidates = await FirestoreService.query_active_risk_zones_bbox(
-        body.location.lat, body.location.lng, delta
+        body.location.lat, body.location.lng, lat_delta, lng_delta
     )
     for cand in candidates:
         loc = cand.get("location") or {}
@@ -115,5 +117,10 @@ async def expire_risk_zone(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only the reporter can expire this zone",
+        )
+    if not zone.active:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Risk zone is already expired",
         )
     await FirestoreService.expire_risk_zone(zone_id)

@@ -242,3 +242,16 @@ async def test_expire_zone_not_found_returns_404(mock_firebase, as_reporter):
             res = await client.delete(f"/risk-zones/{ZONE_ID}", headers=_AUTH)
 
     assert res.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_expire_zone_already_expired_returns_409(mock_firebase, as_reporter):
+    from main import app
+
+    inactive_zone = _HIGH_ZONE.model_copy(update={"active": False})
+    with patch(_GET_ZONE, new_callable=AsyncMock, return_value=inactive_zone):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            res = await client.delete(f"/risk-zones/{ZONE_ID}", headers=_AUTH)
+
+    assert res.status_code == 409
+    assert "already expired" in res.json()["detail"]

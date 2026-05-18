@@ -657,6 +657,19 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
         destinationLat: double.tryParse(destinationLat) ?? 0,
         destinationLng: double.tryParse(destinationLng) ?? 0,
         onAccept: () async {
+          // B23: verificar GPS ANTES de cerrar el diálogo para que el
+          // vendedor pueda reintentar si el GPS no está disponible aún.
+          final position = ref.read(gpsServiceProvider).valueOrNull;
+          if (position == null) {
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('GPS no disponible. Activa el GPS para aceptar.'),
+                ),
+              );
+            }
+            return; // El diálogo permanece abierto para reintentar
+          }
           setState(() => _pendingDialogRideId = null);
           Navigator.of(context).pop();
           await _acceptRide(context, rideId,
@@ -749,7 +762,8 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
         setState(() => _ridePhase = 2);
       } else if (ride.status == RideStatus.completed ||
           ride.status == RideStatus.rejected ||
-          ride.status == RideStatus.expired) {
+          ride.status == RideStatus.expired ||
+          ride.status == RideStatus.cancelled) {
         _rideSub?.cancel();
         _rideSub = null;
         setState(() {
@@ -764,19 +778,30 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
   Future<void> _signalVendorArrived(BuildContext context) async {
     final rideId = _activeRideId;
     if (rideId == null) return;
+    // B24: FCM y PATCH separados para evitar FCM duplicado en retry.
+    // Si el FCM falla, el PATCH no se intenta y el vendedor puede reintentar
+    // sin enviar una segunda notificación "llegué" al comprador.
     try {
       await ref.read(rideRequestModuleProvider).vendorArrived(rideId);
-      // Transition to in_progress (passenger boards)
-      await ref
-          .read(rideRequestModuleProvider)
-          .updateStatus(rideId, 'in_progress');
-      setState(() => _ridePhase = 2);
     } catch (e) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
+        SnackBar(content: Text('Error al notificar llegada: $e')),
       );
+      return;
     }
+    try {
+      await ref
+          .read(rideRequestModuleProvider)
+          .updateStatus(rideId, 'in_progress');
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error al actualizar estado: $e')),
+      );
+      return;
+    }
+    if (mounted) setState(() => _ridePhase = 2);
   }
 
   Future<void> _completeRide(BuildContext context) async {
