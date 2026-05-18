@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 
+import '../../../core/api/api_client.dart';
+
 // ─── Enums ────────────────────────────────────────────────────────────────────
 
 /// Combined GPS permission + service-availability state.
@@ -67,6 +69,45 @@ final gpsServiceInstanceProvider = Provider<GPSService>((ref) {
   final service = GPSService();
   ref.onDispose(service.dispose);
   return service;
+});
+
+/// Watches [gpsServiceProvider] and keeps `last_location` in Firestore current
+/// via PATCH /auth/location. Fires at most once per 60 s or 100 m of movement.
+/// Activate by calling `ref.watch(locationSyncProvider)` in a map-screen build.
+final locationSyncProvider = Provider.autoDispose<Object?>((ref) {
+  final apiClient = ref.read(apiClientProvider);
+  DateTime? lastSync;
+  double? lastLat;
+  double? lastLng;
+
+  ref.listen<AsyncValue<Position?>>(gpsServiceProvider, (_, next) async {
+    final pos = next.valueOrNull;
+    if (pos == null) return;
+
+    final now = DateTime.now();
+    final distance = (lastLat != null && lastLng != null)
+        ? Geolocator.distanceBetween(lastLat!, lastLng!, pos.latitude, pos.longitude)
+        : double.infinity;
+
+    if (lastSync != null &&
+        now.difference(lastSync!) < const Duration(seconds: 60) &&
+        distance < 100) {
+      return;
+    }
+
+    lastSync = now;
+    lastLat = pos.latitude;
+    lastLng = pos.longitude;
+
+    try {
+      await apiClient.patch<dynamic>(
+        '/auth/location',
+        data: {'lat': pos.latitude, 'lng': pos.longitude},
+      );
+    } catch (_) {}
+  });
+
+  return null;
 });
 
 // ─── Type aliases (for dependency injection / testing) ────────────────────────

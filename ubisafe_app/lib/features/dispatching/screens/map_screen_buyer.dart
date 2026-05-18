@@ -43,6 +43,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
   @override
   Widget build(BuildContext context) {
     final positionAsync = ref.watch(gpsServiceProvider);
+    ref.watch(locationSyncProvider);
     final vendorsAsync = ref.watch(vendorMarkersProvider);
     final communityReportsAsync = ref.watch(activeCommunityReportsProvider);
 

@@ -3,7 +3,7 @@
 **Proyecto:** Los Borbotones · TSP · ITESM  
 **Rama activa:** `Rama-Miguel`  
 **Dispositivo de prueba:** Físico Android (depuración inalámbrica ADB, NO emulador de computadora)  
-**Última actualización:** 2026-05-17 (C-98)
+**Última actualización:** 2026-05-17 (C-103)
 
 ---
 
@@ -1260,6 +1260,67 @@
 | **Clase / Método / Módulo** | `_MapScreenBuyerState._onVendorTap()` → `ubisafe_app/lib/features/dispatching/screens/map_screen_buyer.dart` |
 | **Justificación** | Enviar al vendedor hacia una zona HIGH activa es el escenario exacto que el sistema de zonas de riesgo pretende evitar. El bloqueo en `_onVendorTap` (antes del bottom sheet) da retroalimentación inmediata al comprador sin necesitar una ida-vuelta al backend. Se usa `valueOrNull` sobre el provider ya watcheado en `build()`, que en condiciones normales ya tiene el valor cacheado al momento del tap. |
 | **Problema que resolvía** | Un comprador dentro de una zona de alto riesgo podía solicitar parada o raite normalmente; el flujo completo llegaba al vendedor, quien navegaba hacia la zona de peligro sin advertencia. |
+
+### C-99 · `_buildFallbackDrawer` cerraba sesión sin detener transmisión RTDB `2026-05-17`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-99 · `stopTransmission` antes de `signOut` en `_buildFallbackDrawer` |
+| **Qué se corrigió (técnico)** | En `_buildFallbackDrawer` el `onPressed` del botón "Cerrar Sesión" solo llamaba `await ref.read(authModuleProvider).signOut()`. Se añadió el mismo patrón que el drawer normal: `ref.read(gpsServiceInstanceProvider)` → verificar `activeUid != null` → `await gps.stopTransmission(uid)` → `signOut()`. |
+| **Qué se corrigió (simple)** | Cuando el perfil no cargaba (sin red, API caída) y el vendor cerraba sesión desde el drawer de error, el nodo `vendedores_activos/{uid}` quedaba activo en RTDB indefinidamente porque el token se invalidaba antes de que se pudiera eliminar el nodo. |
+| **Clase / Método / Módulo** | `_DrawerModuleState._buildFallbackDrawer()` → `ubisafe_app/lib/features/identity/profile/widgets/drawer_module.dart` |
+| **Justificación** | `stopTransmission` usa un timeout de 2 s con fire-and-forget, y el `onDisconnect().remove()` limpia el nodo cuando se recupera la conexión. Hacer el stop antes del signOut garantiza que el token aún es válido cuando se intenta la eliminación del nodo, maximizando la probabilidad de éxito. |
+| **Problema que resolvía** | Un vendor sin red que cerrara sesión dejaba su marcador visible en el mapa de los compradores hasta que la RTDB detectara la desconexión, que podía tardar minutos. |
+
+---
+
+### C-100 · `_toggleRideEnabled` no actualizaba `_rideEnabledSet` cuando GPS estaba inactivo `2026-05-17`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-100 · Condición incorrecta en `_toggleRideEnabled` para llamar `updateRideEnabled` |
+| **Qué se corrigió (técnico)** | Se eliminó la guardia `if (ref.read(gpsServiceProvider).valueOrNull != null)` que envolvía la llamada a `ref.read(gpsServiceInstanceProvider).updateRideEnabled(uid, value)`. Ahora se llama incondicionalmente. `updateRideEnabled` ya tiene su propia guardia interna (`if (_activeUid != vendorUid) return`) que omite la escritura RTDB cuando no hay transmisión activa, pero siempre asigna `_rideEnabled = value` y `_rideEnabledSet = true`. |
+| **Qué se corrigió (simple)** | Si el vendor cambiaba el switch "Ofrecer Raites" con el GPS desactivado, el toggle no se persistía en el objeto `GPSService`. Cuando después activaba el GPS, `startTransmission` veía `_rideEnabledSet == false` y sobreescribía el valor del switch con el valor del perfil de Firestore, deshaciendo la elección explícita del vendor. |
+| **Clase / Método / Módulo** | `_DrawerModuleState._toggleRideEnabled()` → `ubisafe_app/lib/features/identity/profile/widgets/drawer_module.dart` |
+| **Justificación** | `gpsServiceProvider` es un `StreamProvider<Position?>` que emite null mientras no hay GPS activo. La condición original verificaba la disponibilidad de posición, no si la transmisión RTDB estaba activa. Llamar `updateRideEnabled` siempre es seguro porque la guardia interna de GPSService ya maneja el caso sin transmisión. |
+| **Problema que resolvía** | El vendor ajustaba su disponibilidad para raites con GPS apagado, pero al encender el GPS el valor se revertía al último leído desde Firestore. |
+
+---
+
+### C-101 · `last_location` nunca escrito → notificaciones FCM de proximidad nunca enviadas `2026-05-17`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-101 · Endpoint `PATCH /auth/location` + `locationSyncProvider` (B15) |
+| **Qué se corrigió (técnico)** | **Backend:** Se añadió `UpdateLocationBody(lat, lng)` a `identity/schemas.py`. Se añadió el endpoint `PATCH /auth/location` (HTTP 204) a `identity/router.py`. Se añadió `FirestoreService.update_user_location(uid, lat, lng)` que escribe `{"last_location": {"lat": ..., "lng": ...}, "last_location_at": SERVER_TIMESTAMP, "updated_at": SERVER_TIMESTAMP}` con `merge=True`. **Flutter:** Se añadió `locationSyncProvider` (`Provider.autoDispose`) a `gps_service.dart`. Usa `ref.listen` sobre `gpsServiceProvider` y llama al endpoint con throttle (≥100 m **o** ≥60 s entre llamadas). Se activó con `ref.watch(locationSyncProvider)` en los métodos `build` de `MapScreenVendor` y `MapScreenBuyer`. |
+| **Qué se corrigió (simple)** | `FirestoreService.get_nearby_user_fcm_tokens()` filtraba usuarios por `last_location` pero ese campo nunca se escribía en Firestore (el GPS del vendor va a RTDB, no a Firestore). Resultado: la función siempre retornaba `[]` y ningún usuario recibía notificaciones FCM de proximidad para zonas de riesgo ni reportes comunitarios. |
+| **Clase / Método / Módulo** | `PATCH /auth/location` → `ubisafe_api/modules/identity/router.py` · `FirestoreService.update_user_location` → `firestore_service.py` · `locationSyncProvider` → `ubisafe_app/lib/features/presence/services/gps_service.dart` · `MapScreenVendor.build` + `MapScreenBuyer.build` |
+| **Justificación** | La opción elegida (nuevo endpoint API en lugar de escritura directa a Firestore desde Flutter) mantiene todas las escrituras a Firestore en la capa de API, consistente con el ADR #2. El throttle (100 m / 60 s) minimiza tráfico sin sacrificar precisión para notificaciones de proximidad al radio estándar de 5 km. El provider es `autoDispose` para que se inactive cuando ningún map screen está en pantalla. |
+| **Problema que resolvía** | Reportes comunitarios y zonas de riesgo no enviaban notificaciones FCM a ningún usuario, independientemente de su distancia al evento. |
+
+### C-102 · `upsert_user` guardaba `role` en minúsculas — check de rol en backend era case-sensitive `2026-05-17`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-102 · Normalización de `role` a mayúsculas en `upsert_user` (B16) |
+| **Qué se corrigió (técnico)** | En `FirestoreService.upsert_user`, tras `body.model_dump(exclude_none=True)`, se añadió: `if "role" in data and isinstance(data["role"], str): data["role"] = data["role"].upper()`. La normalización ocurre antes de la escritura a Firestore, por lo que todos los documentos nuevos y actualizados quedan con `role` en mayúsculas. |
+| **Qué se corrigió (simple)** | Si el cliente enviaba `role: "vendor"` (minúsculas), Firestore lo guardaba en minúsculas. `DrawerModule` mostraba el switch "Ofrecer Raites" porque acepta ambos casos, pero `PATCH /auth/ride-enabled` respondía 403 porque solo comparaba con `"VENDOR"` en mayúsculas. El vendor veía el toggle revertirse sin explicación. |
+| **Clase / Método / Módulo** | `FirestoreService.upsert_user()` → `ubisafe_api/modules/shared/firestore_service.py` |
+| **Justificación** | Normalizar en escritura es más robusto que normalizar en cada comparación: garantiza consistencia en Firestore independientemente de cuántos endpoints lean el campo. |
+| **Problema que resolvía** | Vendors con `role: "vendor"` en minúsculas no podían activar la visibilidad de raites; el toggle se revertía con un 403 silencioso. |
+
+---
+
+### C-103 · `_toggleRideEnabled` silenciaba el error sin feedback al vendor `2026-05-17`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-103 · SnackBar de error en `_toggleRideEnabled` (B17) |
+| **Qué se corrigió (técnico)** | Se capturó `ScaffoldMessenger.of(context)` en `messenger` antes del `await` (patrón correcto para evitar `use_build_context_synchronously`). En el bloque `catch`, tras el rollback visual `setState(() => _rideEnabled = !value)`, se añadió `messenger.showSnackBar(const SnackBar(content: Text('No se pudo actualizar. Intenta de nuevo.')))`. |
+| **Qué se corrigió (simple)** | Al fallar el PATCH (sin red, 403, 5xx), el switch se revertía visualmente pero el vendor no recibía ningún mensaje. Ahora aparece un SnackBar explicando que el cambio no se aplicó. |
+| **Clase / Método / Módulo** | `_DrawerModuleState._toggleRideEnabled()` → `ubisafe_app/lib/features/identity/profile/widgets/drawer_module.dart` |
+| **Justificación** | Capturar `ScaffoldMessengerState` antes del gap asíncrono es el patrón recomendado por el linter (`use_build_context_synchronously`): el objeto capturado sigue siendo válido tras el await sin necesitar verificar `context.mounted`. |
+| **Problema que resolvía** | El vendor veía el toggle regresar a su posición anterior sin saber si fue un problema de red o un rechazo del servidor, llevándolo a reintentar repetidamente. |
 
 ---
 

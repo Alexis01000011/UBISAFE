@@ -263,6 +263,9 @@ class _DrawerModuleState extends ConsumerState<DrawerModule> {
             ),
             onPressed: () async {
               Navigator.pop(context);
+              final gps = ref.read(gpsServiceInstanceProvider);
+              final uid = gps.activeUid;
+              if (uid != null) await gps.stopTransmission(uid);
               await ref.read(authModuleProvider).signOut();
             },
           ),
@@ -294,16 +297,18 @@ class _DrawerModuleState extends ConsumerState<DrawerModule> {
       _rideToggling = true;
       _rideEnabled = value;
     });
+    final messenger = ScaffoldMessenger.of(context);
     try {
       await ref.read(apiClientProvider).patch<dynamic>(
         '/auth/ride-enabled',
         data: {'ride_enabled': value},
       );
-      if (ref.read(gpsServiceProvider).valueOrNull != null) {
-        ref.read(gpsServiceInstanceProvider).updateRideEnabled(uid, value);
-      }
+      ref.read(gpsServiceInstanceProvider).updateRideEnabled(uid, value);
     } catch (_) {
       setState(() => _rideEnabled = !value);
+      messenger.showSnackBar(
+        const SnackBar(content: Text('No se pudo actualizar. Intenta de nuevo.')),
+      );
     } finally {
       setState(() => _rideToggling = false);
     }

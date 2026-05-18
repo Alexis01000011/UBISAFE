@@ -50,6 +50,8 @@ class FirestoreService:
         doc = ref.get()
 
         data: dict[str, Any] = body.model_dump(exclude_none=True)
+        if "role" in data and isinstance(data["role"], str):
+            data["role"] = data["role"].upper()
         data["updated_at"] = SERVER_TIMESTAMP
 
         if not doc.exists:
@@ -601,4 +603,15 @@ class FirestoreService:
     async def update_ride_enabled(cls, uid: str, value: bool) -> None:
         cls._db().collection("users").document(uid).set(
             {"ride_enabled": value, "updated_at": SERVER_TIMESTAMP}, merge=True
+        )
+
+    @classmethod
+    async def update_user_location(cls, uid: str, lat: float, lng: float) -> None:
+        cls._db().collection("users").document(uid).set(
+            {
+                "last_location": {"lat": lat, "lng": lng},
+                "last_location_at": SERVER_TIMESTAMP,
+                "updated_at": SERVER_TIMESTAMP,
+            },
+            merge=True,
         )

@@ -4,6 +4,7 @@ from dependencies import get_current_user
 from modules.identity.schemas import (
     DeviceTokenRequest,
     SyncProfileRequest,
+    UpdateLocationBody,
     UpdateRideEnabledRequest,
     UserProfile,
 )
@@ -62,3 +63,11 @@ async def update_ride_enabled(
             detail="Only VENDOR users can update ride_enabled.",
         )
     await FirestoreService.update_ride_enabled(uid, body.ride_enabled)
+
+
+@router.patch("/location", status_code=status.HTTP_204_NO_CONTENT)
+async def update_location(
+    body: UpdateLocationBody,
+    current_user: dict = Depends(get_current_user),
+):
+    await FirestoreService.update_user_location(current_user["uid"], body.lat, body.lng)

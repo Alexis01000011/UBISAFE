@@ -32,3 +32,8 @@ class DeviceTokenRequest(BaseModel):
 
 class UpdateRideEnabledRequest(BaseModel):
     ride_enabled: bool
+
+
+class UpdateLocationBody(BaseModel):
+    lat: float
+    lng: float
