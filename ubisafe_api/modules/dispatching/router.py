@@ -111,9 +111,21 @@ async def update_stop_status(
         extra = {"accepted_at": True}
     elif body.status == "completed":
         extra = {"completed_at": True}
-    updated = await FirestoreService.update_stop_status(stop_id, body.status, extra=extra)
-    if updated is None:
+
+    # Use an atomic transaction to close the TOCTOU window between the
+    # VALID_TRANSITIONS check above and the Firestore write.  Without this,
+    # a concurrent 'expired' write committed between the two operations could
+    # be silently overwritten by a late-arriving 'accepted' write (B-new).
+    updated, was_updated = await FirestoreService.update_stop_status_if_in_state(
+        stop_id, doc.status, body.status, extra=extra
+    )
+    if updated is None and not was_updated:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stop request not found")
+    if not was_updated:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Stop request already in status '{updated.status}'",
+        )
 
     buyer_uid = updated.buyer_uid
     vendor_uid = updated.vendor_uid

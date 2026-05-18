@@ -51,10 +51,19 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
       if (_activeStopId != null && event.stopId != _activeStopId) return;
 
       if (event.status == StopRequestStatus.accepted) {
+        // Guard: if the local 60-s timer already fired (_mapState went to idle
+        // via onExpired), a late-arriving accepted FCM must be discarded.
+        // Without this check _activeStopId is null and the guard at line 51
+        // never filters it out, causing the buyer to navigate to /tracking
+        // even after the stop was locally expired (B-new).
+        if (_mapState != _BuyerMapState.waiting) {
+          ref.read(stopRequestEventProvider.notifier).state = null;
+          return;
+        }
         ref.read(stopRequestModuleProvider).cancelTimer();
         setState(() {
           _mapState = _BuyerMapState.idle;
-          _activeStopId = null; // B08: limpiar siempre al aceptar
+          _activeStopId = null;
         });
         ref.read(stopRequestEventProvider.notifier).state = null;
         if (!context.mounted) return;

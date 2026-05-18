@@ -134,16 +134,19 @@ class FirestoreService:
         return cls._doc_to_stop_request(doc)
 
     @classmethod
-    async def update_stop_status_if_pending(
-        cls, stop_id: str, new_status: str
+    async def update_stop_status_if_in_state(
+        cls,
+        stop_id: str,
+        from_status: str,
+        new_status: str,
+        extra: dict | None = None,
     ) -> tuple[StopRequest | None, bool]:
-        """Update status only if current status is 'pending' — atomically.
+        """Atomically update stop status only when current status == from_status.
 
-        Uses a Firestore transaction to eliminate the check-then-act race condition
-        where a concurrent vendor 'accepted' write could be overwritten by the buyer's
-        'expired' write if both read 'pending' before either one commits (B07).
-
-        Returns (doc, was_updated). If not pending, returns (current_doc, False).
+        Uses a Firestore transaction to close the TOCTOU window between the
+        VALID_TRANSITIONS check in the router and the actual Firestore write.
+        Returns (updated_doc, True) on success; (current_doc, False) if state
+        doesn't match from_status; (None, False) if the document doesn't exist.
         """
         from google.cloud.firestore import transactional as fs_transactional  # noqa: PLC0415
 
@@ -155,9 +158,12 @@ class FirestoreService:
             doc = ref.get(transaction=transaction)
             if not doc.exists:
                 return None, False
-            if (doc.to_dict() or {}).get("status") != "pending":
+            if (doc.to_dict() or {}).get("status") != from_status:
                 return cls._doc_to_stop_request(doc), False
-            transaction.update(ref, {"status": new_status, "updated_at": SERVER_TIMESTAMP})
+            update_data: dict[str, Any] = {"status": new_status, "updated_at": SERVER_TIMESTAMP}
+            if extra:
+                update_data.update({k: SERVER_TIMESTAMP for k, v in extra.items() if v is True})
+            transaction.update(ref, update_data)
             return None, True
 
         result, was_updated = _txn(db.transaction())
@@ -165,6 +171,17 @@ class FirestoreService:
             doc = ref.get()
             return cls._doc_to_stop_request(doc), True
         return result, was_updated
+
+    @classmethod
+    async def update_stop_status_if_pending(
+        cls, stop_id: str, new_status: str
+    ) -> tuple[StopRequest | None, bool]:
+        """Update status only if current status is 'pending' — atomically (B07).
+
+        Thin wrapper around update_stop_status_if_in_state kept for backwards
+        compatibility with the expired-transition path in the router.
+        """
+        return await cls.update_stop_status_if_in_state(stop_id, "pending", new_status)
 
     # ------------------------------------------------------------ risk zones
     @classmethod

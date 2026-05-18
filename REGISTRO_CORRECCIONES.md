@@ -3,7 +3,7 @@
 **Proyecto:** Los Borbotones · TSP · ITESM  
 **Rama activa:** `Rama-Miguel`  
 **Dispositivo de prueba:** Físico Android (depuración inalámbrica ADB, NO emulador de computadora)  
-**Última actualización:** 2026-05-17 (C-94)
+**Última actualización:** 2026-05-17 (C-96)
 
 ---
 
@@ -1208,6 +1208,32 @@
 | **Clase / Módulo** | `NotificationService.send()` → `ubisafe_api/modules/shared/notification_service.py` |
 | **Justificación** | El documento CU-01 §5.3 especifica mensajes data-only. La discrepancia causaba notificaciones del SO que podían redirigir al usuario a un diálogo stale vía `onMessageOpenedApp`. Los multicast (`send_community_report_nearby`, `notify_risk_zone_alert`) ya eran data-only; este cambio homogeniza el comportamiento de todos los mensajes unicast |
 | **Problema que resolvía** | Posible doble UI (notificación del SO + diálogo in-app en foreground) y eventos stale procesados al tocar notificaciones antiguas en la barra del SO |
+
+---
+
+### C-95 · Transiciones no-`expired` del stop request no eran atómicas — `accepted` podía sobrescribir `expired` `2026-05-17`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-95 · Atomic update para todas las transiciones de stop request con `update_stop_status_if_in_state` |
+| **Qué se corrigió (técnico)** | Se agregó `FirestoreService.update_stop_status_if_in_state(stop_id, from_status, new_status, extra)` en `firestore_service.py`. Este método ejecuta en una transacción Firestore: lee el documento, verifica que el estado actual sea `from_status`, y solo entonces aplica la escritura atómica. El router (`router.py`) se actualizó para usar esta función en todas las transiciones no-`expired` (`accepted`, `rejected`, `completed`, `cancelled`) en lugar del antiguo `update_stop_status` que era un read-then-write sin transacción. La función `update_stop_status_if_pending` se refactorizó como un thin-wrapper sobre la nueva función genérica. |
+| **Qué se corrigió (simple)** | Antes, cuando el comprador enviaba el PATCH `expired` y el vendedor enviaba el PATCH `accepted` casi al mismo tiempo (ventana de milisegundos), el `accepted` podía sobrescribir el `expired` ya comprometido por la transacción, porque `update_stop_status` escribía sin verificar el estado actual. Ahora cada transición verifica atómicamente que el estado en Firestore aún sea el estado origen esperado antes de escribir; si no coincide, retorna 409. |
+| **Clase / Módulo** | `FirestoreService.update_stop_status_if_in_state()` → `ubisafe_api/modules/shared/firestore_service.py`; `update_stop_status()` en router → `ubisafe_api/modules/dispatching/router.py` |
+| **Justificación** | La corrección C-92 hizo atómica la transición `pending → expired` pero dejó las demás transiciones vulnerables al mismo TOCTOU entre el check de `VALID_TRANSITIONS` y la escritura a Firestore. El síntoma reportado era que el vendedor podía "aceptar" una parada ya expirada si tocaba el botón en el intervalo exacto en que la transacción de expiración estaba en vuelo. |
+| **Problema que resolvía** | El vendedor podía aceptar una parada cuyo estado ya era `expired` en Firestore, lo que generaba inconsistencia de estado y llevaba a ambos lados a la pantalla de entrega aunque la parada había expirado. |
+
+---
+
+### C-96 · `stop_request_accepted` FCM tardío navegaba al comprador a `/tracking` después de que el timer local ya expiró `2026-05-17`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-96 · Guard `_mapState == waiting` en handler `stop_request_accepted` del comprador |
+| **Qué se corrigió (técnico)** | En `map_screen_buyer.dart`, el listener de `stopRequestEventProvider` para `StopRequestStatus.accepted` ahora verifica `_mapState == _BuyerMapState.waiting` antes de procesar el evento. Si `_mapState != waiting` (porque `onExpired()` del timer local ya ejecutó y llevó el estado a `idle`), el evento se descarta con un clear del provider. |
+| **Qué se corrigió (simple)** | Cuando el timer local del comprador disparaba `onExpired()`, `_activeStopId` quedaba en `null`. La guarda original (`if (_activeStopId != null && event.stopId != _activeStopId) return`) dejaba de funcionar con `_activeStopId == null` porque la condición siempre evaluaba `false`. Un FCM `stop_request_accepted` llegado después de que el timer expiró pasaba la guarda y enviaba al comprador a `/tracking` aunque el stop ya había sido expirado localmente. |
+| **Clase / Módulo** | `_MapScreenBuyerState` — listener de `stopRequestEventProvider` → `ubisafe_app/lib/features/dispatching/screens/map_screen_buyer.dart` |
+| **Justificación** | El estado `_mapState` es la fuente de verdad del estado de la UI del comprador. Si ya es `idle` cuando llega el `accepted`, significa que el comprador ya resolvió el stop (sea por timer o por FCM `expired`); cualquier `accepted` posterior es stale y debe descartarse. |
+| **Problema que resolvía** | Cuando el vendedor aceptaba una parada cuyo estado en el comprador ya era `idle` (post-timer), el comprador navegaba a la pantalla de tracking y el vendedor al panel de entrega, generando un estado inconsistente de "entrega activa" en una parada ya expirada. |
 
 ---
 
