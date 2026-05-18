@@ -24,6 +24,14 @@ _COMMUNITY_REPORT_TTL_HOURS = 24
 _EARTH_RADIUS_KM = 6371.0
 
 
+class VoteConflictError(Exception):
+    """Raised inside a Firestore transaction when a business rule is violated."""
+
+    def __init__(self, detail: str) -> None:
+        self.detail = detail
+        super().__init__(detail)
+
+
 def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     """Return great-circle distance in km between two points."""
     dlat = math.radians(lat2 - lat1)
@@ -436,6 +444,13 @@ class FirestoreService:
         def _txn(transaction):
             doc = ref.get(transaction=transaction)
             data = doc.to_dict() or {}
+
+            # Re-verify business rules atomically (B25, B26 — pre-checks in the
+            # router use a stale snapshot; these are the authoritative guards).
+            if data.get("status") != "pending_validation":
+                raise VoteConflictError(f"report_status_is_{data.get('status', 'unknown')}")
+            if any(v.get("user_uid") == voter_uid for v in data.get("validations", [])):
+                raise VoteConflictError("already_voted")
 
             vote_entry = {
                 "user_uid": voter_uid,

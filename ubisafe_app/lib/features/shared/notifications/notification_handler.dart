@@ -177,6 +177,11 @@ class NotificationHandler {
       case 'community_report_nearby':
         _onCommunityReportNearby();
 
+      // B30 — fired by the backend when a report reaches confirmed/dismissed.
+      // Reuses the same callback to refresh the active reports list.
+      case 'report_status_changed':
+        _onCommunityReportNearby();
+
       case 'ride_request_incoming':
         _setIncomingRide(Map<String, dynamic>.from(data));
 

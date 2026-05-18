@@ -3,7 +3,7 @@
 **Proyecto:** Los Borbotones · TSP · ITESM  
 **Rama activa:** `Rama-Miguel`  
 **Dispositivo de prueba:** Físico Android (depuración inalámbrica ADB, NO emulador de computadora)  
-**Última actualización:** 2026-05-17 (C-110)
+**Última actualización:** 2026-05-18 (C-122)
 
 ---
 
@@ -1406,6 +1406,162 @@
 | **Clase / Método / Módulo** | `_signalVendorArrived()` → `map_screen_vendor.dart` |
 | **Justificación** | El patrón de separar operaciones no atómicas en bloques try-catch independientes es estándar cuando la primera operación no debe repetirse (notificación push idempotente solo en primera ejecución exitosa). El guard `mounted` antes de `setState` es una buena práctica obligatoria en Flutter tras cualquier `await` en un `State`. |
 | **Problema que resolvía** | En red inestable, un retry del botón "Llegué" enviaba al comprador una segunda notificación push "El vendedor llegó", creando confusión sobre el estado del raite. |
+
+---
+
+### C-111 · `RiskZone.fromFirestore` — modelo sin factory para leer snapshots en tiempo real `2026-05-17`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-111 · Añadir `RiskZone.fromFirestore` para snapshots de Firestore |
+| **Qué se corrigió (técnico)** | En `risk_zone.dart`: se añadió `import 'package:cloud_firestore/cloud_firestore.dart'` y el factory `RiskZone.fromFirestore(String id, Map<String, dynamic> data)`. La función interna `parseDate(dynamic v)` maneja tres casos: `Timestamp` nativo de Firestore (para `created_at` y `expired_at`, escritos con `SERVER_TIMESTAMP`), `String` ISO 8601 (para `expires_at`, escrito por el backend Python como `.isoformat()`), y fallback a `DateTime.now()`. El campo `location` usa el mismo acceso de mapa que `fromJson`. |
+| **Qué se corrigió (simple)** | El modelo `RiskZone` solo tenía `fromJson` (para respuestas REST). Al migrar el provider a un stream directo de Firestore, los snapshots llegan con `Timestamp` nativos de Firestore en vez de strings ISO. Sin `fromFirestore`, el stream no podría construir instancias de `RiskZone` a partir de los documentos de la colección. |
+| **Clase / Método / Módulo** | `RiskZone.fromFirestore()` → `ubisafe_app/lib/features/safety/models/risk_zone.dart` |
+| **Justificación** | Firestore almacena `SERVER_TIMESTAMP` como un objeto `Timestamp`, no como string. El backend Python convierte esos timestamps a ISO al servir la REST API (`_doc_to_risk_zone`), pero el cliente Firestore de Flutter recibe el tipo nativo. Es necesario un factory dedicado que los maneje. |
+| **Problema que resolvía** | Sin `fromFirestore`, el `StreamProvider` habría lanzado `TypeError` al intentar parsear un `Timestamp` como `String` al construir `RiskZone`. |
+
+---
+
+### C-112 · `activeRiskZonesProvider` — `FutureProvider` REST reemplazado por `StreamProvider` Firestore `2026-05-17`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-112 · `activeRiskZonesProvider` como `StreamProvider.autoDispose` con stream de Firestore |
+| **Qué se corrigió (técnico)** | En `risk_zone_service.dart`: se eliminaron los imports de `api_client` y `flutter_riverpod FutureProvider`; se añadieron `dart:math` y `cloud_firestore`. Se eliminó `riskZoneRefreshProvider` (ya no necesario). `activeRiskZonesProvider` pasó de `FutureProvider.autoDispose<List<RiskZone>>` a `StreamProvider.autoDispose<List<RiskZone>>`. El nuevo provider suscribe a `FirebaseFirestore.instance.collection('risk_zones').where('active', isEqualTo: true).snapshots()` y filtra por proximidad (<5 km) en cliente usando Haversine. Los documentos se mapean con `RiskZone.fromFirestore`. Se actualizó el test file (`risk_zone_service_test.dart`) para eliminar los grupos obsoletos basados en REST y `riskZoneRefreshProvider`, y añadir tests de `fromFirestore` con fixtures que ejercitan tanto `String` ISO como `Timestamp` nativo. |
+| **Qué se corrigió (simple)** | El provider anterior usaba `GET /risk-zones` (REST) y solo se actualizaba cuando llegaba un FCM `risk_zone_alert` o se llamaba `ref.invalidate`. Esto significaba que si una zona expiraba automáticamente, se eliminaba manualmente desde la consola de Firebase, o expiraba por el endpoint `DELETE`, el mapa del vendedor y del comprador no se actualizaban hasta el próximo evento externo. El nuevo `StreamProvider` tiene una conexión persistente con Firestore: cualquier cambio en la colección `risk_zones` (de cualquier fuente) se refleja en el mapa en ~1 segundo. |
+| **Clase / Método / Módulo** | `activeRiskZonesProvider`, `_haversineKm()` → `ubisafe_app/lib/features/safety/services/risk_zone_service.dart` · `risk_zone_service_test.dart` |
+| **Justificación** | El patrón de stream directo a Firestore elimina la dependencia de FCM para actualizaciones en primer plano y hace el sistema resiliente a cualquier origen de cambio (job automático, API, consola). `ref.invalidate(activeRiskZonesProvider)` sigue funcionando con `StreamProvider` (cancela y re-suscribe el stream), por lo que el `notification_handler.dart` no requiere cambios estructurales. |
+| **Problema que resolvía** | Al expirar una zona de riesgo (por cualquier mecanismo), los círculos de zona permanecían en el mapa del vendedor y comprador indefinidamente hasta que el usuario recibía un FCM no relacionado o reiniciaba la app. |
+
+---
+
+### C-113 · Handler FCM sin `case 'risk_zone_expired'` — zonas no se refrescaban en background `2026-05-17`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-113 · Añadir `case 'risk_zone_expired'` en `notification_handler.dart` |
+| **Qué se corrigió (técnico)** | En `_dispatchData()` de `notification_handler.dart`, se añadió `case 'risk_zone_expired': _invalidateRiskZones();` inmediatamente después del `case 'risk_zone_alert'` existente. El FCM `risk_zone_expired` es enviado por la Cloud Function `on_risk_zone_write` (C-114) cuando detecta que una zona transiciona a inactiva. |
+| **Qué se corrigió (simple)** | El `StreamProvider` de Firestore cubre actualizaciones en tiempo real cuando la app está en primer plano. Cuando la app está en background o killed, el stream no está activo. Al volver al primer plano, el stream se re-suscribe automáticamente y obtiene el estado actual. Sin embargo, si el usuario tenía la app en segundo plano y recibía el FCM `risk_zone_expired`, el sistema lo ignoraba (caía al `default: debugPrint`), perdiendo la oportunidad de forzar un refresco limpio. Con este `case`, al volver al primer plano el provider se invalida y el stream re-emite la lista actualizada. |
+| **Clase / Método / Módulo** | `_dispatchData()` → `ubisafe_app/lib/features/shared/notifications/notification_handler.dart` |
+| **Justificación** | El `case 'risk_zone_alert'` ya existía y llamaba `_invalidateRiskZones()`. La corrección es simétrica: el FCM de creación y el de expiración tienen el mismo efecto desde el punto de vista del cliente — invalidar el provider para que re-sincronice con Firestore. |
+| **Problema que resolvía** | FCM `risk_zone_expired` llegaba al dispositivo pero era ignorado por el handler (`default: debugPrint`). El mapa no se actualizaba al reabrir la app tras recibir la notificación de zona expirada en background. |
+
+---
+
+### C-114 · Sin mecanismo de expiración automática de zonas de riesgo a las 24h `2026-05-17`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-114 · Cloud Functions `expire_risk_zones` (scheduled) + `on_risk_zone_write` (Firestore trigger) |
+| **Qué se corrigió (técnico)** | En `functions/main.py` se añadieron dos Cloud Functions gen2 en Python. (1) `expire_risk_zones`: decorada con `@scheduler_fn.on_schedule(schedule="every 30 minutes")`. Consulta todas las zonas con `active == True`, parsea `expires_at` (string ISO del backend Python) con `datetime.fromisoformat`, y llama a `doc.reference.update({"active": False, "expired_at": SERVER_TIMESTAMP})` para cada zona vencida. (2) `on_risk_zone_write`: decorada con `@firestore_fn.on_document_written(document="risk_zones/{zone_id}")`. Evalúa si la transición es `active: True → False` (o borrado total del documento). Si es así, obtiene tokens FCM de usuarios a <5 km usando `_get_nearby_fcm_tokens()` (Haversine) y envía `messaging.MulticastMessage` con `type: "risk_zone_expired"`. Se añadieron `math`, `datetime`, `scheduler_fn` y `messaging` a los imports. Se añadió la función utilitaria `_haversine_km()` y `_get_nearby_fcm_tokens()` reutilizadas por ambas funciones. |
+| **Qué se corrigió (simple)** | El campo `expires_at` se calculaba y guardaba correctamente al crear una zona (24h en el futuro), pero nadie lo verificaba. Las zonas permanecían `active: True` en Firestore indefinidamente aunque hubieran pasado las 24h. Ahora: (a) cada 30 minutos se revisan y expiran las zonas vencidas; (b) cuando cualquier zona pasa a inactiva — por el job, por el endpoint `DELETE /risk-zones/{id}`, o por edición/borrado manual en la consola de Firebase — se envía FCM `risk_zone_expired` a los usuarios cercanos. El `on_risk_zone_write` cubre el borrado manual porque el trigger `onWrite` se dispara también cuando `change.after.exists == False` (documento eliminado). |
+| **Clase / Método / Módulo** | `expire_risk_zones()`, `on_risk_zone_write()`, `_haversine_km()`, `_get_nearby_fcm_tokens()` → `functions/main.py` |
+| **Justificación** | La función `expire_risk_zones` no puede usar `where('expires_at', '<=', now)` directamente en Firestore porque `expires_at` está almacenado como string ISO (no como Timestamp nativo), lo que haría la comparación lexicográfica en lugar de temporal. La solución es descargar el conjunto completo de zonas activas (siempre pequeño) y filtrar en Python. El trigger `on_risk_zone_write` centraliza el envío de FCM independientemente del origen del cambio, evitando duplicar lógica de notificación en el API y en el job. |
+| **Problema que resolvía** | Zonas de riesgo reportadas hace más de 24 horas seguían apareciendo en el mapa como activas. No existía ningún proceso que hiciera cumplir el TTL de 24h establecido en `_RISK_ZONE_TTL_HOURS = 24`. |
+
+---
+
+### C-115 · `locationSyncProvider` seteaba throttle antes del `await` → cold-start bloqueaba sync por 60 s (B15 suplemento) `2026-05-18`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-115 · Reset de `lastSync = null` en el `catch` de `locationSyncProvider` |
+| **Qué se corrigió (técnico)** | En `locationSyncProvider` (`gps_service.dart`), `lastSync = now` se asignaba antes de `await apiClient.patch('/auth/location', ...)`. Si el servidor respondía con timeout (~10 s en cold start de Render), el `catch (_) {}` swallowaba el error pero el throttle quedaba activo (`lastSync != null`). Los 60 s de throttle transcurrían con `last_location` null en Firestore. Se añadió `lastSync = null;` dentro del bloque `catch` para resetear el throttle y permitir el retry en el siguiente fix GPS. |
+| **Qué se corrigió (simple)** | Al abrir la app por primera vez (con la API de Render en cold start), el primer intento de sync de ubicación fallaba con timeout. Como el throttle ya estaba activo, los siguientes 60 segundos de posiciones GPS no reintentaban el sync. Todos los usuarios que abrieran la app menos de 60 s antes de que alguien reportara un foco o zona permanecían invisibles para `get_nearby_user_fcm_tokens` → no recibían la notificación FCM. |
+| **Clase / Método / Módulo** | `locationSyncProvider` → `ubisafe_app/lib/features/presence/services/gps_service.dart` |
+| **Justificación** | El throttle se aplica antes del `await` para que disparos simultáneos del GPS (cada ~1 s) no apilen requests concurrentes. El reset en `catch` garantiza que un solo fallo no bloquee el sync por 60 s: el siguiente GPS tick (≥1 s después) reintenta, aún protegiendo contra floods porque el fallo no actualiza `lastLat`/`lastLng`. |
+| **Problema que resolvía** | Reportes comunitarios y zonas de riesgo no generaban notificaciones FCM a usuarios que hubieran abierto la app menos de 60 s antes del reporte, especialmente en el primer lanzamiento del día cuando Render realiza un cold start. |
+
+---
+
+### C-116 · `vote_community_report` — checks de negocio fuera de la transacción Firestore → race condition de doble voto (B25, B26) `2026-05-18`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-116 · `VoteConflictError` + re-verificación dentro de `_txn` (B25, B26) |
+| **Qué se corrigió (técnico)** | En `firestore_service.py` se añadió la clase `VoteConflictError(Exception)` con campo `detail: str`. Dentro de `_txn` en `vote_community_report`, antes del append, se añadieron dos guards atómicos: `if data.get("status") != "pending_validation": raise VoteConflictError(f"report_status_is_{...}")` y `if any(v.get("user_uid") == voter_uid ...): raise VoteConflictError("already_voted")`. En `validation_router.py` se añadió `from modules.shared.firestore_service import VoteConflictError` y el bloque `try/except VoteConflictError as exc: raise HTTPException(409, exc.detail)` que envuelve la llamada a `vote_community_report`. |
+| **Qué se corrigió (simple)** | El router verificaba "¿ya votó?" y "¿sigue en pending?" sobre un snapshot estale antes de entrar a la transacción. Si dos requests del mismo usuario llegaban simultáneamente (doble tap), ambos pasaban los checks y ambas transacciones se completaban, insertando dos votos del mismo usuario. Ahora los checks críticos se re-ejecutan dentro de la transacción Firestore: si la primera transacción ganó, la segunda lanza `VoteConflictError` que el router convierte en 409. |
+| **Clase / Método / Módulo** | `VoteConflictError`, `vote_community_report._txn()` → `firestore_service.py` · `validate_report()` → `validation_router.py` |
+| **Justificación** | Los pre-checks del router siguen siendo útiles como fast-exit para el caso común (evitan una escritura innecesaria). Los checks dentro de `_txn` son los guards autoritativos: Firestore garantiza que la lectura y escritura dentro de la transacción son atómicas, eliminando la ventana de race condition que existía entre el snapshot del router y la escritura. |
+| **Problema que resolvía** | Un usuario podía insertar dos votos en el mismo reporte con doble tap en conexión lenta, llevando `confirm_count` de 2 a 4 sin el consenso de tres usuarios distintos e invalidando el historial de auditoría de validaciones. |
+
+---
+
+### C-117 · `_CommunityReportsNotifier.load()` emitía `loading` en cada refresh → marcadores desaparecían del mapa (B27) `2026-05-18`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-117 · `load()` solo emite `AsyncValue.loading()` si no hay datos previos (B27) |
+| **Qué se corrigió (técnico)** | En `_CommunityReportsNotifier.load()` (`community_report_module.dart`) se reemplazó la asignación incondicional `state = const AsyncValue.loading()` por `if (state is! AsyncData<List<CommunityReport>>) { state = const AsyncValue.loading(); }`. |
+| **Qué se corrigió (simple)** | Cada vez que llegaba un FCM `community_report_nearby` o el usuario publicaba un nuevo reporte, el provider llamaba `refresh()` → `load()` → emitía `loading` mientras hacía el GET (2–5 s en Render free). Durante ese tiempo, `valueOrNull` retornaba `null`, los marcadores del mapa se limpiaban y el usuario veía el mapa vacío de reportes comunitarios momentáneamente. Ahora el refresh actualiza los datos en silencio y los marcadores permanecen visibles. |
+| **Clase / Método / Módulo** | `_CommunityReportsNotifier.load()` → `ubisafe_app/lib/features/community/services/community_report_module.dart` |
+| **Justificación** | El spinner de carga solo tiene sentido en la carga inicial (cuando no hay datos que mostrar). En refreshes subsecuentes, mantener los datos anteriores evita el parpadeo y es el comportamiento estándar de "stale-while-revalidate". |
+| **Problema que resolvía** | Los marcadores de reportes comunitarios desaparecían del mapa por 2–5 segundos cada vez que se recibía un FCM de nuevo reporte o el usuario enviaba uno propio. |
+
+---
+
+### C-118 · `CommunityFormBottomSheet` dismissable durante retry → reporte creado sin feedback (B28) `2026-05-18`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-118 · `isDismissible: false` + `enableDrag: false` en `CommunityFormBottomSheet.show()` (B28) |
+| **Qué se corrigió (técnico)** | En `CommunityFormBottomSheet.show()` (`community_form_bottom_sheet.dart`) se añadieron `isDismissible: false` y `enableDrag: false` a la llamada `showModalBottomSheet`. |
+| **Qué se corrigió (simple)** | El usuario podía deslizar el bottom sheet hacia abajo para cerrarlo mientras el retry backoff (hasta 14 s) estaba en progreso. Si el reporte se creaba exitosamente en el backend durante ese tiempo, el guard `if (mounted)` impedía mostrar el SnackBar de confirmación. El usuario, sin feedback, podía abrir el formulario de nuevo y enviar un reporte duplicado. Ahora el sheet no puede cerrarse hasta que la operación concluya (éxito o fallo). |
+| **Clase / Método / Módulo** | `CommunityFormBottomSheet.show()` → `ubisafe_app/lib/features/community/screens/community_form_bottom_sheet.dart` |
+| **Justificación** | El mismo patrón (`isDismissible: false`, `enableDrag: false`) ya estaba aplicado en `DestinationPicker.show()` del mismo proyecto. |
+| **Problema que resolvía** | Reportes de focos de infección duplicados creados silenciosamente cuando el usuario cerraba el formulario durante el periodo de retry backoff. |
+
+---
+
+### C-119 · Botón "Actualizar" en `ActiveReportsScreen` era no-op si GPS no disponible al cargar (B29) `2026-05-18`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-119 · Botón refresh replica lógica de `_loadIfNeeded()` cuando `_lat == null` (B29) |
+| **Qué se corrigió (técnico)** | En el `IconButton` de refresh del `AppBar` de `ActiveReportsScreen`, se reemplazó `ref.read(activeCommunityReportsProvider.notifier).refresh()` por lógica condicional: si `notifier.hasCoordinates` → `refresh()`; si no y GPS disponible → `notifier.load(lat, lng)`; si no y GPS no disponible → `notifier.setGpsUnavailable()`. |
+| **Qué se corrigió (simple)** | Si el usuario abría la pantalla sin GPS y luego lo activaba, el botón "Actualizar" era inútil: `refresh()` es no-op cuando `_lat == null` (nunca se llamó `load()`). El usuario debía navegar fuera y volver para que `initState` se ejecutara de nuevo. Ahora el botón detecta la situación y llama `load()` directamente con la posición GPS actual. |
+| **Clase / Método / Módulo** | `AppBar` → `IconButton` refresh → `_ActiveReportsScreenState.build()` → `ubisafe_app/lib/features/community/screens/active_reports_screen.dart` |
+| **Justificación** | El botón de actualizar debe ser el equivalente manual de `_loadIfNeeded()`; si las coordenadas no están cargadas, debe iniciarlas. |
+| **Problema que resolvía** | El usuario activaba GPS, tocaba "Actualizar" y la pantalla seguía mostrando "Activa el GPS para ver reportes cercanos." sin respuesta aparente. |
+
+---
+
+### C-120 · `validate_report` no enviaba FCM al alcanzar umbral → reportador y lista nunca actualizados (B30) `2026-05-18`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-120 · FCM `report_status_changed` al reportador + `case` en `NotificationHandler` (B30) |
+| **Qué se corrigió (técnico)** | En `validation_router.py`: se añadieron `import asyncio` y `from modules.shared.notification_service import NotificationService`. Tras un voto exitoso, si `updated.status.value in ("confirmed", "dismissed")` se despacha `asyncio.ensure_future(NotificationService.send_to_user(uid=updated.reporter_uid, title="Reporte actualizado", body=f"Tu reporte fue {status_label} por la comunidad.", data={"type": "report_status_changed", ...}))` (fire-and-forget). En `notification_handler.dart` se añadió `case 'report_status_changed': _onCommunityReportNearby();` reutilizando el callback que ya llama a `activeCommunityReportsProvider.notifier.refresh()`. |
+| **Qué se corrigió (simple)** | Cuando la comunidad alcanzaba 3 votos y el reporte pasaba a `confirmed` o `dismissed`, nadie recibía ninguna notificación. El reportador no se enteraba del resultado. Otros usuarios con la lista abierta seguían viendo el reporte como `pending_validation`. Ahora el reportador recibe un FCM que refresca su lista automáticamente. |
+| **Clase / Método / Módulo** | `validate_report()` → `ubisafe_api/modules/community/validation_router.py` · `_dispatchData()` → `ubisafe_app/lib/features/shared/notifications/notification_handler.dart` |
+| **Justificación** | Se usó `send_to_user` (ya existente, envía a un UID específico) en lugar de multicast por proximidad porque la notificación de resultado es personal al reportador. El multicast de vecinos cercanos fue omitido intencionalmente ya que depende de `last_location` (interacción con B15) y es una mejora separada. |
+| **Problema que resolvía** | El reportador nunca sabía si su reporte fue validado o descartado por la comunidad sin abrir la app y refrescar manualmente. |
+
+---
+
+### C-121 · Cast `state.extra as CommunityReport` incondicional → crash en restauración de proceso Android (B31) `2026-05-18`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-121 · Cast seguro `is!` con fallback a `ActiveReportsScreen` (B31) |
+| **Qué se corrigió (técnico)** | En el builder de la ruta `/community/reports/detail` en `app_router.dart`, se reemplazó `final report = state.extra as CommunityReport` por `final extra = state.extra; if (extra is! CommunityReport) return const ActiveReportsScreen(); return ReportDetailScreen(report: extra);`. |
+| **Qué se corrigió (simple)** | Cuando Android mataba el proceso de la app y el usuario regresaba, GoRouter intentaba reconstruir la ruta `/community/reports/detail` pero `state.extra` no sobrevive la muerte del proceso. El cast incondicional lanzaba `TypeError` y Flutter mostraba la pantalla de error roja del framework. Ahora se redirige silenciosamente a la lista de reportes. |
+| **Clase / Método / Módulo** | Ruta `/community/reports/detail` → `ubisafe_app/lib/router/app_router.dart` |
+| **Justificación** | El patrón `is!` con fallback controlado es preferible a `try/catch` porque no oculta el tipo de excepción y el fallback a `ActiveReportsScreen` da continuidad al flujo del usuario. |
+| **Problema que resolvía** | La app mostraba la pantalla de error roja de Flutter al navegar al detalle de reporte después de que Android reciclara el proceso. |
+
+---
+
+### C-122 · `_vote()` mostraba DioException raw + lista no refrescada tras voto (B32, B33) `2026-05-18`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-122 · Parseo de `detail` en `_vote()` + `refresh()` tras voto exitoso (B32, B33) |
+| **Qué se corrigió (técnico)** | En `report_detail_screen.dart`: (1) Se añadieron imports de `package:dio/dio.dart` y `community_report_module.dart`. (2) En `_vote()`, el `on Exception catch (e)` único se separó en `on DioException catch (e)` (que parsea `(e.response?.data as Map?)?['detail']` y usa `switch(detail)` para mapear `already_voted`, `reporter_cannot_vote`, `report_status_is_*` a mensajes en español) y `on Exception catch (_)` (mensaje genérico de conexión). (3) En el path exitoso, tras `setState(() => _current = updated)`, se añadió `ref.read(activeCommunityReportsProvider.notifier).refresh()`. (4) El `if (!mounted) return` se movió antes de todos los `setState` y `showSnackBar` del path exitoso. |
+| **Qué se corrigió (simple)** | (B32) Al votar en un reporte que ya fue cerrado por otro usuario en paralelo, el backend respondía 409. El usuario veía "Error al votar: DioException [bad response]: …" en lugar de "Este reporte ya no está disponible para votar." (B33) Tras votar exitosamente y regresar a la lista, el reporte seguía mostrando el conteo antiguo y los botones de voto aparecían habilitados de nuevo. Al tocar el botón una segunda vez se producía el error B32 anterior con 409 `already_voted`. Ahora el `refresh()` actualiza la lista inmediatamente y el error 409 muestra un mensaje legible. |
+| **Clase / Método / Módulo** | `_ReportDetailScreenState._vote()` → `ubisafe_app/lib/features/community/screens/report_detail_screen.dart` |
+| **Justificación** | Parsear el `detail` del JSON de error es el mismo patrón ya aplicado en `_requestRide` (C-69). El `refresh()` tras voto exitoso crea un rebrief de red (~1 GET) que es aceptable dado que el voto ya causó una escritura en Firestore de todos modos. |
+| **Problema que resolvía** | El usuario que votaba en un reporte en estado de race condition veía el texto técnico del objeto Dio en lugar de un mensaje de usuario. Adicionalmente, volver a la lista y re-entrar al detalle del mismo reporte mostraba botones de voto activos aunque el usuario ya había votado. |
 
 ---
 

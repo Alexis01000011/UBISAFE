@@ -95,6 +95,8 @@ final locationSyncProvider = Provider.autoDispose<Object?>((ref) {
       return;
     }
 
+    // Mark throttle before awaiting so concurrent GPS ticks don't queue
+    // additional requests while one is already in flight.
     lastSync = now;
     lastLat = pos.latitude;
     lastLng = pos.longitude;
@@ -104,7 +106,13 @@ final locationSyncProvider = Provider.autoDispose<Object?>((ref) {
         '/auth/location',
         data: {'lat': pos.latitude, 'lng': pos.longitude},
       );
-    } catch (_) {}
+    } catch (_) {
+      // B15 — on failure (e.g. cold-start timeout) reset the throttle so the
+      // next GPS tick retries immediately instead of waiting 60 s with a stale
+      // last_location in Firestore, which would cause get_nearby_user_fcm_tokens
+      // to return [] and suppress all proximity FCM notifications.
+      lastSync = null;
+    }
   });
 
   return null;

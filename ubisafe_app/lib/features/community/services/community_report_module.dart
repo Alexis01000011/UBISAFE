@@ -94,7 +94,12 @@ class _CommunityReportsNotifier
   Future<void> load({required double lat, required double lng}) async {
     _lat = lat;
     _lng = lng;
-    state = const AsyncValue.loading();
+    // B27 — Only show the loading spinner on the first fetch. On subsequent
+    // refreshes, keep the existing data visible while the request is in flight
+    // so map markers don't flicker off for 2-5 s on every FCM refresh.
+    if (state is! AsyncData<List<CommunityReport>>) {
+      state = const AsyncValue.loading();
+    }
     try {
       final reports = await _module.fetchReports(lat: lat, lng: lng);
       state = AsyncValue.data(reports);

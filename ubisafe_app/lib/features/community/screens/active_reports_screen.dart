@@ -58,8 +58,24 @@ class _ActiveReportsScreenState extends ConsumerState<ActiveReportsScreen> {
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.white),
             tooltip: 'Actualizar',
-            onPressed: () =>
-                ref.read(activeCommunityReportsProvider.notifier).refresh(),
+            // B29 — if GPS was unavailable when the screen loaded, _lat/_lng
+            // are null and refresh() is a no-op. Replicate _loadIfNeeded so
+            // that tapping Refresh after enabling GPS actually works.
+            onPressed: () {
+              final notifier =
+                  ref.read(activeCommunityReportsProvider.notifier);
+              if (notifier.hasCoordinates) {
+                notifier.refresh();
+              } else {
+                final position = ref.read(gpsServiceProvider).valueOrNull;
+                if (position != null) {
+                  notifier.load(
+                      lat: position.latitude, lng: position.longitude);
+                } else {
+                  notifier.setGpsUnavailable();
+                }
+              }
+            },
           ),
         ],
       ),

@@ -105,8 +105,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/community/reports/detail',
         builder: (_, state) {
-          final report = state.extra as CommunityReport;
-          return ReportDetailScreen(report: report);
+          // B31 — state.extra is lost on Android process death or direct deep
+          // links. Fall back to the list screen instead of crashing.
+          final extra = state.extra;
+          if (extra is! CommunityReport) return const ActiveReportsScreen();
+          return ReportDetailScreen(report: extra);
         },
       ),
     ],

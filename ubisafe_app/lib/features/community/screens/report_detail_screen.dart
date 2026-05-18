@@ -1,9 +1,11 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/design_system/colors.dart';
 import '../../identity/auth/auth_module.dart';
 import '../models/community_report.dart';
+import '../services/community_report_module.dart';
 import '../services/report_validation_module.dart';
 
 /// W-CU06-02 — Detail view for a community report with confirm/dismiss voting (CU-06).
@@ -32,13 +34,29 @@ class _ReportDetailScreenState extends ConsumerState<ReportDetailScreen> {
       final updated = await ref
           .read(reportValidationModuleProvider)
           .vote(reportId: _current!.id, vote: vote);
-      if (mounted) setState(() => _current = updated);
-    } on Exception catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al votar: $e')),
-        );
-      }
+      if (!mounted) return;
+      setState(() => _current = updated);
+      // B33 — refresh the shared provider so the list shows the updated object
+      // when the user navigates back, avoiding stale vote buttons on re-entry.
+      ref.read(activeCommunityReportsProvider.notifier).refresh();
+    } on DioException catch (e) {
+      // B32 — parse the backend detail to show a human-readable message instead
+      // of the raw DioException (e.g. on 409 race conditions).
+      if (!mounted) return;
+      final detail = (e.response?.data as Map?)?['detail'] as String?;
+      final msg = switch (detail) {
+        'already_voted' => 'Ya votaste en este reporte.',
+        'reporter_cannot_vote' => 'No puedes votar en tu propio reporte.',
+        String s when s.startsWith('report_status_is_') =>
+          'Este reporte ya no está disponible para votar.',
+        _ => 'Error al votar. Intenta de nuevo.',
+      };
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    } on Exception catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Error de conexión. Intenta de nuevo.')),
+      );
     } finally {
       if (mounted) setState(() => _voting = false);
     }

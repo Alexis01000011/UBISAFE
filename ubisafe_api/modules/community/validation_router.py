@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from dependencies import get_current_user
 from modules.community.schemas import CommunityReport, VoteBody
-from modules.shared.firestore_service import FirestoreService
+from modules.shared.firestore_service import FirestoreService, VoteConflictError
+from modules.shared.notification_service import NotificationService
 
 router = APIRouter()
 
@@ -48,5 +51,25 @@ async def validate_report(
             detail="already_voted",
         )
 
-    updated = await FirestoreService.vote_community_report(report_id, voter_uid, body.vote.value)
+    try:
+        updated = await FirestoreService.vote_community_report(report_id, voter_uid, body.vote.value)
+    except VoteConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.detail)
+
+    # B30 — notify the reporter when the community reaches the threshold.
+    if updated.status.value in ("confirmed", "dismissed"):
+        status_label = "confirmado" if updated.status.value == "confirmed" else "descartado"
+        asyncio.ensure_future(
+            NotificationService.send_to_user(
+                uid=updated.reporter_uid,
+                title="Reporte actualizado",
+                body=f"Tu reporte fue {status_label} por la comunidad.",
+                data={
+                    "type": "report_status_changed",
+                    "report_id": report_id,
+                    "new_status": updated.status.value,
+                },
+            )
+        )
+
     return updated

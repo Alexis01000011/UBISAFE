@@ -64,13 +64,18 @@ async def list_community_reports(
 
 
 async def _notify_nearby(report: CommunityReport) -> None:
-    tokens = await FirestoreService.get_nearby_user_fcm_tokens(
-        report.location.lat, report.location.lng, _PROXIMITY_RADIUS_KM
-    )
-    await NotificationService.send_community_report_nearby(
-        tokens=tokens,
-        report_id=report.id,
-        threat_type=report.threat_type.value,
-        lat=report.location.lat,
-        lng=report.location.lng,
-    )
+    import logging  # noqa: PLC0415
+    logger = logging.getLogger(__name__)
+    try:
+        tokens = await FirestoreService.get_nearby_user_fcm_tokens(
+            report.location.lat, report.location.lng, _PROXIMITY_RADIUS_KM
+        )
+        await NotificationService.send_community_report_nearby(
+            tokens=tokens,
+            report_id=report.id,
+            threat_type=report.threat_type.value,
+            lat=report.location.lat,
+            lng=report.location.lng,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.error("_notify_nearby failed for report %s: %s", report.id, exc)

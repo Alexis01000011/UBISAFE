@@ -26,6 +26,10 @@ class CommunityFormBottomSheet extends ConsumerStatefulWidget {
       showModalBottomSheet<void>(
         context: context,
         isScrollControlled: true,
+        // B28 — prevent the user from swiping away the sheet while a retry is
+        // in flight, which would leave a report created with no feedback.
+        isDismissible: false,
+        enableDrag: false,
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
