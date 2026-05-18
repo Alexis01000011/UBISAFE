@@ -26,6 +26,7 @@ import '../models/ride.dart';
 import '../models/stop_request.dart';
 import '../services/ride_request_module.dart';
 import '../services/stop_request_module.dart';
+import '../../identity/profile/services/location_sync_service.dart';
 
 /// Main map screen for vendors — GPS visibility toggle + CU-01 responder.
 class MapScreenVendor extends ConsumerStatefulWidget {
@@ -58,6 +59,12 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
   void initState() {
     super.initState();
     _initMapsKey();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final pos = ref.read(gpsServiceProvider).valueOrNull;
+      if (pos != null) {
+        ref.read(locationSyncProvider).push(pos.latitude, pos.longitude);
+      }
+    });
   }
 
   Future<void> _initMapsKey() async {

@@ -39,9 +39,11 @@ class AuthModule {
     // Both calls are best-effort — run in the background so login() returns
     // immediately after sign-in, preventing the UI from blocking on network.
     unawaited(
-      _dio
-          .post<dynamic>('/auth/sync-profile', data: <String, dynamic>{})
-          .catchError((_) {}),
+      Future<void>(() async {
+        try {
+          await _dio.post<dynamic>('/auth/sync-profile', data: <String, dynamic>{});
+        } catch (_) {}
+      }),
     );
     unawaited(_syncDeviceToken());
   }

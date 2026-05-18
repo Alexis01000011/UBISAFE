@@ -154,3 +154,35 @@ async def test_sync_profile_updates_existing_user(
         )
     assert response.status_code == 200
     assert response.json()["uid"] == VALID_UID
+
+
+# ── location ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_patch_location_updates_user_last_location(mock_firebase, mock_valid_token):
+    """PATCH /auth/location with valid coords → 204, calls update_last_location."""
+    from main import app
+
+    with patch(
+        "modules.identity.router.FirestoreService.update_last_location",
+        new_callable=AsyncMock,
+    ) as mock_update:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.patch(
+                "/auth/location",
+                headers={"Authorization": "Bearer valid-token"},
+                json={"lat": 20.6736, "lng": -103.3441},
+            )
+    assert response.status_code == 204
+    mock_update.assert_awaited_once_with(VALID_UID, 20.6736, -103.3441)
+
+
+@pytest.mark.asyncio
+async def test_patch_location_no_token_returns_401(mock_firebase):
+    """PATCH /auth/location without token → 401."""
+    from main import app
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.patch("/auth/location", json={"lat": 20.6736, "lng": -103.3441})
+    assert response.status_code == 401
