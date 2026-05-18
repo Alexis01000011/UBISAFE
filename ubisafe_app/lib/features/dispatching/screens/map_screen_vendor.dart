@@ -172,6 +172,25 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
           const SnackBar(content: Text('El pasajero canceló el raite.')),
         );
       }
+      if (event.type == RideEventType.expired) {
+        if (_pendingDialogRideId == event.rideId && context.mounted) {
+          setState(() => _pendingDialogRideId = null);
+          Navigator.of(context).pop();
+        }
+        _rideSub?.cancel();
+        _rideSub = null;
+        setState(() {
+          _activeRideId = null;
+          _ridePhase = 0;
+          _routePolyline = [];
+          _isNavigating = false;
+        });
+        ref.read(rideEventProvider.notifier).state = null;
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('La solicitud de raite expiró.')),
+        );
+      }
     });
 
     return Scaffold(

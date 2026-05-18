@@ -3,7 +3,7 @@
 **Proyecto:** Los Borbotones · TSP · ITESM  
 **Rama activa:** `Rama-Miguel`  
 **Dispositivo de prueba:** Físico Android (depuración inalámbrica ADB, NO emulador de computadora)  
-**Última actualización:** 2026-05-18 (C-122)
+**Última actualización:** 2026-05-18 (C-123)
 
 ---
 
@@ -1562,6 +1562,19 @@
 | **Clase / Método / Módulo** | `_ReportDetailScreenState._vote()` → `ubisafe_app/lib/features/community/screens/report_detail_screen.dart` |
 | **Justificación** | Parsear el `detail` del JSON de error es el mismo patrón ya aplicado en `_requestRide` (C-69). El `refresh()` tras voto exitoso crea un rebrief de red (~1 GET) que es aceptable dado que el voto ya causó una escritura en Firestore de todos modos. |
 | **Problema que resolvía** | El usuario que votaba en un reporte en estado de race condition veía el texto técnico del objeto Dio en lugar de un mensaje de usuario. Adicionalmente, volver a la lista y re-entrar al detalle del mismo reporte mostraba botones de voto activos aunque el usuario ya había votado. |
+
+---
+
+### C-123 · Diálogo de raite entrante no se descartaba al expirar la solicitud (60 s) `2026-05-18`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-123 · `RideEventType.expired` no manejado en listener del vendedor |
+| **Qué se corrigió (técnico)** | En `map_screen_vendor.dart`, el listener `ref.listen<RideEvent?>(rideEventProvider, …)` solo manejaba `RideEventType.cancelledByBuyer` para descartar el diálogo entrante y limpiar estado. Se añadió un bloque paralelo para `RideEventType.expired` que: (1) llama `Navigator.of(context).pop()` si `_pendingDialogRideId == event.rideId`, (2) pone `_pendingDialogRideId = null`, (3) cancela `_rideSub`, (4) limpia `_activeRideId / _ridePhase / _routePolyline / _isNavigating`, (5) resetea `rideEventProvider` a `null`, (6) muestra SnackBar "La solicitud de raite expiró." |
+| **Qué se corrigió (simple)** | Cuando el comprador esperaba 60 s sin respuesta del vendedor, el comprador recibía la notificación correcta de que la solicitud expiró, pero el vendedor seguía viendo el diálogo de "Aceptar / Rechazar". Si el vendedor pulsaba "Aceptar" en ese estado, el backend respondía 409 (ride ya expirado). Ahora el diálogo se descarta automáticamente en el lado del vendedor cuando llega el evento de expiración. |
+| **Clase / Método / Módulo** | `_MapScreenVendorState` → `ref.listen<RideEvent?>` en `map_screen_vendor.dart` (`ubisafe_app/lib/features/dispatching/screens/map_screen_vendor.dart`) |
+| **Justificación** | El evento `RideEventType.expired` ya llegaba correctamente desde `notification_handler.dart` al `rideEventProvider`, y el guard `if (_activeRideId == null && event.rideId != _pendingDialogRideId) return` ya permitía el paso del evento cuando el diálogo estaba abierto. Faltaba únicamente el handler que actuara sobre él, análogo al ya existente para `cancelledByBuyer`. |
+| **Problema que resolvía** | El vendedor conservaba el diálogo de aceptar/rechazar después de que la solicitud expiraba. Aceptar la solicitud expirada producía un error 409 sin feedback claro al vendedor. |
 
 ---
 
