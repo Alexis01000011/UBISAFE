@@ -1,12 +1,20 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:go_router/go_router.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../core/design_system/colors.dart';
 import '../../../core/providers/auth_providers.dart';
+import '../../identity/auth/auth_module.dart';
+import '../../community/models/community_report.dart';
+import '../../community/screens/community_form_bottom_sheet.dart';
+import '../../community/services/community_report_module.dart';
 import '../../identity/profile/widgets/drawer_module.dart';
 import '../../presence/services/gps_service.dart';
 import '../../safety/models/risk_zone.dart';
@@ -14,10 +22,11 @@ import '../../safety/screens/risk_form_bottom_sheet.dart';
 import '../../safety/services/risk_zone_service.dart';
 import '../../shared/notifications/notification_handler.dart';
 import '../../shared/widgets/gps_required_empty_state.dart';
+import '../models/ride.dart';
+import '../models/stop_request.dart';
+import '../services/ride_request_module.dart';
 import '../services/stop_request_module.dart';
-
-// Replace via --dart-define=MAPS_API_KEY=<key> at build/run time.
-const _kMapsApiKey = String.fromEnvironment('MAPS_API_KEY', defaultValue: '');
+import '../../identity/profile/services/location_sync_service.dart';
 
 /// Main map screen for vendors — GPS visibility toggle + CU-01 responder.
 class MapScreenVendor extends ConsumerStatefulWidget {
@@ -30,22 +39,144 @@ class MapScreenVendor extends ConsumerStatefulWidget {
 class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
   bool _isVisible = false;
   bool _isNavigating = false;
+  bool _communityReportsLoaded = false;
+  bool _speedDialOpen = false;
+  String _mapsApiKey = '';
   String? _activeStopId;
+  String? _pendingDialogStopId; // stopId del diálogo accept/reject actualmente abierto
+  String? _pendingDialogRideId; // rideId del diálogo incoming ride actualmente abierto
+  double? _buyerLat; // Coordenadas del comprador de la parada activa
+  double? _buyerLng;
+  String? _activeRideId;
+  bool _selectingRiskPoint = false;
+  // 1 = going to pickup, 2 = ride in progress (passenger aboard)
+  int _ridePhase = 0;
   List<LatLng> _routePolyline = [];
+
+  StreamSubscription<Ride?>? _rideSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _initMapsKey();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final pos = ref.read(gpsServiceProvider).valueOrNull;
+      if (pos != null) {
+        ref.read(locationSyncProvider).push(pos.latitude, pos.longitude);
+      }
+    });
+  }
+
+  Future<void> _initMapsKey() async {
+    try {
+      const ch = MethodChannel('ubisafe/config');
+      final key = await ch.invokeMethod<String>('getMapsApiKey') ?? '';
+      if (mounted) setState(() => _mapsApiKey = key);
+    } catch (_) {
+      // Falla silenciosamente en tests o si el channel no está disponible
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final positionAsync = ref.watch(gpsServiceProvider);
+    ref.watch(authStateProvider); // pre-subscribe so ref.read in _onToggle is synchronous
+    final communityReportsAsync = ref.watch(activeCommunityReportsProvider);
 
     // Listen for incoming stop requests (vendor receives FCM)
     ref.listen<Map<String, dynamic>?>(incomingStopRequestProvider, (_, data) {
       if (data == null) return;
+      if (!context.mounted) return;
       _showIncomingDialog(
         context,
         stopId: data['stop_id'] as String? ?? '',
         buyerLat: data['buyer_lat'] as String? ?? '0',
         buyerLng: data['buyer_lng'] as String? ?? '0',
       );
+    });
+
+    // Listen for incoming ride requests and ride events (vendor receives FCM)
+    ref.listen<Map<String, dynamic>?>(incomingRideProvider, (_, data) {
+      if (data == null) return;
+      final type = data['type'] as String? ?? '';
+      if (type == 'ride_destination_too_far') {
+        final rideId = data['ride_id'] as String? ?? '';
+        final distKm = data['distance_km'] as String? ?? '?';
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          ref.read(incomingRideProvider.notifier).state = null;
+        });
+        if (!context.mounted) return;
+        _showRideTooFarDialog(context, rideId: rideId, distanceKm: distKm);
+      } else {
+        if (!context.mounted) return;
+        _showIncomingRideDialog(
+          context,
+          rideId: data['ride_id'] as String? ?? '',
+          pickupLat: data['pickup_lat'] as String? ?? '0',
+          pickupLng: data['pickup_lng'] as String? ?? '0',
+          destinationLat: data['destination_lat'] as String? ?? '0',
+          destinationLng: data['destination_lng'] as String? ?? '0',
+        );
+      }
+    });
+
+    ref.listen<StopEvent?>(stopRequestEventProvider, (_, event) {
+      if (event == null) return;
+      final isCancelled = event.status == StopRequestStatus.cancelled;
+      final isExpired = event.status == StopRequestStatus.expired;
+      if (!isCancelled && !isExpired) return;
+
+      ref.read(stopRequestEventProvider.notifier).state = null;
+
+      // Cerrar diálogo accept/reject si está abierto para esta parada
+      if (_pendingDialogStopId == event.stopId && context.mounted) {
+        setState(() => _pendingDialogStopId = null);
+        Navigator.of(context).pop();
+      }
+
+      // Limpiar estado de entrega en curso si corresponde a esta parada
+      if (_activeStopId == event.stopId) {
+        setState(() {
+          _activeStopId = null;
+          _isNavigating = false;
+          _routePolyline = [];
+          _buyerLat = null;
+          _buyerLng = null;
+        });
+      }
+
+      if (!context.mounted) return;
+      final message = isCancelled
+          ? 'El comprador canceló la parada.'
+          : 'La solicitud de parada expiró sin respuesta.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    });
+
+    ref.listen<RideEvent?>(rideEventProvider, (_, event) {
+      if (event == null) return;
+      if (_activeRideId != null && event.rideId != _activeRideId) return;
+      if (event.type == RideEventType.cancelledByBuyer) {
+        // Dismiss incoming ride dialog if it's still open for this ride
+        if (_pendingDialogRideId == event.rideId && context.mounted) {
+          setState(() => _pendingDialogRideId = null);
+          Navigator.of(context).pop();
+        }
+        _rideSub?.cancel();
+        _rideSub = null;
+        setState(() {
+          _activeRideId = null;
+          _ridePhase = 0;
+          _routePolyline = [];
+          _isNavigating = false;
+        });
+        ref.read(rideEventProvider.notifier).state = null;
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('El pasajero canceló el raite.')),
+        );
+      }
     });
 
     return Scaffold(
@@ -58,6 +189,18 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
             child: _VisibilityBadge(isVisible: _isVisible),
           ),
         ],
+      ),
+      floatingActionButton: _VendorSpeedDial(
+        open: _speedDialOpen,
+        onToggle: () => setState(() => _speedDialOpen = !_speedDialOpen),
+        onRiskZone: () {
+          setState(() => _speedDialOpen = false);
+          _onFabPressed(positionAsync.valueOrNull);
+        },
+        onCommunityReport: () {
+          setState(() => _speedDialOpen = false);
+          _onCommunityFabPressed(positionAsync.valueOrNull);
+        },
       ),
       body: positionAsync.when(
         data: (position) {
@@ -79,6 +222,17 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
                 }
               : <Polyline>{};
 
+          // Load community reports once
+          if (!_communityReportsLoaded) {
+            _communityReportsLoaded = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              ref.read(activeCommunityReportsProvider.notifier).load(
+                    lat: position.latitude,
+                    lng: position.longitude,
+                  );
+            });
+          }
+
           final zonesAsync = ref.watch(
             activeRiskZonesProvider(LatLng(position.latitude, position.longitude)),
           );
@@ -98,6 +252,14 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
             orElse: () => <Circle>{},
           );
 
+          final communityMarkers = (communityReportsAsync.valueOrNull ?? [])
+              .where((r) =>
+                  !r.isDuplicate &&
+                  r.status != ReportStatus.expired &&
+                  r.status != ReportStatus.dismissed)
+              .map((r) => _communityReportToMarker(r, context))
+              .toSet();
+
           return Stack(
             children: [
               GoogleMap(
@@ -106,6 +268,8 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
                 myLocationButtonEnabled: true,
                 polylines: polylines,
                 circles: circles,
+                markers: communityMarkers,
+                onTap: _onMapTap,
               ),
               // Visibility toggle button
               Positioned(
@@ -114,28 +278,51 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
                 right: 0,
                 child: Center(child: _buildToggle(context, position)),
               ),
-              // Report risk zone FAB
-              Positioned(
-                bottom: _isNavigating ? 140 : 24,
-                right: 16,
-                child: FloatingActionButton(
-                  heroTag: 'vendor_risk_fab',
-                  backgroundColor: const Color(0xFFE65100),
-                  onPressed: () => RiskFormBottomSheet.show(
-                    context,
-                    LatLng(position.latitude, position.longitude),
-                  ),
-                  child: const Icon(Icons.add, color: Colors.white),
-                ),
-              ),
-              // Confirm delivery bottom sheet when navigating
-              if (_isNavigating)
+              // Confirm delivery bottom sheet when navigating to stop buyer
+              if (_isNavigating && _activeRideId == null)
                 Positioned(
                   bottom: 0,
                   left: 0,
                   right: 0,
                   child: _ConfirmDeliverySheet(
                     onConfirm: () => _confirmDelivery(context),
+                  ),
+                ),
+              // Ride phase 1: vendor heading to pickup
+              if (_ridePhase == 1)
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: _RideActionSheet(
+                    label: 'Dirígete al punto de recogida del pasajero.',
+                    buttonText: 'Llegué al punto de recogida',
+                    buttonColor: AppColors.primary700,
+                    onAction: () => _signalVendorArrived(context),
+                  ),
+                ),
+              // Ride phase 2: passenger aboard
+              if (_ridePhase == 2)
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: _RideActionSheet(
+                    label: 'Pasajero a bordo. Dirígete al destino.',
+                    buttonText: 'Completar raite',
+                    buttonColor: AppColors.success500,
+                    onAction: () => _completeRide(context),
+                  ),
+                ),
+              // Instruction banner while user selects a risk zone point
+              if (_selectingRiskPoint)
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: _RiskPointSelectionBanner(
+                    onCancel: () =>
+                        setState(() => _selectingRiskPoint = false),
                   ),
                 ),
             ],
@@ -163,12 +350,15 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
   }
 
   Future<void> _onToggle(BuildContext context) async {
-    final profile = ref.read(userProfileProvider).valueOrNull;
-    if (profile?.uid == null) return;
+    // Use the uid from authStateProvider directly — it is always available
+    // while the user is authenticated, unlike userProfileProvider which may
+    // be loading or null if a re-evaluation is in flight.
+    final uid = ref.read(authStateProvider).valueOrNull?.uid;
+    if (uid == null) return;
 
     if (_isVisible) {
-      await ref.read(gpsServiceInstanceProvider).stopTransmission(profile!.uid);
-      setState(() => _isVisible = false);
+      await ref.read(gpsServiceInstanceProvider).stopTransmission(uid);
+      if (mounted) setState(() => _isVisible = false);
     } else {
       final confirmed = await showDialog<bool>(
         context: context,
@@ -191,8 +381,9 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
         ),
       );
       if (confirmed != true) return;
-      ref.read(gpsServiceInstanceProvider).startTransmission(profile!.uid);
-      setState(() => _isVisible = true);
+      final rideEnabled = ref.read(userProfileProvider).valueOrNull?.rideEnabled ?? false;
+      ref.read(gpsServiceInstanceProvider).startTransmission(uid, rideEnabled: rideEnabled);
+      if (mounted) setState(() => _isVisible = true);
     }
   }
 
@@ -202,6 +393,9 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
     required String buyerLat,
     required String buyerLng,
   }) {
+    // Track the open dialog so we can dismiss it if the buyer cancels
+    setState(() => _pendingDialogStopId = stopId);
+
     // Clear the provider so it doesn't re-trigger on rebuild
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(incomingStopRequestProvider.notifier).state = null;
@@ -214,15 +408,15 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
         buyerLat: double.tryParse(buyerLat) ?? 0,
         buyerLng: double.tryParse(buyerLng) ?? 0,
         onAccept: () async {
+          setState(() => _pendingDialogStopId = null);
           Navigator.of(context).pop();
           await _acceptStop(context, stopId, buyerLat, buyerLng);
         },
         onReject: () async {
+          setState(() => _pendingDialogStopId = null);
           Navigator.of(context).pop();
           try {
-            await ref
-                .read(stopRequestModuleProvider)
-                .rejectStopRequest(stopId);
+            await ref.read(stopRequestModuleProvider).rejectStopRequest(stopId);
           } catch (_) {}
         },
       ),
@@ -239,7 +433,8 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
     final position = ref.read(gpsServiceProvider).valueOrNull;
     if (position == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('GPS no disponible. Activa el GPS para aceptar.')),
+        const SnackBar(
+            content: Text('GPS no disponible. Activa el GPS para aceptar.')),
       );
       return;
     }
@@ -282,7 +477,11 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
       avoidWaypoints: avoidWaypoints,
     );
 
-    setState(() => _isNavigating = true);
+    setState(() {
+      _isNavigating = true;
+      _buyerLat = destLat;
+      _buyerLng = destLng;
+    });
   }
 
   Future<void> _fetchRoute({
@@ -292,14 +491,52 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
     required double destLng,
     List<String> avoidWaypoints = const [],
   }) async {
-    if (_kMapsApiKey.isEmpty) return;
+    // _initMapsKey() may still be in flight when the dialog is accepted quickly.
+    if (_mapsApiKey.isEmpty) await _initMapsKey();
+    if (_mapsApiKey.isEmpty) {
+      debugPrint('[_fetchRoute] Maps API key unavailable — skipping route fetch');
+      return;
+    }
 
+    // First attempt — with avoid waypoints (if any).
+    var points = await _requestRoute(
+      originLat: originLat,
+      originLng: originLng,
+      destLat: destLat,
+      destLng: destLng,
+      avoidWaypoints: avoidWaypoints,
+    );
+
+    // Fallback — waypoints off-road can cause ZERO_RESULTS; retry without them.
+    if (points == null && avoidWaypoints.isNotEmpty) {
+      debugPrint('[_fetchRoute] Retrying without avoid waypoints');
+      points = await _requestRoute(
+        originLat: originLat,
+        originLng: originLng,
+        destLat: destLat,
+        destLng: destLng,
+      );
+    }
+
+    if (points != null && mounted) {
+      setState(() => _routePolyline = points!);
+    }
+  }
+
+  /// Single Directions API attempt. Returns decoded points or null on failure.
+  Future<List<LatLng>?> _requestRoute({
+    required double originLat,
+    required double originLng,
+    required double destLat,
+    required double destLng,
+    List<String> avoidWaypoints = const [],
+  }) async {
     try {
       final dio = Dio();
       final params = <String, dynamic>{
         'origin': '$originLat,$originLng',
         'destination': '$destLat,$destLng',
-        'key': _kMapsApiKey,
+        'key': _mapsApiKey,
       };
       if (avoidWaypoints.isNotEmpty) {
         params['waypoints'] = avoidWaypoints.join('|');
@@ -308,21 +545,58 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
         'https://maps.googleapis.com/maps/api/directions/json',
         queryParameters: params,
       );
+      final status = res.data?['status'] as String?;
       final routes = res.data?['routes'] as List?;
-      if (routes == null || routes.isEmpty) return;
+      if (routes == null || routes.isEmpty) {
+        debugPrint('[_fetchRoute] Directions API status=$status — no routes');
+        return null;
+      }
       final encoded =
           (routes[0] as Map)['overview_polyline']?['points'] as String?;
-      if (encoded == null) return;
-      final points = _decodePolyline(encoded);
-      setState(() => _routePolyline = points);
-    } catch (_) {
-      // Route fetch is non-critical; map still shows without polyline
+      if (encoded == null) return null;
+      return _decodePolyline(encoded);
+    } catch (e) {
+      debugPrint('[_fetchRoute] Request error: $e');
+      return null;
     }
   }
 
   Future<void> _confirmDelivery(BuildContext context) async {
     final stopId = _activeStopId;
     if (stopId == null) return;
+
+    // Verificar que el GPS esté disponible
+    final position = ref.read(gpsServiceProvider).valueOrNull;
+    if (position == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('GPS no disponible. Activa el GPS para confirmar la entrega.'),
+        ),
+      );
+      return;
+    }
+
+    // Verificar proximidad al comprador (máximo 15 m)
+    if (_buyerLat != null && _buyerLng != null) {
+      final dist = _distanceMeters(
+        position.latitude,
+        position.longitude,
+        _buyerLat!,
+        _buyerLng!,
+      );
+      if (dist > 15) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Debes estar a menos de 15 m del comprador para confirmar. '
+              'Distancia actual: ${dist.toStringAsFixed(0)} m.',
+            ),
+          ),
+        );
+        return;
+      }
+    }
+
     try {
       await ref.read(stopRequestModuleProvider).completeStopRequest(stopId);
     } catch (e) {
@@ -336,6 +610,8 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
       _isNavigating = false;
       _activeStopId = null;
       _routePolyline = [];
+      _buyerLat = null;
+      _buyerLng = null;
     });
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -345,6 +621,397 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
         ),
       );
     }
+  }
+
+  void _showIncomingRideDialog(
+    BuildContext context, {
+    required String rideId,
+    required String pickupLat,
+    required String pickupLng,
+    required String destinationLat,
+    required String destinationLng,
+  }) {
+    setState(() => _pendingDialogRideId = rideId);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(incomingRideProvider.notifier).state = null;
+    });
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _IncomingRideDialog(
+        pickupLat: double.tryParse(pickupLat) ?? 0,
+        pickupLng: double.tryParse(pickupLng) ?? 0,
+        destinationLat: double.tryParse(destinationLat) ?? 0,
+        destinationLng: double.tryParse(destinationLng) ?? 0,
+        onAccept: () async {
+          setState(() => _pendingDialogRideId = null);
+          Navigator.of(context).pop();
+          await _acceptRide(context, rideId,
+              pickupLat: pickupLat, pickupLng: pickupLng);
+        },
+        onReject: () async {
+          setState(() => _pendingDialogRideId = null);
+          Navigator.of(context).pop();
+          try {
+            await ref.read(rideRequestModuleProvider).updateStatus(
+                rideId, 'rejected',
+                rejectedReason: 'vendor_rejected');
+          } catch (_) {}
+        },
+      ),
+    );
+  }
+
+  void _showRideTooFarDialog(
+    BuildContext context, {
+    required String rideId,
+    required String distanceKm,
+  }) {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        title: const Text('Destino fuera de rango'),
+        content: Text(
+          'El destino del pasajero está a $distanceKm km, que supera el límite de 4 km. '
+          'Debes rechazar este raite.',
+        ),
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger500,
+              foregroundColor: AppColors.surface,
+            ),
+            onPressed: () async {
+              Navigator.of(context).pop();
+              try {
+                await ref.read(rideRequestModuleProvider).updateStatus(
+                    rideId, 'rejected',
+                    rejectedReason: 'destination_too_far');
+              } catch (_) {}
+            },
+            child: const Text('Rechazar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _acceptRide(
+    BuildContext context,
+    String rideId, {
+    required String pickupLat,
+    required String pickupLng,
+  }) async {
+    final position = ref.read(gpsServiceProvider).valueOrNull;
+    if (position == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('GPS no disponible. Activa el GPS para aceptar.')),
+      );
+      return;
+    }
+    try {
+      await ref
+          .read(rideRequestModuleProvider)
+          .updateStatus(rideId, 'accepted');
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error al aceptar raite: $e')),
+      );
+      return;
+    }
+    setState(() {
+      _activeRideId = rideId;
+      _ridePhase = 1;
+    });
+
+    // Watch the ride for status changes (in_progress triggered by vendor action)
+    await _rideSub?.cancel();
+    _rideSub =
+        ref.read(rideRequestModuleProvider).watchRide(rideId).listen((ride) {
+      if (ride == null) return;
+      if (ride.status == RideStatus.inProgress && _ridePhase == 1) {
+        setState(() => _ridePhase = 2);
+      } else if (ride.status == RideStatus.completed ||
+          ride.status == RideStatus.rejected ||
+          ride.status == RideStatus.expired) {
+        _rideSub?.cancel();
+        _rideSub = null;
+        setState(() {
+          _activeRideId = null;
+          _ridePhase = 0;
+          _routePolyline = [];
+        });
+      }
+    });
+  }
+
+  Future<void> _signalVendorArrived(BuildContext context) async {
+    final rideId = _activeRideId;
+    if (rideId == null) return;
+    try {
+      await ref.read(rideRequestModuleProvider).vendorArrived(rideId);
+      // Transition to in_progress (passenger boards)
+      await ref
+          .read(rideRequestModuleProvider)
+          .updateStatus(rideId, 'in_progress');
+      setState(() => _ridePhase = 2);
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
+    }
+  }
+
+  Future<void> _completeRide(BuildContext context) async {
+    final rideId = _activeRideId;
+    if (rideId == null) return;
+    try {
+      await ref
+          .read(rideRequestModuleProvider)
+          .updateStatus(rideId, 'completed');
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error al completar raite: $e')),
+      );
+      return;
+    }
+    await _rideSub?.cancel();
+    _rideSub = null;
+    setState(() {
+      _activeRideId = null;
+      _ridePhase = 0;
+      _routePolyline = [];
+    });
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('¡Raite completado!'),
+          backgroundColor: AppColors.success500,
+        ),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _rideSub?.cancel();
+    super.dispose();
+  }
+
+  void _onFabPressed(dynamic position) {
+    if (position == null) {
+      showModalBottomSheet<void>(
+        context: context,
+        builder: (_) => const GpsRequiredEmptyState(),
+      );
+      return;
+    }
+    setState(() => _selectingRiskPoint = true);
+  }
+
+  Future<void> _onMapTap(LatLng point) async {
+    if (!_selectingRiskPoint) return;
+    setState(() => _selectingRiskPoint = false);
+
+    final currentPosition = ref.read(gpsServiceProvider).valueOrNull;
+    if (currentPosition != null) {
+      final distanceMeters = Geolocator.distanceBetween(
+        currentPosition.latitude,
+        currentPosition.longitude,
+        point.latitude,
+        point.longitude,
+      );
+      if (distanceMeters > 4000) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Solo puedes reportar zonas dentro de un radio de 4 km desde tu ubicación.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+    }
+
+    final submitted = await RiskFormBottomSheet.show(context, point);
+    if (submitted && mounted) {
+      ref.invalidate(activeRiskZonesProvider);
+    }
+  }
+
+  void _onCommunityFabPressed(dynamic position) {
+    if (position == null) {
+      showModalBottomSheet<void>(
+        context: context,
+        builder: (_) => const GpsRequiredEmptyState(),
+      );
+      return;
+    }
+    CommunityFormBottomSheet.show(
+      context,
+      lat: position.latitude,
+      lng: position.longitude,
+    );
+  }
+
+  Marker _communityReportToMarker(
+      CommunityReport report, BuildContext context) {
+    final hue = report.threatType == ThreatType.animalMuerto
+        ? BitmapDescriptor.hueRose
+        : BitmapDescriptor.hueOrange;
+    final label = report.threatType == ThreatType.animalMuerto
+        ? 'Animal muerto'
+        : 'Zona sucia';
+    final statusLabel = report.status == ReportStatus.confirmed
+        ? ' · Validado'
+        : ' · Pendiente';
+    return Marker(
+      markerId: MarkerId('cr_${report.id}'),
+      position: LatLng(report.latitude, report.longitude),
+      icon: BitmapDescriptor.defaultMarkerWithHue(hue),
+      infoWindow: InfoWindow(title: label, snippet: statusLabel),
+      onTap: () => context.push('/community/reports/detail', extra: report),
+    );
+  }
+
+}
+
+// ── Risk point selection banner ───────────────────────────────────────────────
+
+class _RiskPointSelectionBanner extends StatelessWidget {
+  const _RiskPointSelectionBanner({required this.onCancel});
+
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: const Color(0xE6F57C00), // AppColors.warning700 with ~90% opacity
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: SafeArea(
+        bottom: false,
+        child: Row(
+          children: [
+            const Icon(Icons.touch_app, color: Colors.white),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                'Toca el mapa para marcar la zona de riesgo',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+              ),
+            ),
+            TextButton(
+              onPressed: onCancel,
+              style: TextButton.styleFrom(foregroundColor: Colors.white),
+              child: const Text('Cancelar'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── SpeedDial FAB — CU-03 + CU-05 (vendor map) ───────────────────────────────
+class _VendorSpeedDial extends StatelessWidget {
+  const _VendorSpeedDial({
+    required this.open,
+    required this.onToggle,
+    required this.onRiskZone,
+    required this.onCommunityReport,
+  });
+
+  final bool open;
+  final VoidCallback onToggle;
+  final VoidCallback onRiskZone;
+  final VoidCallback onCommunityReport;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        if (open) ...[
+          _VendorMiniAction(
+            icon: Icons.coronavirus_outlined,
+            label: 'Foco de infección',
+            color: const Color(0xFF795548),
+            onTap: onCommunityReport,
+          ),
+          const SizedBox(height: 8),
+          _VendorMiniAction(
+            icon: Icons.shield_outlined,
+            label: 'Zona de riesgo',
+            color: AppColors.warning700,
+            onTap: onRiskZone,
+          ),
+          const SizedBox(height: 8),
+        ],
+        FloatingActionButton(
+          backgroundColor: AppColors.warning700,
+          foregroundColor: AppColors.surface,
+          onPressed: onToggle,
+          child: AnimatedRotation(
+            turns: open ? 0.125 : 0,
+            duration: const Duration(milliseconds: 200),
+            child: const Icon(Icons.add),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _VendorMiniAction extends StatelessWidget {
+  const _VendorMiniAction({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(8),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.12),
+                blurRadius: 4,
+              )
+            ],
+          ),
+          child: Text(label, style: const TextStyle(fontSize: 13)),
+        ),
+        const SizedBox(width: 8),
+        FloatingActionButton.small(
+          heroTag: 'vendor_$label',
+          backgroundColor: color,
+          foregroundColor: AppColors.surface,
+          onPressed: onTap,
+          child: Icon(icon),
+        ),
+      ],
+    );
   }
 }
 
@@ -363,8 +1030,8 @@ Color _riskStrokeColor(String level) => switch (level) {
     };
 
 /// Returns perpendicular-offset waypoint strings to route around HIGH zones.
-/// Each waypoint is displaced from the zone center perpendicular to the
-/// origin→destination bearing, on the opposite side from the zone.
+/// All geometry is computed in metric space (meters) using the midpoint latitude
+/// to correct for the longitude-degree scale, then converted back to degrees.
 List<String> _buildAvoidWaypoints({
   required double originLat,
   required double originLng,
@@ -373,30 +1040,52 @@ List<String> _buildAvoidWaypoints({
   required List<RiskZone> highZones,
 }) {
   if (highZones.isEmpty) return const [];
-  const degPerMeter = 1.0 / 111000;
-  final dLat = destLat - originLat;
-  final dLng = destLng - originLng;
-  final length = math.sqrt(dLat * dLat + dLng * dLng);
+
+  // Scale factors: longitude degrees are shorter than latitude degrees
+  // by a factor of cos(latitude). Use the midpoint for best accuracy.
+  final midLat = (originLat + destLat) / 2;
+  final cosLat = math.cos(midLat * math.pi / 180);
+  const metersPerDegLat = 111000.0;
+  final metersPerDegLng = metersPerDegLat * cosLat;
+
+  // Direction vector in meters (metric space)
+  final dLatM = (destLat - originLat) * metersPerDegLat;
+  final dLngM = (destLng - originLng) * metersPerDegLng;
+  final length = math.sqrt(dLatM * dLatM + dLngM * dLngM);
   if (length == 0) return const [];
 
-  // Perpendicular unit vector (90° rotation of direction vector)
-  final perpLat = -dLng / length;
-  final perpLng = dLat / length;
+  // Perpendicular unit vector in metric space (90° CCW rotation)
+  final perpLatM = -dLngM / length;
+  final perpLngM = dLatM / length;
 
   return highZones.map((z) {
-    // Cross product determines which side of the route the zone is on
-    final cross =
-        dLat * (z.longitude - originLng) - dLng * (z.latitude - originLat);
+    // Zone position relative to origin, in meters
+    final zLatM = (z.latitude - originLat) * metersPerDegLat;
+    final zLngM = (z.longitude - originLng) * metersPerDegLng;
+    // Cross product determines which side of the route the zone lies on
+    final cross = dLatM * zLngM - dLngM * zLatM;
     final side = cross >= 0 ? 1.0 : -1.0;
     final offsetMeters = (z.radiusMeters + 50).toDouble();
-    final offsetDeg = offsetMeters * degPerMeter;
-    final wpLat = z.latitude + perpLat * offsetDeg * side;
-    final wpLng = z.longitude + perpLng * offsetDeg * side;
+    // Waypoint = zone center displaced perpendicular to route, converted back to degrees
+    final wpLat = z.latitude + perpLatM * offsetMeters * side / metersPerDegLat;
+    final wpLng = z.longitude + perpLngM * offsetMeters * side / metersPerDegLng;
     return '$wpLat,$wpLng';
   }).toList();
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/// Haversine distance in meters between two WGS-84 coordinates.
+double _distanceMeters(double lat1, double lng1, double lat2, double lng2) {
+  const r = 6371000.0;
+  final phi1 = lat1 * math.pi / 180;
+  final phi2 = lat2 * math.pi / 180;
+  final dPhi = (lat2 - lat1) * math.pi / 180;
+  final dLam = (lng2 - lng1) * math.pi / 180;
+  final a = math.sin(dPhi / 2) * math.sin(dPhi / 2) +
+      math.cos(phi1) * math.cos(phi2) * math.sin(dLam / 2) * math.sin(dLam / 2);
+  return r * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+}
 
 /// Decodes a Google Maps encoded polyline string to a list of LatLng points.
 List<LatLng> _decodePolyline(String encoded) {
@@ -550,6 +1239,118 @@ class _ConfirmDeliverySheet extends StatelessWidget {
             ),
             onPressed: onConfirm,
             child: const Text('Confirmar Entrega'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _IncomingRideDialog extends StatelessWidget {
+  const _IncomingRideDialog({
+    required this.pickupLat,
+    required this.pickupLng,
+    required this.destinationLat,
+    required this.destinationLng,
+    required this.onAccept,
+    required this.onReject,
+  });
+
+  final double pickupLat;
+  final double pickupLng;
+  final double destinationLat;
+  final double destinationLng;
+  final VoidCallback onAccept;
+  final VoidCallback onReject;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Nueva solicitud de raite'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Un pasajero quiere un raite a:'),
+          const SizedBox(height: 8),
+          Text(
+            'Recogida: ${pickupLat.toStringAsFixed(4)}, ${pickupLng.toStringAsFixed(4)}',
+            style:
+                const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+          ),
+          Text(
+            'Destino: ${destinationLat.toStringAsFixed(4)}, ${destinationLng.toStringAsFixed(4)}',
+            style:
+                const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+          ),
+        ],
+      ),
+      actions: [
+        OutlinedButton(
+          style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger500),
+          onPressed: onReject,
+          child: const Text('Rechazar'),
+        ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.success500,
+            foregroundColor: AppColors.surface,
+          ),
+          onPressed: onAccept,
+          child: const Text('Aceptar'),
+        ),
+      ],
+    );
+  }
+}
+
+class _RideActionSheet extends StatelessWidget {
+  const _RideActionSheet({
+    required this.label,
+    required this.buttonText,
+    required this.buttonColor,
+    required this.onAction,
+  });
+
+  final String label;
+  final String buttonText;
+  final Color buttonColor;
+  final VoidCallback onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 8,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.electric_rickshaw_outlined, size: 32),
+          const SizedBox(height: 8),
+          Text(
+            label,
+            style: const TextStyle(color: AppColors.textSecondary),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: buttonColor,
+              foregroundColor: AppColors.surface,
+              minimumSize: const Size.fromHeight(48),
+            ),
+            onPressed: onAction,
+            child: Text(buttonText),
           ),
         ],
       ),

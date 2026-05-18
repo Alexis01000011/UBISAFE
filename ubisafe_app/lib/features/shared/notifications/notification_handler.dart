@@ -3,9 +3,10 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/api/api_client.dart';
+import '../../community/services/community_report_module.dart';
 import '../../dispatching/models/stop_request.dart';
 import '../../safety/services/risk_zone_service.dart';
-import '../../../core/api/api_client.dart';
 
 /// Background message handler — must be a top-level function.
 @pragma('vm:entry-point')
@@ -27,6 +28,28 @@ class StopEvent {
   final StopRequestStatus status;
 }
 
+/// Incoming ride request data for a vendor (ride_request_incoming FCM event).
+final incomingRideProvider =
+    StateProvider<Map<String, dynamic>?>((ref) => null);
+
+/// Ride lifecycle event for buyer/vendor screens.
+final rideEventProvider = StateProvider<RideEvent?>((ref) => null);
+
+class RideEvent {
+  const RideEvent(this.rideId, this.type);
+  final String rideId;
+  final RideEventType type;
+}
+
+enum RideEventType {
+  accepted,
+  rejected,
+  expired,
+  vendorArrived,
+  cancelledByBuyer,
+  completed,
+}
+
 /// Handles all FCM push-notification events for UbiSafe.
 class NotificationHandler {
   NotificationHandler(
@@ -35,15 +58,24 @@ class NotificationHandler {
     required void Function(Map<String, dynamic>?) setIncomingStop,
     required void Function(StopEvent?) setStopEvent,
     required void Function() invalidateRiskZones,
+    required void Function() onCommunityReportNearby,
+    required void Function(Map<String, dynamic>?) setIncomingRide,
+    required void Function(RideEvent?) setRideEvent,
   })  : _setIncomingStop = setIncomingStop,
         _setStopEvent = setStopEvent,
-        _invalidateRiskZones = invalidateRiskZones;
+        _invalidateRiskZones = invalidateRiskZones,
+        _onCommunityReportNearby = onCommunityReportNearby,
+        _setIncomingRide = setIncomingRide,
+        _setRideEvent = setRideEvent;
 
   final FirebaseMessaging _messaging;
   final Dio _dio;
   final void Function(Map<String, dynamic>?) _setIncomingStop;
   final void Function(StopEvent?) _setStopEvent;
   final void Function() _invalidateRiskZones;
+  final void Function() _onCommunityReportNearby;
+  final void Function(Map<String, dynamic>?) _setIncomingRide;
+  final void Function(RideEvent?) _setRideEvent;
   bool _initialized = false;
 
   /// Must be called once before runApp() — cannot be in init() because
@@ -58,9 +90,8 @@ class NotificationHandler {
     await _messaging.requestPermission();
 
     try {
-      final token = await _messaging
-          .getToken()
-          .timeout(const Duration(seconds: 5));
+      final token =
+          await _messaging.getToken().timeout(const Duration(seconds: 5));
       if (token != null) {
         await _syncToken(token);
       }
@@ -71,6 +102,23 @@ class NotificationHandler {
     _messaging.onTokenRefresh.listen(_syncToken);
     FirebaseMessaging.onMessage.listen(_handleMessage);
     FirebaseMessaging.onMessageOpenedApp.listen(_handleMessage);
+  }
+
+  /// Re-syncs the FCM token with the backend.
+  /// Call this after confirming the user is authenticated and the backend is
+  /// reachable (e.g. from SplashScreen after a successful GET /auth/me), so
+  /// that the token is always registered even when init() ran before Firebase
+  /// Auth restored the persisted session.
+  Future<void> syncTokenIfNeeded() async {
+    try {
+      final token =
+          await _messaging.getToken().timeout(const Duration(seconds: 5));
+      if (token != null) {
+        await _syncToken(token);
+      }
+    } catch (e) {
+      debugPrint('FCM syncTokenIfNeeded failed: $e');
+    }
   }
 
   Future<void> _syncToken(String token) async {
@@ -89,6 +137,7 @@ class NotificationHandler {
   void _dispatchData(Map<String, dynamic> data) {
     final type = data['type'] as String?;
     final stopId = data['stop_id'] as String?;
+    final rideId = data['ride_id'] as String?;
 
     switch (type) {
       case 'stop_request_incoming':
@@ -109,8 +158,59 @@ class NotificationHandler {
           _setStopEvent(StopEvent(stopId, StopRequestStatus.completed));
         }
 
+      case 'stop_request_expired':
+        if (stopId != null) {
+          _setStopEvent(StopEvent(stopId, StopRequestStatus.expired));
+        }
+
+      case 'stop_request_cancelled':
+        if (stopId != null) {
+          _setStopEvent(StopEvent(stopId, StopRequestStatus.cancelled));
+        }
+
       case 'risk_zone_alert':
         _invalidateRiskZones();
+
+      case 'community_report_nearby':
+        _onCommunityReportNearby();
+
+      case 'ride_request_incoming':
+        _setIncomingRide(Map<String, dynamic>.from(data));
+
+      case 'ride_destination_too_far':
+        if (rideId != null) {
+          _setIncomingRide(Map<String, dynamic>.from(data));
+        }
+
+      case 'ride_request_accepted':
+        if (rideId != null) {
+          _setRideEvent(RideEvent(rideId, RideEventType.accepted));
+        }
+
+      case 'ride_request_rejected':
+        if (rideId != null) {
+          _setRideEvent(RideEvent(rideId, RideEventType.rejected));
+        }
+
+      case 'ride_request_expired':
+        if (rideId != null) {
+          _setRideEvent(RideEvent(rideId, RideEventType.expired));
+        }
+
+      case 'ride_vendor_arrived':
+        if (rideId != null) {
+          _setRideEvent(RideEvent(rideId, RideEventType.vendorArrived));
+        }
+
+      case 'ride_cancelled_by_buyer':
+        if (rideId != null) {
+          _setRideEvent(RideEvent(rideId, RideEventType.cancelledByBuyer));
+        }
+
+      case 'ride_completed':
+        if (rideId != null) {
+          _setRideEvent(RideEvent(rideId, RideEventType.completed));
+        }
 
       default:
         debugPrint('FCM unhandled type [$type]');
@@ -132,5 +232,10 @@ final notificationHandlerProvider = Provider<NotificationHandler>((ref) {
     setStopEvent: (event) =>
         ref.read(stopRequestEventProvider.notifier).state = event,
     invalidateRiskZones: () => ref.invalidate(activeRiskZonesProvider),
+    onCommunityReportNearby: () =>
+        ref.read(activeCommunityReportsProvider.notifier).refresh(),
+    setIncomingRide: (data) =>
+        ref.read(incomingRideProvider.notifier).state = data,
+    setRideEvent: (event) => ref.read(rideEventProvider.notifier).state = event,
   );
 });

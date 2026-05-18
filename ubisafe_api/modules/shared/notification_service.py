@@ -22,13 +22,9 @@ class NotificationService:
         return fcm.send(message)
 
     @staticmethod
-    async def send_async(
-        token: str, title: str, body: str, data: dict | None = None
-    ) -> str | None:
+    async def send_async(token: str, title: str, body: str, data: dict | None = None) -> str | None:
         try:
-            return await asyncio.to_thread(
-                NotificationService.send, token, title, body, data
-            )
+            return await asyncio.to_thread(NotificationService.send, token, title, body, data)
         except messaging.UnregisteredError:
             logger.warning("FCM token unregistered: %s", token[:20])
             return None
@@ -37,9 +33,7 @@ class NotificationService:
             return None
 
     @staticmethod
-    async def send_to_user(
-        uid: str, title: str, body: str, data: dict | None = None
-    ) -> None:
+    async def send_to_user(uid: str, title: str, body: str, data: dict | None = None) -> None:
         # Import here to avoid circular dependency
         from modules.shared.firestore_service import FirestoreService
 
@@ -93,25 +87,174 @@ class NotificationService:
         )
 
     @staticmethod
-    async def notify_risk_zone_alert(
-        fcm_tokens: list[str], risk_zone_data: dict
+    async def send_stop_expired(buyer_uid: str, stop_id: str) -> None:
+        await NotificationService.send_to_user(
+            uid=buyer_uid,
+            title="Tiempo de espera agotado",
+            body="El vendedor no respondió a tiempo.",
+            data={"type": "stop_request_expired", "stop_id": stop_id},
+        )
+
+    @staticmethod
+    async def send_stop_expired_vendor(vendor_uid: str, stop_id: str) -> None:
+        await NotificationService.send_to_user(
+            uid=vendor_uid,
+            title="Solicitud de parada expirada",
+            body="El comprador no obtuvo respuesta a tiempo.",
+            data={"type": "stop_request_expired", "stop_id": stop_id},
+        )
+
+    @staticmethod
+    async def send_stop_cancelled(vendor_uid: str, stop_id: str) -> None:
+        await NotificationService.send_to_user(
+            uid=vendor_uid,
+            title="Parada cancelada",
+            body="El comprador canceló la solicitud de parada.",
+            data={"type": "stop_request_cancelled", "stop_id": stop_id},
+        )
+
+    @staticmethod
+    async def send_community_report_nearby(
+        tokens: list[str],
+        report_id: str,
+        threat_type: str,
+        lat: float,
+        lng: float,
     ) -> None:
+        """FCM multicast to all users when a new community report is created."""
+        if not tokens:
+            return
+        fcm = FirebaseAdminInit.get_fcm()
+        data = {
+            "type": "community_report_nearby",
+            "report_id": report_id,
+            "threat_type": threat_type,
+            "lat": str(lat),
+            "lng": str(lng),
+        }
+        chunk_size = 500
+        for i in range(0, len(tokens), chunk_size):
+            chunk = tokens[i : i + chunk_size]
+            try:
+                message = fcm.MulticastMessage(data=data, tokens=chunk)
+                await asyncio.to_thread(fcm.send_each_for_multicast, message)
+            except Exception as exc:
+                logger.error("FCM community_report_nearby multicast failed: %s", exc)
+
+    # ------------------------------------------------------------------ rides
+    @staticmethod
+    async def send_ride_incoming(
+        vendor_uid: str,
+        ride_id: str,
+        pickup_lat: float,
+        pickup_lng: float,
+        destination_lat: float,
+        destination_lng: float,
+    ) -> None:
+        await NotificationService.send_to_user(
+            uid=vendor_uid,
+            title="Nueva solicitud de raite",
+            body="Un pasajero te solicita un raite.",
+            data={
+                "type": "ride_request_incoming",
+                "ride_id": ride_id,
+                "pickup_lat": str(pickup_lat),
+                "pickup_lng": str(pickup_lng),
+                "destination_lat": str(destination_lat),
+                "destination_lng": str(destination_lng),
+            },
+        )
+
+    @staticmethod
+    async def send_ride_destination_too_far(
+        vendor_uid: str, ride_id: str, distance_km: float
+    ) -> None:
+        await NotificationService.send_to_user(
+            uid=vendor_uid,
+            title="Destino fuera de rango",
+            body=f"El destino está a {distance_km} km. Debes rechazar este raite.",
+            data={
+                "type": "ride_destination_too_far",
+                "ride_id": ride_id,
+                "distance_km": str(distance_km),
+            },
+        )
+
+    @staticmethod
+    async def send_ride_accepted(buyer_uid: str, ride_id: str) -> None:
+        await NotificationService.send_to_user(
+            uid=buyer_uid,
+            title="¡El vendedor aceptó tu raite!",
+            body="El vendedor se dirige hacia tu punto de recogida.",
+            data={"type": "ride_request_accepted", "ride_id": ride_id},
+        )
+
+    @staticmethod
+    async def send_ride_rejected(buyer_uid: str, ride_id: str, reason: str) -> None:
+        await NotificationService.send_to_user(
+            uid=buyer_uid,
+            title="El vendedor no pudo llevarte",
+            body="Intenta con otro vendedor cercano.",
+            data={"type": "ride_request_rejected", "ride_id": ride_id, "reason": reason},
+        )
+
+    @staticmethod
+    async def send_ride_completed(buyer_uid: str, vendor_uid: str, ride_id: str) -> None:
+        await NotificationService.send_to_user(
+            uid=buyer_uid,
+            title="¡Raite completado!",
+            body="Llegaste a tu destino. ¡Que te vaya bien!",
+            data={"type": "ride_completed", "ride_id": ride_id},
+        )
+        await NotificationService.send_to_user(
+            uid=vendor_uid,
+            title="Raite completado",
+            body="El viaje terminó exitosamente.",
+            data={"type": "ride_completed", "ride_id": ride_id},
+        )
+
+    @staticmethod
+    async def send_ride_vendor_arrived(buyer_uid: str, ride_id: str) -> None:
+        await NotificationService.send_to_user(
+            uid=buyer_uid,
+            title="¡El vendedor llegó!",
+            body="El vendedor está esperándote en el punto de recogida.",
+            data={"type": "ride_vendor_arrived", "ride_id": ride_id},
+        )
+
+    @staticmethod
+    async def send_ride_cancelled_by_buyer(vendor_uid: str, ride_id: str) -> None:
+        await NotificationService.send_to_user(
+            uid=vendor_uid,
+            title="Raite cancelado",
+            body="El pasajero canceló el raite.",
+            data={"type": "ride_cancelled_by_buyer", "ride_id": ride_id},
+        )
+
+    @staticmethod
+    async def send_ride_expired(vendor_uid: str, ride_id: str) -> None:
+        await NotificationService.send_to_user(
+            uid=vendor_uid,
+            title="Solicitud expirada",
+            body="La solicitud de raite expiró sin respuesta.",
+            data={"type": "ride_request_expired", "ride_id": ride_id},
+        )
+
+    @staticmethod
+    async def notify_risk_zone_alert(
+        fcm_tokens: list[str],
+        data: dict,
+    ) -> None:
+        """Multicast FCM alert to all users with a registered token."""
         if not fcm_tokens:
             return
-        data_str = {k: str(v) for k, v in risk_zone_data.items()}
-        batch_size = 500
-        for i in range(0, len(fcm_tokens), batch_size):
-            batch = fcm_tokens[i : i + batch_size]
-            message = messaging.MulticastMessage(data=data_str, tokens=batch)
+        fcm = FirebaseAdminInit.get_fcm()
+        data_str = {k: str(v) for k, v in data.items()}
+        chunk_size = 500
+        for i in range(0, len(fcm_tokens), chunk_size):
+            chunk = fcm_tokens[i : i + chunk_size]
             try:
-                response = await asyncio.to_thread(messaging.send_multicast, message)
-                if response.failure_count > 0:
-                    for idx, result in enumerate(response.responses):
-                        if not result.success:
-                            logger.warning(
-                                "FCM multicast failure for token %s: %s",
-                                batch[idx][:20],
-                                result.exception,
-                            )
+                message = fcm.MulticastMessage(data=data_str, tokens=chunk)
+                await asyncio.to_thread(fcm.send_each_for_multicast, message)
             except Exception as exc:
                 logger.error("FCM multicast failed: %s", exc)

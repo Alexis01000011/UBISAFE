@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_client.dart';
@@ -12,7 +13,7 @@ class StopRequestModule {
 
   final Dio _dio;
   final FirebaseFirestore _firestore;
-  Timer? _timeoutTimer;
+  final _timers = <String, Timer>{};
 
   CollectionReference<Map<String, dynamic>> get _col =>
       _firestore.collection('stop_requests');
@@ -29,29 +30,38 @@ class StopRequestModule {
         'buyer_location': {'lat': buyerLat, 'lng': buyerLng},
       },
     );
-    final req = StopRequest.fromJson(res.data!);
-    _startTimer(req.id);
-    return req;
+    return StopRequest.fromJson(res.data!);
   }
 
-  void _startTimer(String stopId) {
-    _timeoutTimer?.cancel();
-    _timeoutTimer = Timer(const Duration(seconds: 60), () async {
+  /// Starts a 60-second timer that marks the stop as expired if not answered.
+  /// [onExpired] is always called — even if the PATCH fails — so the buyer UI
+  /// never stays stuck in a pending state after the TTL elapses.
+  void startTimer(String stopId, {required void Function() onExpired}) {
+    _timers[stopId]?.cancel();
+    _timers[stopId] = Timer(const Duration(seconds: 60), () async {
+      _timers.remove(stopId);
       try {
         await expireStopRequest(stopId);
       } on DioException catch (e) {
-        if (e.response?.statusCode == 409) return;
+        // 409 = already processed concurrently; 400 = terminal state (accepted)
+        if (e.response?.statusCode != 409 && e.response?.statusCode != 400) {
+          debugPrint('StopRequestModule: expiry PATCH failed — $e');
+        }
       }
+      onExpired();
     });
   }
 
   void cancelTimer() {
-    _timeoutTimer?.cancel();
-    _timeoutTimer = null;
+    for (final t in _timers.values) { t.cancel(); }
+    _timers.clear();
   }
 
   Future<void> expireStopRequest(String stopId) =>
       _dio.patch('/stops/$stopId/status', data: {'status': 'expired'});
+
+  Future<void> cancelStopRequest(String stopId) =>
+      _dio.patch('/stops/$stopId/status', data: {'status': 'cancelled'});
 
   Future<void> rejectStopRequest(String stopId) =>
       _dio.patch('/stops/$stopId/status', data: {'status': 'rejected'});

@@ -20,11 +20,11 @@ class VendorMarker {
   /// [iter.2] When true the vendor accepts ride requests (CU-04).
   final bool rideEnabled;
 
-  factory VendorMarker.fromMap(String uid, Map<dynamic, dynamic> map) {
+  factory VendorMarker.fromMap(String uid, Map map) {
     return VendorMarker(
       uid: uid,
-      latitude: (map['lat'] as num).toDouble(),
-      longitude: (map['lng'] as num).toDouble(),
+      latitude: num.parse((map['lat'] ?? 0).toString()).toDouble(),
+      longitude: num.parse((map['lng'] ?? 0).toString()).toDouble(),
       rideEnabled: map['ride_enabled'] as bool? ?? false,
     );
   }

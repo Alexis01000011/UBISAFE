@@ -54,8 +54,9 @@ class _SignupDataScreenState extends State<SignupDataScreen> {
                 controller: _nameCtrl,
                 textCapitalization: TextCapitalization.words,
                 decoration: const InputDecoration(labelText: 'Nombre completo'),
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Ingresa tu nombre' : null,
+                validator: (v) => (v == null || v.trim().isEmpty)
+                    ? 'Ingresa tu nombre'
+                    : null,
               ),
               const SizedBox(height: 16),
               TextFormField(
@@ -79,9 +80,8 @@ class _SignupDataScreenState extends State<SignupDataScreen> {
                 controller: _passwordCtrl,
                 obscureText: true,
                 decoration: const InputDecoration(labelText: 'Contraseña'),
-                validator: (v) => (v == null || v.length < 6)
-                    ? 'Mínimo 6 caracteres'
-                    : null,
+                validator: (v) =>
+                    (v == null || v.length < 6) ? 'Mínimo 6 caracteres' : null,
               ),
               const SizedBox(height: 24),
               ElevatedButton(

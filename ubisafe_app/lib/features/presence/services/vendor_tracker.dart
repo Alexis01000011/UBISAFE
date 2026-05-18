@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:firebase_database/firebase_database.dart';
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 
@@ -19,16 +20,20 @@ const double _kRadiusKm = 4.0;
 /// SDD §5.3.2.2
 class VendorTracker {
   VendorTracker({DatabaseReference? rtdbRef}) {
-    final ref =
-        rtdbRef ?? FirebaseDatabase.instance.ref('vendedores_activos');
-    _init(ref.onValue.map(
-      (event) => event.snapshot.value as Map<dynamic, dynamic>? ?? {},
-    ));
+    final ref = rtdbRef ?? FirebaseDatabase.instance.ref('vendedores_activos');
+    _init(ref.onValue
+        .map((event) {
+          final v = event.snapshot.value;
+          return v is Map ? v : const <Object?, Object?>{};
+        })
+        .asBroadcastStream());
   }
 
   /// Test-friendly constructor: inject a raw map stream directly.
-  VendorTracker.fromStream(Stream<Map<dynamic, dynamic>> rawStream) {
-    _init(rawStream);
+  /// Converts to broadcast so tests can attach multiple listeners (e.g. the
+  /// provider + the test assertion) without a StateError.
+  VendorTracker.fromStream(Stream<Map> rawStream) {
+    _init(rawStream.isBroadcast ? rawStream : rawStream.asBroadcastStream());
   }
 
   final _controller = StreamController<List<VendorMarker>>.broadcast();
@@ -40,21 +45,37 @@ class VendorTracker {
   /// Filtered stream of active vendors within [_kRadiusKm].
   Stream<List<VendorMarker>> get vendorStream => _controller.stream;
 
-  void _init(Stream<Map<dynamic, dynamic>> stream) {
+  void _init(Stream<Map> stream) {
     _sub = stream.listen(
       (raw) {
-        _vendors = {
-          for (final e in raw.entries)
-            e.key as String: VendorMarker.fromMap(
-              e.key as String,
-              e.value as Map<dynamic, dynamic>,
-            ),
-        };
+        final updated = <String, VendorMarker>{};
+        for (final e in raw.entries) {
+          try {
+            final key = e.key?.toString();
+            final value = e.value;
+            if (key == null || value is! Map) continue;
+            updated[key] = VendorMarker.fromMap(key, value);
+          } catch (err) {
+            if (kDebugMode) {
+              debugPrint('VendorTracker: entry ${e.key} malformed — $err');
+            }
+          }
+        }
+        _vendors = updated;
         _emit();
       },
-      onError: (_) {
+      onError: (Object err) {
+        // Typical cause: RTDB permission_denied (missing .read rule) or
+        // no connectivity. Logged in debug so the error is visible without
+        // crashing the stream.
+        if (kDebugMode) debugPrint('VendorTracker RTDB error: $err');
         if (!_controller.isClosed) _controller.add([]);
       },
+      // cancelOnError: false so a transient RTDB error (network blip,
+      // permission_denied during reconnect) does not permanently kill the
+      // subscription. Firebase SDK auto-reconnects and the next onValue event
+      // will reach _init's listener without needing to recreate VendorTracker.
+      cancelOnError: false,
     );
   }
 
@@ -70,7 +91,7 @@ class VendorTracker {
     final lat = _buyerLat;
     final lng = _buyerLng;
     if (lat == null || lng == null) {
-      _controller.add(List.unmodifiable(_vendors.values));
+      _controller.add(const []);
       return;
     }
     _controller.add(
@@ -113,9 +134,26 @@ class VendorTracker {
 final _vendorTrackerInstanceProvider = Provider<VendorTracker>((ref) {
   final tracker = VendorTracker();
 
-  // Keep Haversine filter in sync with buyer's GPS position.
+  // Seed with the current GPS position if already available.
+  // ref.listen only fires on *subsequent* changes — without this read the
+  // tracker's _buyerLat/_buyerLng stays null if GPS was already streaming
+  // when this provider was first created, causing _emit() to always return
+  // an empty vendor list regardless of active vendors in RTDB.
+  final initialPos = ref.read(gpsServiceProvider).valueOrNull;
+  if (initialPos != null) {
+    tracker.updateBuyerPosition(initialPos.latitude, initialPos.longitude);
+  } else {
+    // Stream hasn't emitted yet (GPS permission still being resolved or first
+    // fix not received). Try the last cached OS position as an immediate seed
+    // so RTDB events that arrive before the first GPS fix are not filtered out.
+    Geolocator.getLastKnownPosition().then((pos) {
+      if (pos != null) tracker.updateBuyerPosition(pos.latitude, pos.longitude);
+    }).catchError((_) {});
+  }
+
+  // Keep in sync with subsequent GPS position changes.
   ref.listen<AsyncValue<Position?>>(gpsServiceProvider, (_, next) {
-    final pos = next.value;
+    final pos = next.valueOrNull;
     if (pos != null) tracker.updateBuyerPosition(pos.latitude, pos.longitude);
   });
 

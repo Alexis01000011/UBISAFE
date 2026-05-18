@@ -10,6 +10,7 @@ class GeoPoint(BaseModel):
 
 class StopRequest(BaseModel):
     """Modelo de solicitud de parada. Ref: SDD_FASE3_UBISAFE.md §7.2.2"""
+
     id: str
     buyer_uid: str
     vendor_uid: str | None = None  # Obligatorio lógicamente al crear; null en GET previo
@@ -18,7 +19,7 @@ class StopRequest(BaseModel):
     expires_at: str | None = None
     created_at: str | None = None
     updated_at: str | None = None
-    accepted_at: str | None = None   # Se rellena al aceptar (pending→accepted)
+    accepted_at: str | None = None  # Se rellena al aceptar (pending→accepted)
     completed_at: str | None = None  # Se rellena al completar (accepted→completed)
 
 
@@ -36,5 +37,7 @@ VALID_TRANSITIONS: dict[tuple[str, str], str] = {
     ("pending", "accepted"): "VENDOR",
     ("pending", "rejected"): "VENDOR",
     ("pending", "expired"): "BUYER",
+    ("pending", "cancelled"): "BUYER",
     ("accepted", "completed"): "VENDOR",
+    ("accepted", "cancelled"): "BUYER",
 }

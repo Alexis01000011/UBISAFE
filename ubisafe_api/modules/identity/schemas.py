@@ -12,6 +12,7 @@ class UserProfile(BaseModel):
     phone: str | None = None
     role: str | None = None
     fcm_token: str | None = None
+    ride_enabled: bool | None = None  # iter.2: VENDOR opt-in for CU-04
     # Anticipatory iter.1 fields (SDD §7.2.1) — updated by GPSService in foreground
     last_location: dict[str, Any] | None = None
     last_location_at: datetime | None = None
@@ -27,3 +28,12 @@ class SyncProfileRequest(BaseModel):
 
 class DeviceTokenRequest(BaseModel):
     token: str
+
+
+class UpdateRideEnabledRequest(BaseModel):
+    ride_enabled: bool
+
+
+class UpdateLocationRequest(BaseModel):
+    lat: float
+    lng: float

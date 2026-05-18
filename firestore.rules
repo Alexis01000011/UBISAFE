@@ -29,7 +29,7 @@ service cloud.firestore {
       allow read: if isAuthenticated()
                   && (resource.data.buyer_uid == request.auth.uid
                       || resource.data.vendor_uid == request.auth.uid);
-      allow write: if false;
+      allow write: if false; // Solo Admin SDK (FastAPI)
     }
 
     // ─── COLECCIÓN: risk_zones ─────────────────────────────────────────────
@@ -42,8 +42,78 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // ─── iter.2: rides, community_reports ─────────────────────────────────
-    // Se añaden en F6 y F7 respectivamente.
+    // ─── COLECCIÓN: community_reports [iter. 2 — CU-05/CU-06] ───────────
+    // Lectura pública para autenticados (mapa muestra reportes a todos).
+    // Validaciones de negocio (distancia, doble voto, voto propio, umbrales)
+    // las aplica FastAPI con Admin SDK antes de escribir.
+    match /community_reports/{reportId} {
+      allow read:   if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if false;
+    }
+
+    // ─── COLECCIÓN: rides [iter.2 — CU-04] ───────────────────────────────
+    // Buyer y vendor pueden leer su propia ride.
+    // La lógica de negocio (rol, máquina de estados, distancia) la aplica
+    // FastAPI con Admin SDK. El cliente solo lee para la TrackingScreen
+    // via Firestore listener (status, vendor_location updates).
+    match /rides/{rideId} {
+      allow read: if isAuthenticated()
+                  && (resource.data.buyer_uid == request.auth.uid
+                      || resource.data.vendor_uid == request.auth.uid);
+      allow write: if false;  // solo Admin SDK (FastAPI)
+    }
+
+    // ─── COLECCIÓN: vacant_lots [iter. 3 — CU-07] ────────────────────────────
+    // Backend valida distancia 4 km, descripción mínima, no auto-confirmación.
+    // Cliente puede crear y confirmar; Admin SDK escribe resoluciones y expirados.
+    match /vacant_lots/{lotId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if false;
+    }
+
+    // ─── COLECCIÓN: subscriptions [iter. 3 — CU-08] ──────────────────────────
+    // ID compuesto {buyer_uid}_{vendor_uid}. Solo el comprador puede cancelar
+    // (update) su propia suscripción. Vendor solo puede leer.
+    match /subscriptions/{subscriptionId} {
+      allow read: if isAuthenticated()
+                  && (resource.data.buyer_uid == request.auth.uid
+                      || resource.data.vendor_uid == request.auth.uid);
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated()
+                    && resource.data.buyer_uid == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // ─── COLECCIÓN: group_stays [iter. 3 — CU-09] ────────────────────────────
+    // Lectura pública para autenticados (mapa muestra estancias a todos).
+    // Sub-colección attendances: buyer crea su propio doc; vendor puede leer.
+    match /group_stays/{stayId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if false;
+
+      match /attendances/{buyerUid} {
+        allow read: if isAuthenticated()
+                    && (request.auth.uid == buyerUid
+                        || get(/databases/$(database)/documents/group_stays/$(stayId)).data.vendor_uid
+                           == request.auth.uid);
+        allow create: if isAuthenticated() && request.auth.uid == buyerUid;
+        allow update, delete: if false;
+      }
+    }
+
+    // ─── COLECCIÓN: reputation_events [iter. 3 — CU-07] ─────────────────────
+    // Solo log. El cliente puede leer sus propios eventos. Admin SDK escribe.
+    match /reputation_events/{eventId} {
+      allow read: if isAuthenticated()
+                  && resource.data.user_uid == request.auth.uid;
+      allow create, update, delete: if false;
+    }
 
   }
 }

@@ -337,7 +337,7 @@ FastAPI dependency `get_current_user` — validates the Firebase ID token from `
 | Tag | Status | Description |
 |---|---|---|
 | iter.1 | ✅ Structure | Core skeleton, auth, presence, dispatching (stop requests). |
-| iter.2 | 🏗 In progress | CU-04 Rides, CU-05/06 Community reports, FCM events. |
+| iter.2 | ✅ Completed | CU-04 Rides, CU-05/06 Community reports, FCM events, Hardening F8. |
 
 ---
 
@@ -392,6 +392,9 @@ adb reverse tcp:9000 tcp:9000
 adb reverse tcp:8000 tcp:8000
 
 flutter run
+
+# Against production Firebase + Render backend (no emulators needed):
+flutter run --dart-define=USE_EMULATORS=false --dart-define=API_BASE_URL=https://ubisafe-j1fg.onrender.com
 ```
 
 #### Docker (FastAPI)

@@ -48,7 +48,8 @@ void main() {
       expect(find.text('Abrir ajustes de ubicación'), findsOneWidget);
     });
 
-    testWidgets('calls onResolved when status changes to ready', (tester) async {
+    testWidgets('calls onResolved when status changes to ready',
+        (tester) async {
       var resolved = false;
       final ctrl = StreamController<GpsStatus>();
 

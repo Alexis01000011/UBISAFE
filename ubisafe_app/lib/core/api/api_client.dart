@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 const String _baseUrl = String.fromEnvironment(
   'API_BASE_URL',
-  defaultValue: 'http://localhost:8000',
+  defaultValue: 'http://127.0.0.1:8000',
 );
 
 final apiClientProvider = Provider<Dio>((ref) {
@@ -81,8 +81,7 @@ class _RetryInterceptor extends Interceptor {
       await Future<void>.delayed(
         Duration(milliseconds: 300 * (1 << retryCount)),
       );
-      final options = err.requestOptions
-        ..extra['_retryCount'] = retryCount + 1;
+      final options = err.requestOptions..extra['_retryCount'] = retryCount + 1;
       try {
         final response = await _dio.fetch<dynamic>(options);
         handler.resolve(response);
