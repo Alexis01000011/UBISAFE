@@ -3,7 +3,7 @@
 **Proyecto:** Los Borbotones · TSP · ITESM  
 **Rama activa:** `Rama-Miguel`  
 **Dispositivo de prueba:** Físico Android (depuración inalámbrica ADB, NO emulador de computadora)  
-**Última actualización:** 2026-05-17 (C-96)
+**Última actualización:** 2026-05-17 (C-98)
 
 ---
 
@@ -1234,6 +1234,32 @@
 | **Clase / Módulo** | `_MapScreenBuyerState` — listener de `stopRequestEventProvider` → `ubisafe_app/lib/features/dispatching/screens/map_screen_buyer.dart` |
 | **Justificación** | El estado `_mapState` es la fuente de verdad del estado de la UI del comprador. Si ya es `idle` cuando llega el `accepted`, significa que el comprador ya resolvió el stop (sea por timer o por FCM `expired`); cualquier `accepted` posterior es stale y debe descartarse. |
 | **Problema que resolvía** | Cuando el vendedor aceptaba una parada cuyo estado en el comprador ya era `idle` (post-timer), el comprador navegaba a la pantalla de tracking y el vendedor al panel de entrega, generando un estado inconsistente de "entrega activa" en una parada ya expirada. |
+
+---
+
+### C-97 · `_buildAvoidWaypoints` generaba waypoints para zonas HIGH fuera de la ruta `2026-05-17`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-97 · Filtro de intersección ruta–zona en `_buildAvoidWaypoints` |
+| **Qué se corrigió (técnico)** | Se reemplazó `return highZones.map((z) { ... }).toList()` por un bucle `for` con filtro previo. Antes de generar un waypoint para una zona HIGH, se proyecta el centro de la zona sobre el segmento origen→destino (parámetro `t ∈ [0,1]` mediante producto punto), se calcula la distancia perpendicular del centro al segmento en espacio métrico, y solo si esa distancia `≤ z.radiusMeters` (la zona intersecta el trayecto) se genera el waypoint de desvío. Zonas fuera del trayecto son ignoradas con `continue`. |
+| **Qué se corrigió (simple)** | Cuando había una zona de riesgo HIGH activa en cualquier punto dentro del radio de 5 km (aunque estuviera a kilómetros del trayecto real), la ruta del vendedor se desviaba hasta esa zona antes de llegar al comprador. Ahora solo se generan desvíos para las zonas que realmente cruzan el camino origen→destino. |
+| **Clase / Método / Módulo** | `_buildAvoidWaypoints()` (función top-level) → `ubisafe_app/lib/features/dispatching/screens/map_screen_vendor.dart` |
+| **Justificación** | El parámetro `waypoints` de Google Directions API fuerza la ruta a pasar POR esos puntos, no a evitarlos. El waypoint se coloca cerca del centro de la zona (desplazado perpendicularmente `radiusMeters + 50 m`). Si la zona está fuera del trayecto, el waypoint queda en una ubicación aleatoria respecto a la ruta real, causando que Google enrute a esa zona antes de seguir al destino. El filtro de intersección evita generar waypoints para zonas que no bloquean el trayecto. |
+| **Problema que resolvía** | Con una o más zonas HIGH activas en el área, la ruta trazada en el mapa del vendedor se desviaba hasta esas zonas en lugar de ir directamente al comprador. |
+
+---
+
+### C-98 · Comprador podía solicitar parada o raite estando dentro de una zona de alto riesgo `2026-05-17`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-98 · Bloqueo de solicitudes desde zona HIGH en `_onVendorTap` |
+| **Qué se corrigió (técnico)** | Se añadió el import `../../safety/models/risk_zone.dart` a `map_screen_buyer.dart`. En `_MapScreenBuyerState._onVendorTap`, antes de abrir el `_VendorBottomSheet`, se lee el valor en caché de `activeRiskZonesProvider(LatLng(buyerLat, buyerLng)).valueOrNull`. Si las zonas están disponibles y alguna tiene `riskLevel == 'HIGH'` con `Geolocator.distanceBetween(buyerLat, buyerLng, z.latitude, z.longitude) ≤ z.radiusMeters`, se muestra un SnackBar "No puedes solicitar desde una zona de alto riesgo." y se retorna sin abrir el bottom sheet. Si el provider aún no ha cargado las zonas (`valueOrNull == null`), el bloqueo se omite para no penalizar el arranque frío. |
+| **Qué se corrigió (simple)** | El comprador podía tocar un vendedor y solicitar parada o raite aunque estuviera parado dentro del círculo rojo de una zona de alto riesgo. Ahora el tap queda bloqueado con un mensaje de error antes de que se abra el menú de opciones. |
+| **Clase / Método / Módulo** | `_MapScreenBuyerState._onVendorTap()` → `ubisafe_app/lib/features/dispatching/screens/map_screen_buyer.dart` |
+| **Justificación** | Enviar al vendedor hacia una zona HIGH activa es el escenario exacto que el sistema de zonas de riesgo pretende evitar. El bloqueo en `_onVendorTap` (antes del bottom sheet) da retroalimentación inmediata al comprador sin necesitar una ida-vuelta al backend. Se usa `valueOrNull` sobre el provider ya watcheado en `build()`, que en condiciones normales ya tiene el valor cacheado al momento del tap. |
+| **Problema que resolvía** | Un comprador dentro de una zona de alto riesgo podía solicitar parada o raite normalmente; el flujo completo llegaba al vendedor, quien navegaba hacia la zona de peligro sin advertencia. |
 
 ---
 

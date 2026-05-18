@@ -1047,6 +1047,8 @@ Color _riskStrokeColor(String level) => switch (level) {
     };
 
 /// Returns perpendicular-offset waypoint strings to route around HIGH zones.
+/// Only zones whose circle intersects the origin→destination segment are
+/// considered; zones off the route are ignored to avoid unnecessary detours.
 /// All geometry is computed in metric space (meters) using the midpoint latitude
 /// to correct for the longitude-degree scale, then converted back to degrees.
 List<String> _buildAvoidWaypoints({
@@ -1065,7 +1067,7 @@ List<String> _buildAvoidWaypoints({
   const metersPerDegLat = 111000.0;
   final metersPerDegLng = metersPerDegLat * cosLat;
 
-  // Direction vector in meters (metric space)
+  // Route direction vector in meters (metric space)
   final dLatM = (destLat - originLat) * metersPerDegLat;
   final dLngM = (destLng - originLng) * metersPerDegLng;
   final length = math.sqrt(dLatM * dLatM + dLngM * dLngM);
@@ -1075,10 +1077,26 @@ List<String> _buildAvoidWaypoints({
   final perpLatM = -dLngM / length;
   final perpLngM = dLatM / length;
 
-  return highZones.map((z) {
+  final waypoints = <String>[];
+  for (final z in highZones) {
     // Zone position relative to origin, in meters
     final zLatM = (z.latitude - originLat) * metersPerDegLat;
     final zLngM = (z.longitude - originLng) * metersPerDegLng;
+
+    // Project zone center onto the route segment: t ∈ [0, 1]
+    final t = ((zLatM * dLatM + zLngM * dLngM) / (length * length))
+        .clamp(0.0, 1.0);
+    // Closest point on segment to zone center (in meters from origin)
+    final closestLatM = dLatM * t;
+    final closestLngM = dLngM * t;
+    // Perpendicular distance from zone center to the segment
+    final distM = math.sqrt(
+      math.pow(zLatM - closestLatM, 2) + math.pow(zLngM - closestLngM, 2),
+    );
+
+    // Zone does not intersect the route segment — skip, no detour needed
+    if (distM > z.radiusMeters) continue;
+
     // Cross product determines which side of the route the zone lies on
     final cross = dLatM * zLngM - dLngM * zLatM;
     final side = cross >= 0 ? 1.0 : -1.0;
@@ -1086,8 +1104,9 @@ List<String> _buildAvoidWaypoints({
     // Waypoint = zone center displaced perpendicular to route, converted back to degrees
     final wpLat = z.latitude + perpLatM * offsetMeters * side / metersPerDegLat;
     final wpLng = z.longitude + perpLngM * offsetMeters * side / metersPerDegLng;
-    return '$wpLat,$wpLng';
-  }).toList();
+    waypoints.add('$wpLat,$wpLng');
+  }
+  return waypoints;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

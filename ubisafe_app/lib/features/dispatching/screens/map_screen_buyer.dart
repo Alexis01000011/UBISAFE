@@ -12,6 +12,7 @@ import '../../community/services/community_report_module.dart';
 import '../../identity/profile/widgets/drawer_module.dart';
 import '../../presence/services/gps_service.dart';
 import '../../presence/services/vendor_tracker.dart';
+import '../../safety/models/risk_zone.dart';
 import '../../safety/screens/risk_form_bottom_sheet.dart';
 import '../../safety/services/risk_zone_service.dart';
 import '../../shared/notifications/notification_handler.dart';
@@ -322,6 +323,30 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
     required double buyerLng,
   }) async {
     if (_mapState != _BuyerMapState.idle) return;
+
+    // Block any request when the buyer is inside a HIGH risk zone (SDD §8.3.A).
+    // Use the cached provider value — if zones haven't loaded yet, allow through.
+    final zones = ref
+        .read(activeRiskZonesProvider(LatLng(buyerLat, buyerLng)))
+        .valueOrNull;
+    if (zones != null) {
+      final inHighZone = zones.any((RiskZone z) =>
+          z.riskLevel == 'HIGH' &&
+          Geolocator.distanceBetween(
+                buyerLat, buyerLng, z.latitude, z.longitude) <=
+              z.radiusMeters);
+      if (inHighZone) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No puedes solicitar desde una zona de alto riesgo.',
+            ),
+          ),
+        );
+        return;
+      }
+    }
 
     final result = await showModalBottomSheet<String>(
       context: context,
