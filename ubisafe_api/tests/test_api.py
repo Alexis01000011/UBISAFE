@@ -6,6 +6,7 @@ Strategy:
 - Per-test fixtures override get_current_user dependency (buyer / vendor / anon).
 - FirestoreService async methods are patched with AsyncMock per test.
 """
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
@@ -44,6 +45,7 @@ def buyer():
     client = _make_client(_BUYER_CLAIMS)
     yield client
     from main import app
+
     app.dependency_overrides.clear()
 
 
@@ -52,6 +54,7 @@ def vendor():
     client = _make_client(_VENDOR_CLAIMS)
     yield client
     from main import app
+
     app.dependency_overrides.clear()
 
 
@@ -59,6 +62,7 @@ def vendor():
 def anon():
     from dependencies import get_current_user
     from main import app
+
     app.dependency_overrides.pop(get_current_user, None)
     client = TestClient(app)
     yield client
@@ -67,18 +71,22 @@ def anon():
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
+
 def _buyer_profile(**kwargs):
     from modules.identity.schemas import UserProfile
+
     return UserProfile(uid="buyer-uid", role="BUYER", **kwargs)
 
 
 def _vendor_profile(**kwargs):
     from modules.identity.schemas import UserProfile
+
     return UserProfile(uid="vendor-uid", role="VENDOR", **kwargs)
 
 
 def _make_stop(status: str = "pending"):
     from modules.dispatching.schemas import GeoPoint, StopRequest
+
     return StopRequest(
         id="stop-1",
         buyer_uid="buyer-uid",
@@ -95,6 +103,7 @@ def _make_report(
 ):
     from modules.community.schemas import CommunityReport, ReportStatus, ThreatType
     from modules.safety.schemas import GeoPoint
+
     return CommunityReport(
         id="report-1",
         reporter_uid=reporter_uid,
@@ -106,6 +115,7 @@ def _make_report(
 
 
 # ─── Health endpoints ─────────────────────────────────────────────────────────
+
 
 class TestHealth:
     def test_auth_health(self, anon):
@@ -119,6 +129,7 @@ class TestHealth:
 
 
 # ─── Auth middleware ──────────────────────────────────────────────────────────
+
 
 class TestAuthMiddleware:
     def test_protected_endpoint_without_token_returns_401(self, anon):
@@ -150,6 +161,7 @@ class TestAuthMiddleware:
 
 
 # ─── Stop requests ────────────────────────────────────────────────────────────
+
 
 class TestStopRequests:
     def test_buyer_can_create_stop(self, buyer):
@@ -277,6 +289,7 @@ class TestStopRequests:
 
 # ─── Community report validation ──────────────────────────────────────────────
 
+
 class TestReportValidation:
     def test_reporter_cannot_vote_on_own_report(self, buyer):
         report = _make_report(reporter_uid="buyer-uid")  # same uid as voter
@@ -302,6 +315,7 @@ class TestReportValidation:
 
     def test_cannot_vote_twice(self, buyer):
         from modules.community.schemas import Validation, ValidationVerdict
+
         existing_vote = Validation(
             user_uid="buyer-uid",
             verdict=ValidationVerdict.confirm,

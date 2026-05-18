@@ -13,6 +13,7 @@ from modules.dispatching.router import router as stops_router
 from modules.identity.router import router as auth_router
 from modules.safety.router import router as risk_zones_router
 from modules.shared.firebase_admin_init import FirebaseAdminInit
+from modules.shared.subscription_router import router as subscriptions_router
 
 logging.basicConfig(
     level=logging.getLevelName(os.getenv("LOG_LEVEL", "INFO")),
@@ -51,3 +52,4 @@ app.include_router(
 app.include_router(
     community_validations_router, prefix="/community-reports", tags=["community-reports"]
 )
+app.include_router(subscriptions_router, prefix="/subscriptions", tags=["subscriptions"])

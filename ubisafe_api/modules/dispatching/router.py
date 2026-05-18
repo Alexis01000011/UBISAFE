@@ -97,9 +97,7 @@ async def update_stop_status(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Stop request already in status '{updated_doc.status}'",
             )
-        asyncio.ensure_future(
-            NotificationService.send_stop_expired(updated_doc.buyer_uid, stop_id)
-        )
+        asyncio.ensure_future(NotificationService.send_stop_expired(updated_doc.buyer_uid, stop_id))
         if updated_doc.vendor_uid:
             asyncio.ensure_future(
                 NotificationService.send_stop_expired_vendor(updated_doc.vendor_uid, stop_id)
