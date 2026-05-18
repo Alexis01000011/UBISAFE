@@ -48,7 +48,7 @@ _CREATE_ZONE = f"{_R}.FirestoreService.create_risk_zone"
 _GET_ZONES = f"{_R}.FirestoreService.get_active_risk_zones"
 _GET_ZONE = f"{_R}.FirestoreService.get_risk_zone"
 _EXPIRE_ZONE = f"{_R}.FirestoreService.expire_risk_zone"
-_GET_TOKENS = f"{_R}.FirestoreService.get_all_fcm_tokens"
+_GET_TOKENS = f"{_R}.FirestoreService.get_nearby_user_fcm_tokens"
 _NOTIFY = f"{_R}.NotificationService.notify_risk_zone_alert"
 
 

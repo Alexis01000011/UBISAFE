@@ -3,7 +3,7 @@
 **Proyecto:** Los Borbotones · TSP · ITESM  
 **Rama activa:** `Rama-Miguel`  
 **Dispositivo de prueba:** Físico Android (depuración inalámbrica ADB, NO emulador de computadora)  
-**Última actualización:** 2026-05-17 (C-103)
+**Última actualización:** 2026-05-17 (C-105)
 
 ---
 
@@ -1321,6 +1321,28 @@
 | **Clase / Método / Módulo** | `_DrawerModuleState._toggleRideEnabled()` → `ubisafe_app/lib/features/identity/profile/widgets/drawer_module.dart` |
 | **Justificación** | Capturar `ScaffoldMessengerState` antes del gap asíncrono es el patrón recomendado por el linter (`use_build_context_synchronously`): el objeto capturado sigue siendo válido tras el await sin necesitar verificar `context.mounted`. |
 | **Problema que resolvía** | El vendor veía el toggle regresar a su posición anterior sin saber si fue un problema de red o un rechazo del servidor, llevándolo a reintentar repetidamente. |
+
+### C-104 · `create_risk_zone` notificaba a todos los usuarios en lugar de los cercanos (B18) `2026-05-17`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-104 · `get_all_fcm_tokens` → `get_nearby_user_fcm_tokens` en `POST /risk-zones` (B18) |
+| **Qué se corrigió (técnico)** | En `safety/router.py`, `create_risk_zone()`: se reordenó `loc = zone.location` para quedar antes de la llamada a tokens, y se reemplazó `await FirestoreService.get_all_fcm_tokens()` por `await FirestoreService.get_nearby_user_fcm_tokens(loc.lat, loc.lng, radius_km=5.0)`. En `tests/test_risk_zones.py` se actualizó la constante `_GET_TOKENS` de `FirestoreService.get_all_fcm_tokens` a `FirestoreService.get_nearby_user_fcm_tokens` para que el mock intercepte la llamada correcta. |
+| **Qué se corrigió (simple)** | Al crear una zona de riesgo, el backend enviaba la notificación FCM a todos los usuarios del sistema sin importar su distancia. La corrección C-10 documentada en el REGISTRO_CORRECCIONES había sido implementada en `FirestoreService` pero nunca aplicada en el endpoint que la invoca. Ahora solo los usuarios dentro de 5 km del punto reportado reciben la alerta. |
+| **Clase / Método / Módulo** | `create_risk_zone()` → `ubisafe_api/modules/safety/router.py` · `test_create_zone_success` → `tests/test_risk_zones.py` |
+| **Justificación** | `get_nearby_user_fcm_tokens` ya existía (implementada para C-10) pero nunca se llamaba desde el único endpoint que debía usarla. El test también apuntaba al mock antiguo, lo que ocultaba el bug en el suite de pruebas. Ambos se corrigen juntos para que el test sea un indicador real de regresión. |
+| **Problema que resolvía** | Todos los usuarios con token FCM recibían alertas de zonas de riesgo independientemente de su proximidad, generando spam de notificaciones. |
+
+### C-105 · `activeRiskZonesProvider` disparaba GET /risk-zones en cada fix GPS (B19) `2026-05-17`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-105 · Opción B — `activeRiskZonesProvider` sin `family<LatLng>` (B19) |
+| **Qué se corrigió (técnico)** | Se rediseñó `activeRiskZonesProvider` en `risk_zone_service.dart`: de `FutureProvider.autoDispose.family<List<RiskZone>, LatLng>` a `FutureProvider.autoDispose<List<RiskZone>>`. Internamente usa `ref.read(gpsServiceProvider).valueOrNull` (no `watch`) para leer la posición una sola vez en cada ejecución. El import de `google_maps_flutter` se eliminó y se añadió `gps_service.dart`. En `map_screen_buyer.dart`: `ref.watch(activeRiskZonesProvider(LatLng(...)))` → `ref.watch(activeRiskZonesProvider)` (render de círculos) y `ref.read(activeRiskZonesProvider(LatLng(buyerLat, buyerLng))).valueOrNull` → `ref.read(activeRiskZonesProvider).valueOrNull` (bloqueo C-98). En `map_screen_vendor.dart`: mismo cambio en el render de círculos y en `ref.read(activeRiskZonesProvider.future)` para la lógica de waypoints. Los `ref.invalidate(activeRiskZonesProvider)` en ambas pantallas y en `notification_handler.dart` no requirieron cambios. |
+| **Qué se corrigió (simple)** | `GPSService` emite una posición cada ~1 s con `distanceFilter: 0`. Como la clave del `family` era el `LatLng` exacto, cada posición nueva creaba una instancia nueva del provider y disparaba un `GET /risk-zones`. Resultado: ~60 requests/minuto por usuario con GPS activo. Ahora el provider solo se recarga en dos casos: al abrir la pantalla por primera vez, o al recibir un FCM `risk_zone_alert`. |
+| **Clase / Método / Módulo** | `activeRiskZonesProvider` → `ubisafe_app/lib/features/safety/services/risk_zone_service.dart` · call sites en `map_screen_buyer.dart` · `map_screen_vendor.dart` |
+| **Justificación** | Opción B elegida: eliminar el parámetro `LatLng` del family y leer la posición con `ref.read` (no `ref.watch`) dentro del provider. Esto rompe la dependencia reactiva con el stream GPS y hace que el provider sea controlado únicamente por `riskZoneRefreshProvider` (señal de eventos explícitos). El comportamiento funcional es idéntico — las zonas se actualizan al abrir la pantalla y al recibir FCM — sin el bucle de polling accidental. |
+| **Problema que resolvía** | En demostración con la API de Render, el endpoint `GET /risk-zones` recibía ~60 requests/minuto por usuario activo, saturando el plan gratuito y consumiendo batería del dispositivo innecesariamente. |
 
 ---
 

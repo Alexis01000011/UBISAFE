@@ -228,9 +228,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
             });
           }
 
-          final zonesAsync = ref.watch(
-            activeRiskZonesProvider(LatLng(position.latitude, position.longitude)),
-          );
+          final zonesAsync = ref.watch(activeRiskZonesProvider);
           final circles = zonesAsync.maybeWhen(
             data: (zones) => zones
                 .map(
@@ -463,10 +461,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
     final destLat = double.tryParse(buyerLatStr) ?? 0;
     final destLng = double.tryParse(buyerLngStr) ?? 0;
     final zones = await ref
-        .read(
-          activeRiskZonesProvider(LatLng(position.latitude, position.longitude))
-              .future,
-        )
+        .read(activeRiskZonesProvider.future)
         .catchError((_) => <RiskZone>[]);
     final highZones = zones.where((z) => z.riskLevel == 'HIGH').toList();
     final avoidWaypoints = _buildAvoidWaypoints(

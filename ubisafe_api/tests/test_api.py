@@ -221,9 +221,9 @@ class TestStopRequests:
                 return_value=_vendor_profile(),
             ),
             patch(
-                "modules.shared.firestore_service.FirestoreService.update_stop_status",
+                "modules.shared.firestore_service.FirestoreService.update_stop_status_if_in_state",
                 new_callable=AsyncMock,
-                return_value=stop_accepted,
+                return_value=(stop_accepted, True),
             ),
             patch(
                 "modules.shared.notification_service.NotificationService.send_stop_accepted",

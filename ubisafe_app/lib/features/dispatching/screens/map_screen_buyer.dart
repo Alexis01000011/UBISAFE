@@ -219,9 +219,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
             });
           }
 
-          final zonesAsync = ref.watch(
-            activeRiskZonesProvider(LatLng(position.latitude, position.longitude)),
-          );
+          final zonesAsync = ref.watch(activeRiskZonesProvider);
           final circles = zonesAsync.maybeWhen(
             data: (zones) => zones
                 .map(
@@ -327,9 +325,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
 
     // Block any request when the buyer is inside a HIGH risk zone (SDD §8.3.A).
     // Use the cached provider value — if zones haven't loaded yet, allow through.
-    final zones = ref
-        .read(activeRiskZonesProvider(LatLng(buyerLat, buyerLng)))
-        .valueOrNull;
+    final zones = ref.read(activeRiskZonesProvider).valueOrNull;
     if (zones != null) {
       final inHighZone = zones.any((RiskZone z) =>
           z.riskLevel == 'HIGH' &&

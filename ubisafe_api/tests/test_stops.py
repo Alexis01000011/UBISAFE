@@ -36,7 +36,7 @@ _R = "modules.dispatching.router"
 _GET_USER = f"{_R}.FirestoreService.get_user"
 _GET_STOP = f"{_R}.FirestoreService.get_stop_request"
 _CREATE_STOP = f"{_R}.FirestoreService.create_stop_request"
-_UPD_STATUS = f"{_R}.FirestoreService.update_stop_status"
+_UPD_STATUS = f"{_R}.FirestoreService.update_stop_status_if_in_state"
 _UPD_PENDING = f"{_R}.FirestoreService.update_stop_status_if_pending"
 _NOTIF_INCOMING = f"{_R}.NotificationService.send_stop_incoming"
 _NOTIF_ACCEPTED = f"{_R}.NotificationService.send_stop_accepted"
@@ -182,7 +182,7 @@ async def test_vendor_accepts_pending_stop(mock_firebase, as_vendor):
     with (
         patch(_GET_STOP, new_callable=AsyncMock, return_value=_PENDING_STOP),
         patch(_GET_USER, new_callable=AsyncMock, return_value=_vendor_profile()),
-        patch(_UPD_STATUS, new_callable=AsyncMock, return_value=_ACCEPTED_STOP),
+        patch(_UPD_STATUS, new_callable=AsyncMock, return_value=(_ACCEPTED_STOP, True)),
         patch(_NOTIF_ACCEPTED, new_callable=AsyncMock),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
