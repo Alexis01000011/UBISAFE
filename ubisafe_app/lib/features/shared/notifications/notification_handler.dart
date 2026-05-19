@@ -48,6 +48,7 @@ enum RideEventType {
   vendorArrived,
   cancelledByBuyer,
   completed,
+  abandoned,
 }
 
 /// Handles all FCM push-notification events for UbiSafe.
@@ -168,6 +169,11 @@ class NotificationHandler {
           _setStopEvent(StopEvent(stopId, StopRequestStatus.cancelled));
         }
 
+      case 'stop_abandoned':
+        if (stopId != null) {
+          _setStopEvent(StopEvent(stopId, StopRequestStatus.abandoned));
+        }
+
       case 'risk_zone_alert':
         _invalidateRiskZones();
 
@@ -218,6 +224,11 @@ class NotificationHandler {
       case 'ride_completed':
         if (rideId != null) {
           _setRideEvent(RideEvent(rideId, RideEventType.completed));
+        }
+
+      case 'ride_abandoned':
+        if (rideId != null) {
+          _setRideEvent(RideEvent(rideId, RideEventType.abandoned));
         }
 
       default:

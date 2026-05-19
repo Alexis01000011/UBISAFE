@@ -119,6 +119,24 @@ class NotificationService:
         )
 
     @staticmethod
+    async def send_stop_abandoned(buyer_uid: str, stop_id: str) -> None:
+        await NotificationService.send_to_user(
+            uid=buyer_uid,
+            title="Entrega cancelada",
+            body="El vendedor abandonó la aplicación.",
+            data={"type": "stop_abandoned", "stop_id": stop_id},
+        )
+
+    @staticmethod
+    async def send_ride_abandoned(buyer_uid: str, ride_id: str) -> None:
+        await NotificationService.send_to_user(
+            uid=buyer_uid,
+            title="Raite cancelado",
+            body="El vendedor abandonó la aplicación.",
+            data={"type": "ride_abandoned", "ride_id": ride_id},
+        )
+
+    @staticmethod
     async def send_community_report_nearby(
         tokens: list[str],
         report_id: str,

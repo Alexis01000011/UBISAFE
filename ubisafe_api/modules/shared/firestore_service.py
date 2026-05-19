@@ -512,6 +512,12 @@ class FirestoreService:
                 raw[geo_field] = {"lat": loc.latitude, "lng": loc.longitude}
         return Ride(id=doc.id, **raw)
 
+    # Max age for accepted/in_progress docs before they are considered stale.
+    # Prevents orphaned requests (vendor app crash, session interrupted) from
+    # blocking all future requests indefinitely.
+    _ACCEPTED_STOP_MAX_AGE = timedelta(hours=1)
+    _ACCEPTED_RIDE_MAX_AGE = timedelta(hours=3)
+
     @classmethod
     async def vendor_has_active_requests(
         cls,
@@ -522,10 +528,9 @@ class FirestoreService:
     ) -> bool:
         """Return True if vendor has active (non-expired) rides or stop_requests.
 
-        "pending" rides/stops are skipped if their expires_at is in the past —
-        the client timer is the only enforcer of TTL, so stale pending docs must
-        not block new requests indefinitely (e.g. after an app crash).
-        "accepted" and "in_progress" rides always block (no automatic TTL).
+        "pending" docs past their expires_at TTL are skipped.
+        "accepted"/"in_progress" docs older than _ACCEPTED_*_MAX_AGE are also
+        skipped — they are considered orphaned (vendor crashed, session lost).
 
         exclude_stop_id / exclude_ride_id: skip the given document when checking.
         Used at accept-time so the request being accepted is not counted as a blocker.
@@ -544,6 +549,22 @@ class FirestoreService:
                 exp_dt = datetime.fromisoformat(str(raw_exp))
             return exp_dt < now
 
+        def _is_stale_accepted(data: dict, max_age: timedelta) -> bool:
+            """True when an accepted/in_progress doc has been stuck for too long."""
+            if data.get("status") not in ("accepted", "in_progress"):
+                return False
+            raw_ts = data.get("accepted_at") or data.get("updated_at")
+            if raw_ts is None:
+                return False
+            if hasattr(raw_ts, "timestamp"):
+                ts_dt = datetime.fromtimestamp(raw_ts.timestamp(), tz=UTC)
+            else:
+                try:
+                    ts_dt = datetime.fromisoformat(str(raw_ts))
+                except ValueError:
+                    return False
+            return (now - ts_dt) > max_age
+
         active_ride_statuses = ["pending", "accepted", "in_progress"]
         ride_docs = (
             cls._db()
@@ -556,8 +577,10 @@ class FirestoreService:
         for doc in ride_docs:
             if doc.id == exclude_ride_id:
                 continue
-            if not _is_expired_pending(doc.to_dict() or {}):
-                return True
+            data = doc.to_dict() or {}
+            if _is_expired_pending(data) or _is_stale_accepted(data, cls._ACCEPTED_RIDE_MAX_AGE):
+                continue
+            return True
 
         stop_docs = (
             cls._db()
@@ -570,8 +593,10 @@ class FirestoreService:
         for doc in stop_docs:
             if doc.id == exclude_stop_id:
                 continue
-            if not _is_expired_pending(doc.to_dict() or {}):
-                return True
+            data = doc.to_dict() or {}
+            if _is_expired_pending(data) or _is_stale_accepted(data, cls._ACCEPTED_STOP_MAX_AGE):
+                continue
+            return True
 
         return False
 

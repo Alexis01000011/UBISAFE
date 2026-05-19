@@ -129,6 +129,8 @@ async def update_stop_status(
         extra = {"accepted_at": True}
     elif body.status == "completed":
         extra = {"completed_at": True}
+    elif body.status == "abandoned":
+        extra = None
 
     # Use an atomic transaction to close the TOCTOU window between the
     # VALID_TRANSITIONS check above and the Firestore write.  Without this,
@@ -155,5 +157,7 @@ async def update_stop_status(
         asyncio.ensure_future(NotificationService.send_stop_completed(buyer_uid, stop_id))
     elif body.status == "cancelled" and vendor_uid:
         asyncio.ensure_future(NotificationService.send_stop_cancelled(vendor_uid, stop_id))
+    elif body.status == "abandoned":
+        asyncio.ensure_future(NotificationService.send_stop_abandoned(buyer_uid, stop_id))
 
     return updated

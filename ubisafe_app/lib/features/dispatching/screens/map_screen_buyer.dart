@@ -101,6 +101,20 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Tiempo de espera agotado.')),
         );
+      } else if (event.status == StopRequestStatus.abandoned) {
+        ref.read(stopRequestEventProvider.notifier).state = null;
+        // Si el comprador está en TrackingScreen, ese listener ya maneja el pop.
+        if (_mapState == _BuyerMapState.idle) return;
+        ref.read(stopRequestModuleProvider).cancelTimer();
+        setState(() {
+          _mapState = _BuyerMapState.idle;
+          _activeStopId = null;
+          _activeVendorUid = null;
+        });
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('El vendedor abandonó la aplicación.')),
+        );
       }
     });
 
@@ -166,6 +180,19 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
           );
         case RideEventType.cancelledByBuyer:
           break;
+        case RideEventType.abandoned:
+          ref.read(rideRequestModuleProvider).cancelExpiryTimer();
+          setState(() {
+            _mapState = _BuyerMapState.idle;
+            _activeRideId = null;
+          });
+          ref.read(rideEventProvider.notifier).state = null;
+          if (!context.mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('El vendedor abandonó la aplicación.'),
+            ),
+          );
       }
     });
 
@@ -522,9 +549,15 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
         _mapState = _BuyerMapState.idle;
         _activeVendorUid = null;
       });
-      messenger.showSnackBar(
-        SnackBar(content: Text('Error al solicitar parada: $e')),
-      );
+      String msg = 'Error al solicitar parada. Intenta de nuevo.';
+      if (e is DioException && e.response?.statusCode == 409) {
+        final detail =
+            (e.response?.data as Map<String, dynamic>?)?['detail'] as String?;
+        if (detail == 'vendor_not_available') {
+          msg = 'El vendedor está atendiendo otra solicitud.';
+        }
+      }
+      messenger.showSnackBar(SnackBar(content: Text(msg)));
     }
   }
 

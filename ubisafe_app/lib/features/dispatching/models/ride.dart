@@ -8,6 +8,7 @@ enum RideStatus {
   rejected,
   expired,
   cancelled,
+  abandoned,
 }
 
 RideStatus _statusFromString(String s) {
@@ -26,6 +27,8 @@ RideStatus _statusFromString(String s) {
       return RideStatus.expired;
     case 'cancelled':
       return RideStatus.cancelled;
+    case 'abandoned':
+      return RideStatus.abandoned;
     default:
       return RideStatus.pending;
   }
@@ -47,6 +50,8 @@ String _statusToString(RideStatus s) {
       return 'expired';
     case RideStatus.cancelled:
       return 'cancelled';
+    case RideStatus.abandoned:
+      return 'abandoned';
   }
 }
 

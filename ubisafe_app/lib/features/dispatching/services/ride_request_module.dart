@@ -92,6 +92,9 @@ class RideRequestModule {
     );
   }
 
+  Future<void> abandonRide(String rideId) =>
+      updateStatus(rideId, 'abandoned').then((_) {}).catchError((_) {});
+
   void cancelExpiryTimer() {
     for (final t in _expiryTimers.values) { t.cancel(); }
     _expiryTimers.clear();

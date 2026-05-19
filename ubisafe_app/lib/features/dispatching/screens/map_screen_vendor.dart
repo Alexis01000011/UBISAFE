@@ -69,7 +69,47 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     if (uid == null) return;
     final gps = ref.read(gpsServiceInstanceProvider);
     if (state == AppLifecycleState.paused) {
-      // App went to background — remove RTDB node so buyers see vendor as offline.
+      // Abandon any active stop/ride before going to background.
+      final stopId = _activeStopId;
+      final rideId = _activeRideId;
+      if (stopId != null) {
+        if (mounted) {
+          setState(() {
+            _activeStopId = null;
+            _isNavigating = false;
+            _routePolyline = [];
+            _buyerLat = null;
+            _buyerLng = null;
+          });
+        }
+        unawaited(
+          ref
+              .read(stopRequestModuleProvider)
+              .abandonStopRequest(stopId)
+              .timeout(const Duration(seconds: 3))
+              .catchError((_) {}),
+        );
+      }
+      if (rideId != null) {
+        _rideSub?.cancel();
+        _rideSub = null;
+        if (mounted) {
+          setState(() {
+            _activeRideId = null;
+            _ridePhase = 0;
+            _routePolyline = [];
+            _isNavigating = false;
+          });
+        }
+        unawaited(
+          ref
+              .read(rideRequestModuleProvider)
+              .abandonRide(rideId)
+              .timeout(const Duration(seconds: 3))
+              .catchError((_) {}),
+        );
+      }
+      // Remove RTDB node so buyers see vendor as offline.
       gps.stopTransmission(uid);
     } else if (state == AppLifecycleState.resumed) {
       // App returned to foreground — re-start transmission.

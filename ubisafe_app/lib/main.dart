@@ -77,6 +77,8 @@ class _UbiSafeAppState extends ConsumerState<UbiSafeApp>
       final gps = ref.read(gpsServiceInstanceProvider);
       final uid = gps.activeUid;
       if (uid != null) unawaited(gps.stopTransmission(uid));
+    }
+    if (state == AppLifecycleState.detached) {
       FirebaseAuth.instance.signOut();
     }
   }

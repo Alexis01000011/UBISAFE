@@ -199,6 +199,10 @@ async def update_ride_status(
         asyncio.ensure_future(
             NotificationService.send_ride_cancelled_by_buyer(vendor_uid, ride_id)
         )
+    elif body.status == "abandoned":
+        asyncio.ensure_future(
+            NotificationService.send_ride_abandoned(buyer_uid, ride_id)
+        )
 
     return updated
 

@@ -39,4 +39,5 @@ VALID_TRANSITIONS: dict[tuple[str, str], str] = {
     ("pending", "cancelled"): "BUYER",
     ("accepted", "completed"): "VENDOR",
     ("accepted", "cancelled"): "BUYER",
+    ("accepted", "abandoned"): "VENDOR",
 }

@@ -73,6 +73,9 @@ class StopRequestModule {
   Future<void> completeStopRequest(String stopId) =>
       _dio.patch('/stops/$stopId/status', data: {'status': 'completed'});
 
+  Future<void> abandonStopRequest(String stopId) =>
+      _dio.patch('/stops/$stopId/status', data: {'status': 'abandoned'});
+
   Stream<StopRequest?> watchStopRequest(String stopId) => _col
       .doc(stopId)
       .snapshots()

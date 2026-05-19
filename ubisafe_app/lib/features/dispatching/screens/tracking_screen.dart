@@ -142,6 +142,16 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
           ),
         );
         Navigator.of(context).pop();
+      } else if (event.status == StopRequestStatus.abandoned) {
+        ref.read(stopRequestEventProvider.notifier).state = null;
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('El vendedor abandonó la aplicación.'),
+            backgroundColor: AppColors.warning500,
+          ),
+        );
+        Navigator.of(context).pop();
       }
     });
 
