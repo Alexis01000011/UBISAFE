@@ -41,7 +41,7 @@ class AuthModule {
     unawaited(
       _dio
           .post<dynamic>('/auth/sync-profile', data: <String, dynamic>{})
-          .catchError((_) {}),
+          .then<void>((_) {}, onError: (_) {}),
     );
     unawaited(_syncDeviceToken());
   }

@@ -354,7 +354,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
       tp = TextPainter(
         text: TextSpan(
           text: product,
-          style: TextStyle(
+          style: const TextStyle(
             color: Colors.white,
             fontSize: 12.0 * s,
             fontWeight: FontWeight.bold,
@@ -378,7 +378,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
       canvas.drawRRect(
         RRect.fromRectAndRadius(
           Rect.fromLTWH(cx - labelW / 2, 0, labelW, labelH),
-          Radius.circular(8.0 * s),
+          const Radius.circular(8.0 * s),
         ),
         Paint()..color = const Color(0xFF1B5E20),
       );
@@ -404,7 +404,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
         (await img.toByteData(format: ui.ImageByteFormat.png))!
             .buffer
             .asUint8List();
-    return BitmapDescriptor.fromBytes(bytes);
+    return BitmapDescriptor.bytes(bytes);
   }
 
   Future<void> _onVendorTap(

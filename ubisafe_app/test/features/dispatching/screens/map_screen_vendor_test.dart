@@ -20,6 +20,7 @@ import 'package:ubisafe_app/features/dispatching/screens/map_screen_vendor.dart'
 import 'package:ubisafe_app/features/identity/auth/auth_module.dart';
 import 'package:ubisafe_app/features/presence/services/gps_service.dart';
 import 'package:ubisafe_app/features/presence/services/vendor_tracker.dart';
+import 'package:ubisafe_app/features/safety/models/risk_zone.dart';
 import 'package:ubisafe_app/features/safety/services/risk_zone_service.dart';
 import 'package:ubisafe_app/features/shared/notifications/notification_handler.dart';
 
@@ -72,7 +73,7 @@ Widget _buildVendorScreen({
       userProfileProvider.overrideWith((ref) => userProfile),
       // En tests de diálogo entrante se actualiza este provider después del primer pump.
       incomingStopRequestProvider.overrideWith((ref) => null),
-      activeRiskZonesProvider.overrideWith((ref, _) => Future.value([])),
+      activeRiskZonesProvider.overrideWith((ref) => Stream.value(<RiskZone>[])),
     ],
     child: const MaterialApp(
       home: MapScreenVendor(),
@@ -102,7 +103,7 @@ void main() {
             vendorMarkersProvider.overrideWith((ref) => Stream.value([])),
             incomingStopRequestProvider.overrideWith((ref) => null),
             activeRiskZonesProvider.overrideWith(
-                (ref, _) => Future.value([])),
+                (ref) => Stream.value(<RiskZone>[])),
           ],
           child: const MaterialApp(home: MapScreenVendor()),
         ),
