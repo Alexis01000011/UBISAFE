@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,6 +13,7 @@ import '../../community/screens/community_form_bottom_sheet.dart';
 import '../../community/services/community_report_module.dart';
 import '../../identity/profile/widgets/drawer_module.dart';
 import '../../presence/services/gps_service.dart';
+import '../../presence/models/vendor_marker.dart';
 import '../../presence/services/vendor_tracker.dart';
 import '../../safety/models/risk_zone.dart';
 import '../../safety/screens/risk_form_bottom_sheet.dart';
@@ -39,6 +42,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
   bool _communityReportsLoaded = false;
   bool _speedDialOpen = false;
   bool _selectingRiskPoint = false;
+  final Map<String, BitmapDescriptor> _markerIconCache = {};
 
   @override
   Widget build(BuildContext context) {
@@ -186,25 +190,33 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
           );
 
           final markers = vendorsAsync.maybeWhen(
-            data: (vendors) => vendors
-                .map(
-                  (v) => Marker(
-                    markerId: MarkerId(v.uid),
-                    position: LatLng(v.latitude, v.longitude),
-                    icon: BitmapDescriptor.defaultMarkerWithHue(
-                      BitmapDescriptor.hueGreen,
+            data: (vendors) {
+              final missing = vendors
+                  .where((v) => !_markerIconCache.containsKey(v.product ?? ''))
+                  .toList();
+              if (missing.isNotEmpty) {
+                WidgetsBinding.instance.addPostFrameCallback(
+                    (_) => _buildMissingIcons(vendors));
+              }
+              return vendors
+                  .map(
+                    (v) => Marker(
+                      markerId: MarkerId(v.uid),
+                      position: LatLng(v.latitude, v.longitude),
+                      icon: _markerIconCache[v.product ?? ''] ??
+                          BitmapDescriptor.defaultMarkerWithHue(
+                              BitmapDescriptor.hueGreen),
+                      onTap: () => _onVendorTap(
+                        context,
+                        vendorUid: v.uid,
+                        rideEnabled: v.rideEnabled,
+                        buyerLat: position.latitude,
+                        buyerLng: position.longitude,
+                      ),
                     ),
-                    infoWindow: const InfoWindow(title: 'Vendedor'),
-                    onTap: () => _onVendorTap(
-                      context,
-                      vendorUid: v.uid,
-                      rideEnabled: v.rideEnabled,
-                      buyerLat: position.latitude,
-                      buyerLng: position.longitude,
-                    ),
-                  ),
-                )
-                .toSet(),
+                  )
+                  .toSet();
+            },
             orElse: () => <Marker>{},
           );
 
@@ -312,6 +324,87 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
         error: (e, _) => Center(child: Text('Error GPS: $e')),
       ),
     );
+  }
+
+  Future<void> _buildMissingIcons(List<VendorMarker> vendors) async {
+    bool changed = false;
+    for (final v in vendors) {
+      final key = v.product ?? '';
+      if (_markerIconCache.containsKey(key)) continue;
+      final icon = await _buildVendorIcon(v.product);
+      if (!mounted) return;
+      _markerIconCache[key] = icon;
+      changed = true;
+    }
+    if (changed && mounted) setState(() {});
+  }
+
+  // Paints a rounded-rect label (when product is set) above a circle pin.
+  // Rendered at 2× resolution so it looks sharp on high-DPI screens
+  // (google_maps_flutter 2.5.x lacks imagePixelRatio on fromBytes).
+  static Future<BitmapDescriptor> _buildVendorIcon(String? product) async {
+    const double s = 2.0; // scale factor
+    const double pinR = 18.0 * s;
+    const double padH = 8.0 * s;
+    const double padV = 4.0 * s;
+    const double gap = 4.0 * s;
+
+    TextPainter? tp;
+    if (product != null && product.isNotEmpty) {
+      tp = TextPainter(
+        text: TextSpan(
+          text: product,
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 12.0 * s,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: 140.0 * s);
+    }
+
+    final labelH = tp != null ? tp.height + padV * 2 : 0.0;
+    final labelW = tp != null ? tp.width + padH * 2 : 0.0;
+    final bitmapW = labelW > pinR * 2 ? labelW : pinR * 2;
+    final bitmapH = labelH + (tp != null ? gap : 0) + pinR * 2;
+    final cx = bitmapW / 2;
+
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    double y = 0;
+
+    if (tp != null) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(cx - labelW / 2, 0, labelW, labelH),
+          Radius.circular(8.0 * s),
+        ),
+        Paint()..color = const Color(0xFF1B5E20),
+      );
+      tp.paint(canvas, Offset(cx - tp.width / 2, padV));
+      y = labelH + gap;
+    }
+
+    canvas.drawCircle(
+      Offset(cx, y + pinR),
+      pinR,
+      Paint()..color = const Color(0xFF2E7D32),
+    );
+    canvas.drawCircle(
+      Offset(cx, y + pinR),
+      pinR * 0.35,
+      Paint()..color = Colors.white,
+    );
+
+    final img = await recorder
+        .endRecording()
+        .toImage(bitmapW.ceil(), bitmapH.ceil());
+    final bytes =
+        (await img.toByteData(format: ui.ImageByteFormat.png))!
+            .buffer
+            .asUint8List();
+    return BitmapDescriptor.fromBytes(bytes);
   }
 
   Future<void> _onVendorTap(

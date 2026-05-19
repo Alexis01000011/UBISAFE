@@ -11,6 +11,7 @@ class UserProfile(BaseModel):
     name: str | None = None
     phone: str | None = None
     role: str | None = None
+    product: str | None = None  # Producto que vende el VENDOR; null para BUYER
     fcm_token: str | None = None
     ride_enabled: bool | None = None  # iter.2: VENDOR opt-in for CU-04
     # Anticipatory iter.1 fields (SDD §7.2.1) — updated by GPSService in foreground
@@ -24,6 +25,7 @@ class SyncProfileRequest(BaseModel):
     name: str | None = None
     phone: str | None = None
     role: str | None = None
+    product: str | None = None  # Solo persiste cuando role == VENDOR
 
 
 class DeviceTokenRequest(BaseModel):

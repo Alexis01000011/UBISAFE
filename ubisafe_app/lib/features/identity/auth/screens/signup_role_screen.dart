@@ -28,16 +28,27 @@ class SignupRoleScreen extends ConsumerStatefulWidget {
 class _SignupRoleScreenState extends ConsumerState<SignupRoleScreen> {
   String _role = 'BUYER';
   bool _loading = false;
+  final TextEditingController _productCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _productCtrl.dispose();
+    super.dispose();
+  }
 
   Future<void> _submit() async {
     setState(() => _loading = true);
     try {
+      final product = _role == 'VENDOR'
+          ? (_productCtrl.text.trim().isEmpty ? null : _productCtrl.text.trim())
+          : null;
       await ref.read(authModuleProvider).register(
             name: widget.name,
             phone: widget.phone,
             role: _role,
             email: widget.email,
             password: widget.password,
+            product: product,
           );
       if (mounted) {
         context.go(_role == 'BUYER' ? '/home/buyer' : '/home/vendor');
@@ -68,8 +79,22 @@ class _SignupRoleScreenState extends ConsumerState<SignupRoleScreen> {
                 ButtonSegment(value: 'VENDOR', label: Text('Vendedor')),
               ],
               selected: {_role},
-              onSelectionChanged: (s) => setState(() => _role = s.first),
+              onSelectionChanged: (s) => setState(() {
+                _role = s.first;
+                if (_role == 'BUYER') _productCtrl.clear();
+              }),
             ),
+            if (_role == 'VENDOR') ...[
+              const SizedBox(height: 20),
+              TextField(
+                controller: _productCtrl,
+                decoration: const InputDecoration(
+                  labelText: '¿Qué producto vendes? (vendedor)',
+                  border: OutlineInputBorder(),
+                ),
+                textCapitalization: TextCapitalization.sentences,
+              ),
+            ],
             const SizedBox(height: 24),
             _loading
                 ? const Center(child: CircularProgressIndicator())

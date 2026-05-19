@@ -60,6 +60,9 @@ class FirestoreService:
         data: dict[str, Any] = body.model_dump(exclude_none=True)
         if "role" in data and isinstance(data["role"], str):
             data["role"] = data["role"].upper()
+        # BUYER nunca tiene producto; se fuerza null aunque el cliente lo haya enviado
+        if data.get("role") == "BUYER":
+            data["product"] = None
         data["updated_at"] = SERVER_TIMESTAMP
 
         if not doc.exists:

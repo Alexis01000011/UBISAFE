@@ -155,6 +155,7 @@ class GPSService {
   // Prevents startTransmission from overwriting a user-toggled value with a
   // stale profile read when the vendor deactivates and reactivates visibility.
   bool _rideEnabledSet = false;
+  String? _product;
 
   /// Broadcasts [GPSServiceState] transitions.
   Stream<GPSServiceState> get stateStream => _stateCtrl.stream;
@@ -165,12 +166,17 @@ class GPSService {
   /// session (when [_rideEnabledSet] is false). After any explicit toggle via
   /// [updateRideEnabled], the stored value is preserved across
   /// deactivation/reactivation cycles.
-  void startTransmission(String vendorUid, {bool rideEnabled = false}) {
+  void startTransmission(
+    String vendorUid, {
+    bool rideEnabled = false,
+    String? product,
+  }) {
     _activeUid = vendorUid;
     if (!_rideEnabledSet) {
       _rideEnabled = rideEnabled;
       _rideEnabledSet = true;
     }
+    _product = product;
     _stateCtrl.add(GPSServiceState.active);
     _subscribe(vendorUid);
   }
@@ -217,6 +223,7 @@ class GPSService {
           'timestamp': DateTime.now().millisecondsSinceEpoch,
           'activo': true,
           'ride_enabled': _rideEnabled,
+          'product': _product,
         }).then(
           (_) {
             // Re-register onDisconnect AFTER each successful set().

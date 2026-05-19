@@ -54,6 +54,7 @@ class AuthModule {
     required String role,
     required String email,
     required String password,
+    String? product,
   }) async {
     try {
       await _auth.createUserWithEmailAndPassword(
@@ -70,6 +71,7 @@ class AuthModule {
       'name': name,
       'phone': phone,
       'role': role,
+      if (product != null) 'product': product,
     });
     await _syncDeviceToken();
   }

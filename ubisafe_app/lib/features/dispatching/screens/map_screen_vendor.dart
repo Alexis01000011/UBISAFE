@@ -393,8 +393,14 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
         ),
       );
       if (confirmed != true) return;
-      final rideEnabled = ref.read(userProfileProvider).valueOrNull?.rideEnabled ?? false;
-      ref.read(gpsServiceInstanceProvider).startTransmission(uid, rideEnabled: rideEnabled);
+      final profile = ref.read(userProfileProvider).valueOrNull;
+      final rideEnabled = profile?.rideEnabled ?? false;
+      final product = profile?.product;
+      ref.read(gpsServiceInstanceProvider).startTransmission(
+        uid,
+        rideEnabled: rideEnabled,
+        product: product,
+      );
       if (mounted) setState(() => _isVisible = true);
     }
   }

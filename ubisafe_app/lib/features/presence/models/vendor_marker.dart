@@ -11,6 +11,7 @@ class VendorMarker {
     required this.latitude,
     required this.longitude,
     this.rideEnabled = false,
+    this.product,
   });
 
   final String uid;
@@ -20,12 +21,16 @@ class VendorMarker {
   /// [iter.2] When true the vendor accepts ride requests (CU-04).
   final bool rideEnabled;
 
+  /// Product the vendor sells; shown as a label above the map pin.
+  final String? product;
+
   factory VendorMarker.fromMap(String uid, Map map) {
     return VendorMarker(
       uid: uid,
       latitude: num.parse((map['lat'] ?? 0).toString()).toDouble(),
       longitude: num.parse((map['lng'] ?? 0).toString()).toDouble(),
       rideEnabled: map['ride_enabled'] as bool? ?? false,
+      product: map['product'] as String?,
     );
   }
 }
