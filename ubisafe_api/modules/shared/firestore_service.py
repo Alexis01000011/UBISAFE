@@ -513,24 +513,32 @@ class FirestoreService:
         return Ride(id=doc.id, **raw)
 
     @classmethod
-    async def vendor_has_active_requests(cls, vendor_uid: str) -> bool:
+    async def vendor_has_active_requests(
+        cls,
+        vendor_uid: str,
+        *,
+        exclude_stop_id: str | None = None,
+        exclude_ride_id: str | None = None,
+    ) -> bool:
         """Return True if vendor has active (non-expired) rides or stop_requests.
 
         "pending" rides/stops are skipped if their expires_at is in the past —
         the client timer is the only enforcer of TTL, so stale pending docs must
         not block new requests indefinitely (e.g. after an app crash).
         "accepted" and "in_progress" rides always block (no automatic TTL).
+
+        exclude_stop_id / exclude_ride_id: skip the given document when checking.
+        Used at accept-time so the request being accepted is not counted as a blocker.
         """
         now = datetime.now(tz=UTC)
 
         def _is_expired_pending(data: dict) -> bool:
-            """True when a pending doc has passed its TTL."""
             if data.get("status") != "pending":
                 return False
             raw_exp = data.get("expires_at")
             if raw_exp is None:
                 return False
-            if hasattr(raw_exp, "timestamp"):  # Firestore Timestamp object
+            if hasattr(raw_exp, "timestamp"):
                 exp_dt = datetime.fromtimestamp(raw_exp.timestamp(), tz=UTC)
             else:
                 exp_dt = datetime.fromisoformat(str(raw_exp))
@@ -546,6 +554,8 @@ class FirestoreService:
             .stream()
         )
         for doc in ride_docs:
+            if doc.id == exclude_ride_id:
+                continue
             if not _is_expired_pending(doc.to_dict() or {}):
                 return True
 
@@ -558,6 +568,8 @@ class FirestoreService:
             .stream()
         )
         for doc in stop_docs:
+            if doc.id == exclude_stop_id:
+                continue
             if not _is_expired_pending(doc.to_dict() or {}):
                 return True
 

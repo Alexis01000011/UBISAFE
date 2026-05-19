@@ -116,6 +116,18 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     ref.listen<Map<String, dynamic>?>(incomingStopRequestProvider, (_, data) {
       if (data == null) return;
       if (!context.mounted) return;
+      // If vendor already accepted a stop or ride, reject silently and inform.
+      if (_activeStopId != null || _activeRideId != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          ref.read(incomingStopRequestProvider.notifier).state = null;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Ya tienes una solicitud activa. No puedes aceptar más.'),
+          ),
+        );
+        return;
+      }
       _showIncomingDialog(
         context,
         stopId: data['stop_id'] as String? ?? '',
@@ -128,6 +140,20 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     ref.listen<Map<String, dynamic>?>(incomingRideProvider, (_, data) {
       if (data == null) return;
       final type = data['type'] as String? ?? '';
+      // If vendor already accepted a stop or ride, reject silently and inform.
+      if (type != 'ride_destination_too_far' && (_activeStopId != null || _activeRideId != null)) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          ref.read(incomingRideProvider.notifier).state = null;
+        });
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Ya tienes una solicitud activa. No puedes aceptar más.'),
+            ),
+          );
+        }
+        return;
+      }
       if (type == 'ride_destination_too_far') {
         final rideId = data['ride_id'] as String? ?? '';
         final distKm = data['distance_km'] as String? ?? '?';
@@ -507,6 +533,14 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
 
     try {
       await ref.read(stopRequestModuleProvider).acceptStopRequest(stopId);
+    } on DioException catch (e) {
+      if (!context.mounted) return;
+      final detail = (e.response?.data as Map?)?['detail'] as String?;
+      final msg = detail == 'vendor_already_busy'
+          ? 'Ya tienes una solicitud activa. No puedes aceptar más.'
+          : 'Error al aceptar: ${e.message}';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      return;
     } catch (e) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -801,6 +835,14 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
       await ref
           .read(rideRequestModuleProvider)
           .updateStatus(rideId, 'accepted');
+    } on DioException catch (e) {
+      if (!context.mounted) return;
+      final detail = (e.response?.data as Map?)?['detail'] as String?;
+      final msg = detail == 'vendor_already_busy'
+          ? 'Ya tienes una solicitud activa. No puedes aceptar más.'
+          : 'Error al aceptar raite: ${e.message}';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      return;
     } catch (e) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

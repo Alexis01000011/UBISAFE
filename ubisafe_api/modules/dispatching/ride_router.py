@@ -148,6 +148,16 @@ async def update_ride_status(
 
     extra: dict = {}
     if body.status == "accepted":
+        # Verify the vendor is not already handling another stop or ride.
+        # exclude_ride_id skips this ride so it doesn't count as a blocker against itself.
+        busy = await FirestoreService.vendor_has_active_requests(
+            ride.vendor_uid, exclude_ride_id=ride_id
+        )
+        if busy:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="vendor_already_busy",
+            )
         extra["accepted_at"] = True  # firestore_service will set server timestamp
     elif body.status == "in_progress":
         extra["started_at"] = True

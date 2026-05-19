@@ -40,6 +40,12 @@ async def create_stop(
     current_user: dict = Depends(get_current_user),
 ):
     await _require_role(current_user["uid"], "BUYER")
+    busy = await FirestoreService.vendor_has_active_requests(body.vendor_uid)
+    if busy:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="vendor_not_available",
+        )
     doc = await FirestoreService.create_stop_request(current_user["uid"], body)
     asyncio.ensure_future(
         NotificationService.send_stop_incoming(
@@ -108,6 +114,18 @@ async def update_stop_status(
 
     extra: dict | None = None
     if body.status == "accepted":
+        # Verify the vendor is not already handling another stop or ride before
+        # accepting.  exclude_stop_id skips this request so it doesn't count as
+        # a blocker against itself.
+        if doc.vendor_uid:
+            busy = await FirestoreService.vendor_has_active_requests(
+                doc.vendor_uid, exclude_stop_id=stop_id
+            )
+            if busy:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="vendor_already_busy",
+                )
         extra = {"accepted_at": True}
     elif body.status == "completed":
         extra = {"completed_at": True}
