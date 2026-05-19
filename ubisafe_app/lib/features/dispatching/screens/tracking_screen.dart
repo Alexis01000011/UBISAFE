@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -39,6 +40,19 @@ class TrackingScreen extends ConsumerStatefulWidget {
 class _TrackingScreenState extends ConsumerState<TrackingScreen> {
   String? _vendorUid;
 
+  // Last known vendor position — shown as a frozen orange marker when the
+  // vendor goes offline (RTDB timestamp stops updating or node disappears).
+  LatLng? _lastKnownVendorPos;
+
+  // True once the "tracking paused" snackbar has been shown for the current
+  // offline event; reset when the vendor comes back online.
+  bool _vendorOfflineNotified = false;
+
+  // Fires every 10 s to detect when the RTDB timestamp stops updating
+  // (vendor lost internet but onDisconnect didn't fire — e.g., emulator via
+  // ADB tunnel stays alive when mobile data is off).
+  Timer? _stalenessTimer;
+
   @override
   void initState() {
     super.initState();
@@ -53,6 +67,52 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
         if (mounted) ref.read(stopRequestModuleProvider).cancelTimer();
       });
     }
+    _stalenessTimer = Timer.periodic(const Duration(seconds: 10), (_) => _checkStaleness());
+  }
+
+  @override
+  void dispose() {
+    _stalenessTimer?.cancel();
+    super.dispose();
+  }
+
+  /// Checks whether the tracked vendor's RTDB timestamp stopped updating —
+  /// primary offline-detection mechanism when onDisconnect doesn't fire.
+  void _checkStaleness() {
+    if (!mounted || _vendorUid == null) return;
+    final uid = _vendorUid!;
+    final vendors = ref.read(vendorMarkersProvider).valueOrNull;
+    if (vendors == null) return;
+
+    VendorMarker? vendor;
+    try {
+      vendor = vendors.firstWhere((v) => v.uid == uid);
+    } catch (_) {}
+
+    if (vendor != null) {
+      // Vendor is still in RTDB — check if timestamp went stale.
+      _vendorOfflineNotified = false;
+      final ts = vendor.lastTimestamp;
+      if (ts != null) {
+        final ageMs = DateTime.now().millisecondsSinceEpoch - ts;
+        if (ageMs > 30000) _notifyVendorOffline();
+      }
+    } else if (_lastKnownVendorPos != null) {
+      // Vendor node was removed (onDisconnect fired) — secondary detection.
+      _notifyVendorOffline();
+    }
+  }
+
+  void _notifyVendorOffline() {
+    if (_vendorOfflineNotified) return;
+    _vendorOfflineNotified = true;
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('El seguimiento en tiempo real se ha pausado.'),
+        duration: Duration(seconds: 6),
+      ),
+    );
   }
 
   @override
@@ -89,22 +149,21 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
       },
     );
 
-    // Notifica al comprador cuando el vendedor pierde conexión durante el seguimiento.
-    // Detecta la desaparición del vendedor de la lista activa en lugar de depender
-    // de vendorOfflineEventProvider (que requiere onDisconnect.update en RTDB).
-    ref.listen<AsyncValue<List<VendorMarker>>>(vendorMarkersProvider, (prev, next) {
+    // Keep _lastKnownVendorPos fresh so the frozen marker is always accurate.
+    // Notification logic lives in _checkStaleness() (timer) instead of here
+    // to handle both cases: stale RTDB node AND disappeared node.
+    ref.listen<AsyncValue<List<VendorMarker>>>(vendorMarkersProvider, (_, next) {
       final uid = _vendorUid;
       if (uid == null) return;
-      final wasVisible = prev?.valueOrNull?.any((v) => v.uid == uid) ?? false;
-      final isVisible = next.valueOrNull?.any((v) => v.uid == uid) ?? false;
-      if (wasVisible && !isVisible) {
-        if (!context.mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('El seguimiento en tiempo real se ha pausado.'),
-            duration: Duration(seconds: 6),
-          ),
-        );
+      VendorMarker? vendor;
+      try {
+        vendor = next.valueOrNull?.firstWhere((v) => v.uid == uid);
+      } catch (_) {}
+      if (vendor != null) {
+        setState(() {
+          _lastKnownVendorPos = LatLng(vendor!.latitude, vendor.longitude);
+        });
+        _vendorOfflineNotified = false;
       }
     });
 
@@ -123,40 +182,47 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
             zoom: 16,
           );
 
-          final vendorMarker = _vendorUid == null
-              ? null
-              : vendorsAsync.maybeWhen(
-                  data: (vendors) {
-                    try {
-                      return vendors.firstWhere((v) => v.uid == _vendorUid);
-                    } catch (_) {
-                      return null;
-                    }
-                  },
-                  orElse: () => null,
-                );
+          // Live vendor position from RTDB (null when offline or not yet loaded).
+          VendorMarker? vendorMarker;
+          if (_vendorUid != null) {
+            try {
+              vendorMarker = vendorsAsync.valueOrNull
+                  ?.firstWhere((v) => v.uid == _vendorUid);
+            } catch (_) {}
+          }
+
+          // Display position: prefer live, fallback to cached last-known.
+          final displayPos = vendorMarker != null
+              ? LatLng(vendorMarker.latitude, vendorMarker.longitude)
+              : _lastKnownVendorPos;
 
           final markers = <Marker>{};
-          if (vendorMarker != null) {
+          if (displayPos != null) {
+            final isLive = vendorMarker != null;
             markers.add(
               Marker(
                 markerId: const MarkerId('tracked_vendor'),
-                position: LatLng(vendorMarker.latitude, vendorMarker.longitude),
+                position: displayPos,
+                // Blue = live position. Orange = last-known (vendor offline).
                 icon: BitmapDescriptor.defaultMarkerWithHue(
-                  BitmapDescriptor.hueBlue,
+                  isLive
+                      ? BitmapDescriptor.hueBlue
+                      : BitmapDescriptor.hueOrange,
                 ),
-                infoWindow: const InfoWindow(title: 'Vendedor'),
+                infoWindow: InfoWindow(
+                  title: isLive ? 'Vendedor' : 'Última posición conocida',
+                ),
               ),
             );
           }
 
-          final distanceKm = vendorMarker == null
+          final distanceKm = displayPos == null
               ? null
               : _haversineKm(
                   position.latitude,
                   position.longitude,
-                  vendorMarker.latitude,
-                  vendorMarker.longitude,
+                  displayPos.latitude,
+                  displayPos.longitude,
                 );
 
           return Stack(

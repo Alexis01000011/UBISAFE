@@ -13,6 +13,7 @@ class VendorMarker {
     this.rideEnabled = false,
     this.activo = true,
     this.product,
+    this.lastTimestamp,
   });
 
   final String uid;
@@ -28,6 +29,11 @@ class VendorMarker {
   /// Product the vendor sells; shown as a label above the map pin.
   final String? product;
 
+  /// Epoch-milliseconds of the last RTDB write. Used by TrackingScreen to detect
+  /// when the vendor's internet dropped without onDisconnect firing (timestamp
+  /// stops updating while the node stays in RTDB with activo:true).
+  final int? lastTimestamp;
+
   factory VendorMarker.fromMap(String uid, Map map) {
     return VendorMarker(
       uid: uid,
@@ -36,6 +42,7 @@ class VendorMarker {
       rideEnabled: map['ride_enabled'] as bool? ?? false,
       activo: map['activo'] != false,
       product: map['product'] as String?,
+      lastTimestamp: map['timestamp'] as int?,
     );
   }
 }
