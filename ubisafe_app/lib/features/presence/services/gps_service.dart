@@ -231,7 +231,7 @@ class GPSService {
             // when set() is called on the same reference, so the handler must
             // be re-registered after every write to stay active.
             unawaited(
-              ref.onDisconnect().update({'activo': false}).catchError((Object e) {
+              ref.onDisconnect().remove().catchError((Object e) {
                 if (kDebugMode) debugPrint('GPSService: onDisconnect re-register failed — $e');
               }),
             );

@@ -35,7 +35,8 @@ class MapScreenVendor extends ConsumerStatefulWidget {
   ConsumerState<MapScreenVendor> createState() => _MapScreenVendorState();
 }
 
-class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
+class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
+    with WidgetsBindingObserver {
   bool _isVisible = false;
   bool _isNavigating = false;
   bool _communityReportsLoaded = false;
@@ -57,7 +58,28 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initMapsKey();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!_isVisible) return;
+    final uid = ref.read(authStateProvider).valueOrNull?.uid;
+    if (uid == null) return;
+    final gps = ref.read(gpsServiceInstanceProvider);
+    if (state == AppLifecycleState.paused) {
+      // App went to background — remove RTDB node so buyers see vendor as offline.
+      gps.stopTransmission(uid);
+    } else if (state == AppLifecycleState.resumed) {
+      // App returned to foreground — re-start transmission.
+      final profile = ref.read(userProfileProvider).valueOrNull;
+      gps.startTransmission(
+        uid,
+        rideEnabled: profile?.rideEnabled ?? false,
+        product: profile?.product,
+      );
+    }
   }
 
   Future<void> _initMapsKey() async {
@@ -875,6 +897,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _rideSub?.cancel();
     super.dispose();
   }

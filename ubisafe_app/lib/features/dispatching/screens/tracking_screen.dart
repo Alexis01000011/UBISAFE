@@ -91,14 +91,21 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
 
     if (vendor != null) {
       // Vendor is still in RTDB — check if timestamp went stale.
-      _vendorOfflineNotified = false;
       final ts = vendor.lastTimestamp;
       if (ts != null) {
         final ageMs = DateTime.now().millisecondsSinceEpoch - ts;
-        if (ageMs > 30000) _notifyVendorOffline();
+        if (ageMs > 30000) {
+          _notifyVendorOffline();
+        } else {
+          // Timestamp is fresh — vendor is live, reset the offline flag.
+          _vendorOfflineNotified = false;
+        }
+      } else {
+        // No timestamp field — treat as live.
+        _vendorOfflineNotified = false;
       }
     } else if (_lastKnownVendorPos != null) {
-      // Vendor node was removed (onDisconnect fired) — secondary detection.
+      // Vendor node was removed (onDisconnect or stopTransmission) — show orange marker.
       _notifyVendorOffline();
     }
   }
@@ -138,13 +145,28 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
       }
     });
 
-    // Unconditional listener — derive vendor_uid from Firestore stream
+    // Unconditional listener — derive vendor_uid from Firestore stream.
+    // Seeds _lastKnownVendorPos immediately so the orange marker has a position
+    // to fall back to even if vendorMarkersProvider doesn't emit again (G05).
     ref.listen<AsyncValue<StopRequest?>>(
       _stopRequestStreamProvider(stopId),
       (_, asyncStop) {
         final stop = asyncStop.valueOrNull;
         if (stop?.vendorUid != null && _vendorUid == null) {
-          setState(() => _vendorUid = stop!.vendorUid);
+          final uid = stop!.vendorUid!;
+          setState(() {
+            _vendorUid = uid;
+            VendorMarker? v;
+            try {
+              v = ref
+                  .read(vendorMarkersProvider)
+                  .valueOrNull
+                  ?.firstWhere((m) => m.uid == uid);
+            } catch (_) {}
+            if (v != null) {
+              _lastKnownVendorPos = LatLng(v.latitude, v.longitude);
+            }
+          });
         }
       },
     );
