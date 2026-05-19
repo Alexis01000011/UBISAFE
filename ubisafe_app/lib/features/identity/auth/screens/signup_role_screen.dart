@@ -37,11 +37,15 @@ class _SignupRoleScreenState extends ConsumerState<SignupRoleScreen> {
   }
 
   Future<void> _submit() async {
+    if (_role == 'VENDOR' && _productCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Indica el producto que vendes.')),
+      );
+      return;
+    }
     setState(() => _loading = true);
     try {
-      final product = _role == 'VENDOR'
-          ? (_productCtrl.text.trim().isEmpty ? null : _productCtrl.text.trim())
-          : null;
+      final product = _role == 'VENDOR' ? _productCtrl.text.trim() : null;
       await ref.read(authModuleProvider).register(
             name: widget.name,
             phone: widget.phone,
@@ -89,7 +93,7 @@ class _SignupRoleScreenState extends ConsumerState<SignupRoleScreen> {
               TextField(
                 controller: _productCtrl,
                 decoration: const InputDecoration(
-                  labelText: '¿Qué producto vendes? (vendedor)',
+                  labelText: '¿Qué producto vendes? (obligatorio)',
                   border: OutlineInputBorder(),
                 ),
                 textCapitalization: TextCapitalization.sentences,

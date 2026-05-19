@@ -37,6 +37,7 @@ class VendorTracker {
   }
 
   final _controller = StreamController<List<VendorMarker>>.broadcast();
+  final _offlineCtrl = StreamController<String>.broadcast();
   StreamSubscription<Map<dynamic, dynamic>>? _sub;
   Map<String, VendorMarker> _vendors = {};
   double? _buyerLat;
@@ -44,6 +45,9 @@ class VendorTracker {
 
   /// Filtered stream of active vendors within [_kRadiusKm].
   Stream<List<VendorMarker>> get vendorStream => _controller.stream;
+
+  /// Emits the UID of a vendor whose connection just dropped (activo → false).
+  Stream<String> get vendorOfflineStream => _offlineCtrl.stream;
 
   void _init(Stream<Map> stream) {
     _sub = stream.listen(
@@ -59,6 +63,13 @@ class VendorTracker {
             if (kDebugMode) {
               debugPrint('VendorTracker: entry ${e.key} malformed — $err');
             }
+          }
+        }
+        // Detect vendors that transitioned activo: true → false (lost internet).
+        for (final entry in updated.entries) {
+          final prev = _vendors[entry.key];
+          if (prev != null && prev.activo && !entry.value.activo) {
+            if (!_offlineCtrl.isClosed) _offlineCtrl.add(entry.key);
           }
         }
         _vendors = updated;
@@ -97,7 +108,9 @@ class VendorTracker {
     _controller.add(
       List.unmodifiable(
         _vendors.values.where(
-          (v) => haversineKm(lat, lng, v.latitude, v.longitude) <= _kRadiusKm,
+          (v) =>
+              v.activo &&
+              haversineKm(lat, lng, v.latitude, v.longitude) <= _kRadiusKm,
         ),
       ),
     );
@@ -106,6 +119,7 @@ class VendorTracker {
   void dispose() {
     _sub?.cancel();
     if (!_controller.isClosed) _controller.close();
+    if (!_offlineCtrl.isClosed) _offlineCtrl.close();
   }
 
   /// Great-circle distance in kilometres (Haversine formula).
@@ -166,4 +180,10 @@ final _vendorTrackerInstanceProvider = Provider<VendorTracker>((ref) {
 /// SDD §5.3.2.2 — vendorMarkersProvider
 final vendorMarkersProvider = StreamProvider<List<VendorMarker>>((ref) {
   return ref.watch(_vendorTrackerInstanceProvider).vendorStream;
+});
+
+/// Emits the UID of a vendor whose RTDB connection just dropped (activo → false).
+/// Consumed by MapScreenBuyer to show a "tracking paused" snackbar.
+final vendorOfflineEventProvider = StreamProvider.autoDispose<String>((ref) {
+  return ref.watch(_vendorTrackerInstanceProvider).vendorOfflineStream;
 });

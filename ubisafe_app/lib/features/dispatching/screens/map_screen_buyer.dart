@@ -39,6 +39,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
   _BuyerMapState _mapState = _BuyerMapState.idle;
   String? _activeStopId;
   String? _activeRideId;
+  String? _activeVendorUid;
   bool _communityReportsLoaded = false;
   bool _speedDialOpen = false;
   bool _selectingRiskPoint = false;
@@ -70,6 +71,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
         setState(() {
           _mapState = _BuyerMapState.idle;
           _activeStopId = null;
+          _activeVendorUid = null;
         });
         ref.read(stopRequestEventProvider.notifier).state = null;
         if (!context.mounted) return;
@@ -78,6 +80,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
         setState(() {
           _mapState = _BuyerMapState.idle;
           _activeStopId = null;
+          _activeVendorUid = null;
         });
         ref.read(stopRequestEventProvider.notifier).state = null;
         if (!context.mounted) return;
@@ -92,6 +95,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
         setState(() {
           _mapState = _BuyerMapState.idle;
           _activeStopId = null;
+          _activeVendorUid = null;
         });
         if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -163,6 +167,22 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
         case RideEventType.cancelledByBuyer:
           break;
       }
+    });
+
+    // Notifica al comprador cuando el vendedor activo pierde internet.
+    // Firebase ejecuta onDisconnect en sus servidores y RTDB emite activo:false
+    // de inmediato — sin esperar a que el vendedor se reconecte.
+    ref.listen<AsyncValue<String>>(vendorOfflineEventProvider, (_, event) {
+      final uid = event.valueOrNull;
+      if (uid == null || uid != _activeVendorUid) return;
+      if (_mapState == _BuyerMapState.idle) return;
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('El seguimiento en tiempo real se ha pausado.'),
+          duration: Duration(seconds: 6),
+        ),
+      );
     });
 
     return Scaffold(
@@ -280,6 +300,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
                     setState(() {
                       _mapState = _BuyerMapState.idle;
                       _activeStopId = null;
+                      _activeVendorUid = null;
                     });
                     try {
                       await ref
@@ -404,7 +425,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
         (await img.toByteData(format: ui.ImageByteFormat.png))!
             .buffer
             .asUint8List();
-    return BitmapDescriptor.bytes(bytes);
+    return BitmapDescriptor.bytes(bytes, imagePixelRatio: 2.0);
   }
 
   Future<void> _onVendorTap(
@@ -467,6 +488,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
     required double buyerLng,
   }) async {
     setState(() => _mapState = _BuyerMapState.waiting);
+    _activeVendorUid = vendorUid;
     final messenger = ScaffoldMessenger.of(context);
     try {
       final stop = await ref.read(stopRequestModuleProvider).createStopRequest(
@@ -483,6 +505,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
           setState(() {
             _mapState = _BuyerMapState.idle;
             _activeStopId = null;
+            _activeVendorUid = null;
           });
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Tiempo de espera agotado.')),
@@ -491,7 +514,10 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
       );
     } catch (e) {
       if (!mounted) return;
-      setState(() => _mapState = _BuyerMapState.idle);
+      setState(() {
+        _mapState = _BuyerMapState.idle;
+        _activeVendorUid = null;
+      });
       messenger.showSnackBar(
         SnackBar(content: Text('Error al solicitar parada: $e')),
       );

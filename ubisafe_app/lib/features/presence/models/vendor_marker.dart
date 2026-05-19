@@ -11,6 +11,7 @@ class VendorMarker {
     required this.latitude,
     required this.longitude,
     this.rideEnabled = false,
+    this.activo = true,
     this.product,
   });
 
@@ -21,6 +22,9 @@ class VendorMarker {
   /// [iter.2] When true the vendor accepts ride requests (CU-04).
   final bool rideEnabled;
 
+  /// False when Firebase executes the onDisconnect handler (vendor lost internet).
+  final bool activo;
+
   /// Product the vendor sells; shown as a label above the map pin.
   final String? product;
 
@@ -30,6 +34,7 @@ class VendorMarker {
       latitude: num.parse((map['lat'] ?? 0).toString()).toDouble(),
       longitude: num.parse((map['lng'] ?? 0).toString()).toDouble(),
       rideEnabled: map['ride_enabled'] as bool? ?? false,
+      activo: map['activo'] != false,
       product: map['product'] as String?,
     );
   }

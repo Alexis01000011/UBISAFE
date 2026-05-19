@@ -223,7 +223,7 @@ class GPSService {
           'timestamp': DateTime.now().millisecondsSinceEpoch,
           'activo': true,
           'ride_enabled': _rideEnabled,
-          'product': _product,
+          if (_product != null) 'product': _product,
         }).then(
           (_) {
             // Re-register onDisconnect AFTER each successful set().
@@ -231,7 +231,7 @@ class GPSService {
             // when set() is called on the same reference, so the handler must
             // be re-registered after every write to stay active.
             unawaited(
-              ref.onDisconnect().remove().catchError((Object e) {
+              ref.onDisconnect().update({'activo': false}).catchError((Object e) {
                 if (kDebugMode) debugPrint('GPSService: onDisconnect re-register failed — $e');
               }),
             );
