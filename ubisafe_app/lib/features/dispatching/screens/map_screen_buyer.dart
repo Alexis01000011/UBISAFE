@@ -169,20 +169,24 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
       }
     });
 
-    // Notifica al comprador cuando el vendedor activo pierde internet.
-    // Firebase ejecuta onDisconnect en sus servidores y RTDB emite activo:false
-    // de inmediato — sin esperar a que el vendedor se reconecte.
-    ref.listen<AsyncValue<String>>(vendorOfflineEventProvider, (_, event) {
-      final uid = event.valueOrNull;
-      if (uid == null || uid != _activeVendorUid) return;
-      if (_mapState == _BuyerMapState.idle) return;
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('El seguimiento en tiempo real se ha pausado.'),
-          duration: Duration(seconds: 6),
-        ),
-      );
+    // Notifica al comprador cuando el vendedor que está esperando pierde conexión.
+    // Detecta desaparición de vendorMarkersProvider en lugar de depender de
+    // vendorOfflineEventProvider (que requiere que onDisconnect.update ejecute
+    // en RTDB — no garantizado en el emulador si el nodo se elimina directamente).
+    ref.listen<AsyncValue<List<VendorMarker>>>(vendorMarkersProvider, (prev, next) {
+      final uid = _activeVendorUid;
+      if (uid == null || _mapState != _BuyerMapState.waiting) return;
+      final wasVisible = prev?.valueOrNull?.any((v) => v.uid == uid) ?? false;
+      final isVisible = next.valueOrNull?.any((v) => v.uid == uid) ?? false;
+      if (wasVisible && !isVisible) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('El seguimiento en tiempo real se ha pausado.'),
+            duration: Duration(seconds: 6),
+          ),
+        );
+      }
     });
 
     return Scaffold(

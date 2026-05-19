@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../core/design_system/colors.dart';
+import '../../presence/models/vendor_marker.dart';
 import '../../presence/services/gps_service.dart';
 import '../../presence/services/vendor_tracker.dart';
 import '../../shared/notifications/notification_handler.dart';
@@ -87,6 +88,25 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
         }
       },
     );
+
+    // Notifica al comprador cuando el vendedor pierde conexión durante el seguimiento.
+    // Detecta la desaparición del vendedor de la lista activa en lugar de depender
+    // de vendorOfflineEventProvider (que requiere onDisconnect.update en RTDB).
+    ref.listen<AsyncValue<List<VendorMarker>>>(vendorMarkersProvider, (prev, next) {
+      final uid = _vendorUid;
+      if (uid == null) return;
+      final wasVisible = prev?.valueOrNull?.any((v) => v.uid == uid) ?? false;
+      final isVisible = next.valueOrNull?.any((v) => v.uid == uid) ?? false;
+      if (wasVisible && !isVisible) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('El seguimiento en tiempo real se ha pausado.'),
+            duration: Duration(seconds: 6),
+          ),
+        );
+      }
+    });
 
     return Scaffold(
       appBar: AppBar(
