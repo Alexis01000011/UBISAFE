@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -38,7 +40,7 @@ class _ReportDetailScreenState extends ConsumerState<ReportDetailScreen> {
       setState(() => _current = updated);
       // B33 — refresh the shared provider so the list shows the updated object
       // when the user navigates back, avoiding stale vote buttons on re-entry.
-      ref.read(activeCommunityReportsProvider.notifier).refresh();
+      unawaited(ref.read(activeCommunityReportsProvider.notifier).refresh());
     } on DioException catch (e) {
       // B32 — parse the backend detail to show a human-readable message instead
       // of the raw DioException (e.g. on 409 race conditions).
@@ -47,7 +49,7 @@ class _ReportDetailScreenState extends ConsumerState<ReportDetailScreen> {
       final msg = switch (detail) {
         'already_voted' => 'Ya votaste en este reporte.',
         'reporter_cannot_vote' => 'No puedes votar en tu propio reporte.',
-        String s when s.startsWith('report_status_is_') =>
+        final String s when s.startsWith('report_status_is_') =>
           'Este reporte ya no está disponible para votar.',
         _ => 'Error al votar. Intenta de nuevo.',
       };

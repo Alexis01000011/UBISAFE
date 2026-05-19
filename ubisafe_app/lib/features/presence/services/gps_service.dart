@@ -270,6 +270,17 @@ class GPSService {
     _rtdbRefFactory(vendorUid).update({'ride_enabled': value});
   }
 
+  /// Updates the `product` field in memory and writes it to the active RTDB node.
+  ///
+  /// Called from map_screen_vendor when userProfileProvider completes after
+  /// startTransmission was already called (timing fix — the profile may not be
+  /// loaded yet at the moment the vendor activates visibility).
+  void updateProduct(String vendorUid, String product) {
+    _product = product;
+    if (_activeUid != vendorUid) return;
+    _rtdbRefFactory(vendorUid).update({'product': product});
+  }
+
   void dispose() {
     _posSub?.cancel();
     _retryTimer?.cancel();

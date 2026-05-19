@@ -75,6 +75,19 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor> {
     final positionAsync = ref.watch(gpsServiceProvider);
     ref.watch(locationSyncProvider);
     ref.watch(authStateProvider); // pre-subscribe so ref.read in _onToggle is synchronous
+
+    // Timing fix: if startTransmission was called before userProfileProvider
+    // completed, _product was null and the field wasn't written to RTDB.
+    // This listener fires when the profile loads and patches the node immediately.
+    ref.listen(userProfileProvider, (_, next) {
+      final product = next.valueOrNull?.product;
+      if (product == null) return;
+      final uid = ref.read(authStateProvider).valueOrNull?.uid;
+      if (uid == null) return;
+      final gps = ref.read(gpsServiceInstanceProvider);
+      if (gps.activeUid == uid) gps.updateProduct(uid, product);
+    });
+
     final communityReportsAsync = ref.watch(activeCommunityReportsProvider);
 
     // Listen for incoming stop requests (vendor receives FCM)
