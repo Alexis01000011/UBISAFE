@@ -295,7 +295,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     });
 
     return Scaffold(
-      drawer: const DrawerModule(),
+      drawer: DrawerModule(beforeSignOut: _confirmSignOutIfBusy),
       appBar: AppBar(
         title: const Text('UbiSafe — Vendedor'),
         actions: [
@@ -975,6 +975,79 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
         ),
       );
     }
+  }
+
+  /// Muestra diálogo de confirmación si hay parada o raite activo.
+  /// Retorna true para permitir cerrar sesión, false para cancelarla.
+  Future<bool> _confirmSignOutIfBusy() async {
+    final stopId = _activeStopId;
+    final rideId = _activeRideId;
+    if (stopId == null && rideId == null) return true;
+
+    if (!mounted) return true;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Solicitud activa'),
+        content: Text(
+          rideId != null
+              ? 'Tienes un raite en curso. Si cierras sesión, el pasajero será notificado que abandonaste la aplicación. ¿Deseas continuar?'
+              : 'Tienes una entrega en curso. Si cierras sesión, el comprador será notificado que abandonaste la aplicación. ¿Deseas continuar?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: AppColors.danger500),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Cerrar sesión'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return false;
+
+    if (stopId != null) {
+      if (mounted) {
+        setState(() {
+          _activeStopId = null;
+          _isNavigating = false;
+          _routePolyline = [];
+          _buyerLat = null;
+          _buyerLng = null;
+        });
+      }
+      unawaited(
+        ref
+            .read(stopRequestModuleProvider)
+            .abandonStopRequest(stopId)
+            .timeout(const Duration(seconds: 3))
+            .catchError((_) {}),
+      );
+    }
+    if (rideId != null) {
+      await _rideSub?.cancel();
+      _rideSub = null;
+      if (mounted) {
+        setState(() {
+          _activeRideId = null;
+          _ridePhase = 0;
+          _routePolyline = [];
+          _isNavigating = false;
+        });
+      }
+      unawaited(
+        ref
+            .read(rideRequestModuleProvider)
+            .abandonRide(rideId)
+            .timeout(const Duration(seconds: 3))
+            .catchError((_) {}),
+      );
+    }
+    return true;
   }
 
   @override

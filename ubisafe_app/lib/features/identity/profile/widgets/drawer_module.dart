@@ -12,7 +12,11 @@ import '../../auth/auth_module.dart';
 
 /// App-wide navigation drawer.
 class DrawerModule extends ConsumerStatefulWidget {
-  const DrawerModule({super.key});
+  const DrawerModule({super.key, this.beforeSignOut});
+
+  /// Called before signing out. Return false to cancel the sign-out.
+  /// Drawer is already closed when this fires, so dialogs use the parent context.
+  final Future<bool> Function()? beforeSignOut;
 
   @override
   ConsumerState<DrawerModule> createState() => _DrawerModuleState();
@@ -173,9 +177,10 @@ class _DrawerModuleState extends ConsumerState<DrawerModule> {
                   ),
                   onPressed: () async {
                     Navigator.pop(context);
-                    // Stop RTDB transmission before revoking the auth token.
-                    // Without this, the node remains active after signOut because
-                    // the delete request fails with 401 (token already invalid).
+                    if (widget.beforeSignOut != null &&
+                        !(await widget.beforeSignOut!())) {
+                      return;
+                    }
                     final gps = ref.read(gpsServiceInstanceProvider);
                     final uid = gps.activeUid;
                     if (uid != null) await gps.stopTransmission(uid);
