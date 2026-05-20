@@ -48,7 +48,7 @@ async def create_community_report(
             )
 
     if await FirestoreService.has_pending_report_within(
-        body.location.lat, body.location.lng, _DUPLICATE_RADIUS_M
+        body.location.lat, body.location.lng, _DUPLICATE_RADIUS_M, body.threat_type.value
     ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

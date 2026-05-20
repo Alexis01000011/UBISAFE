@@ -87,7 +87,11 @@ class _CommunityFormBottomSheetState
       };
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        // Capture the messenger before pop so the SnackBar renders on the map
+        // screen (not under the SpeedDial which may still be expanded).
+        final messenger = ScaffoldMessenger.of(context);
+        if (errorCode == 'nearby_report_exists') Navigator.pop(context);
+        messenger.showSnackBar(
           SnackBar(
             content: Text(msg),
             backgroundColor: AppColors.danger500,

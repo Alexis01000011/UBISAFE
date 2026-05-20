@@ -391,13 +391,16 @@ class FirestoreService:
         return cls._doc_to_community_report(doc)
 
     @classmethod
-    async def has_pending_report_within(cls, lat: float, lng: float, radius_m: float) -> bool:
-        """Return True if any pending_validation report exists within radius_m metres."""
+    async def has_pending_report_within(
+        cls, lat: float, lng: float, radius_m: float, threat_type: str
+    ) -> bool:
+        """Return True if a pending_validation report of the same threat_type exists within radius_m metres."""
         radius_km = radius_m / 1000.0
         docs = (
             cls._db()
             .collection("community_reports")
             .where("status", "==", ReportStatus.pending_validation.value)
+            .where("threat_type", "==", threat_type)
             .stream()
         )
         for d in docs:
