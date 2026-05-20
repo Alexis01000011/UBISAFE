@@ -175,6 +175,12 @@ async def update_ride_status(
 
     if body.status == "accepted":
         asyncio.ensure_future(NotificationService.send_ride_accepted(buyer_uid, ride_id))
+        if body.route_warnings:
+            asyncio.ensure_future(
+                NotificationService.send_route_zone_warning(
+                    buyer_uid, ride_id, len(body.route_warnings), is_ride=True
+                )
+            )
     elif body.status == "rejected":
         from_status = ride.status.value  # ride is the pre-update snapshot
         if from_status == "accepted":
@@ -189,7 +195,12 @@ async def update_ride_status(
                 NotificationService.send_ride_rejected(buyer_uid, ride_id, reason)
             )
     elif body.status == "in_progress":
-        pass  # TrackingScreen detects via Firestore listener — no FCM needed
+        if body.route_warnings:
+            asyncio.ensure_future(
+                NotificationService.send_route_zone_warning(
+                    buyer_uid, ride_id, len(body.route_warnings), is_ride=True
+                )
+            )
     elif body.status == "completed":
         asyncio.ensure_future(
             NotificationService.send_ride_completed(buyer_uid, vendor_uid, ride_id)

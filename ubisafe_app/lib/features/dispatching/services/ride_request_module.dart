@@ -42,12 +42,14 @@ class RideRequestModule {
     String rideId,
     String status, {
     String? rejectedReason,
+    List<String> routeWarnings = const [],
   }) async {
     final res = await _dio.patch<Map<String, dynamic>>(
       '/rides/$rideId/status',
       data: {
         'status': status,
         if (rejectedReason != null) 'rejected_reason': rejectedReason,
+        if (routeWarnings.isNotEmpty) 'route_warnings': routeWarnings,
       },
     );
     return Ride.fromJson(res.data!);

@@ -29,6 +29,7 @@ class CreateStopRequestBody(BaseModel):
 
 class UpdateStatusBody(BaseModel):
     status: str
+    route_warnings: list[str] = []
 
 
 # Valid state-machine transitions: (from_status, to_status) → required_role

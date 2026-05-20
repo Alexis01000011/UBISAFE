@@ -35,6 +35,11 @@ final incomingRideProvider =
 /// Ride lifecycle event for buyer/vendor screens.
 final rideEventProvider = StateProvider<RideEvent?>((ref) => null);
 
+/// Route zone warning dispatched to the buyer when the vendor accepts a
+/// request whose route passes through MEDIUM risk zones.
+final routeZoneWarningProvider =
+    StateProvider<Map<String, dynamic>?>((ref) => null);
+
 class RideEvent {
   const RideEvent(this.rideId, this.type);
   final String rideId;
@@ -62,12 +67,14 @@ class NotificationHandler {
     required void Function() onCommunityReportNearby,
     required void Function(Map<String, dynamic>?) setIncomingRide,
     required void Function(RideEvent?) setRideEvent,
+    required void Function(Map<String, dynamic>?) onRouteZoneWarning,
   })  : _setIncomingStop = setIncomingStop,
         _setStopEvent = setStopEvent,
         _invalidateRiskZones = invalidateRiskZones,
         _onCommunityReportNearby = onCommunityReportNearby,
         _setIncomingRide = setIncomingRide,
-        _setRideEvent = setRideEvent;
+        _setRideEvent = setRideEvent,
+        _onRouteZoneWarning = onRouteZoneWarning;
 
   final FirebaseMessaging _messaging;
   final Dio _dio;
@@ -77,6 +84,7 @@ class NotificationHandler {
   final void Function() _onCommunityReportNearby;
   final void Function(Map<String, dynamic>?) _setIncomingRide;
   final void Function(RideEvent?) _setRideEvent;
+  final void Function(Map<String, dynamic>?) _onRouteZoneWarning;
   bool _initialized = false;
 
   /// Must be called once before runApp() — cannot be in init() because
@@ -231,6 +239,9 @@ class NotificationHandler {
           _setRideEvent(RideEvent(rideId, RideEventType.abandoned));
         }
 
+      case 'route_zone_warning':
+        _onRouteZoneWarning(Map<String, dynamic>.from(data));
+
       default:
         debugPrint('FCM unhandled type [$type]');
     }
@@ -256,5 +267,7 @@ final notificationHandlerProvider = Provider<NotificationHandler>((ref) {
     setIncomingRide: (data) =>
         ref.read(incomingRideProvider.notifier).state = data,
     setRideEvent: (event) => ref.read(rideEventProvider.notifier).state = event,
+    onRouteZoneWarning: (data) =>
+        ref.read(routeZoneWarningProvider.notifier).state = data,
   );
 });

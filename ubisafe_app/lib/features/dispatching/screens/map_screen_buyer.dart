@@ -44,6 +44,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
   bool _speedDialOpen = false;
   bool _selectingRiskPoint = false;
   final Map<String, BitmapDescriptor> _markerIconCache = {};
+  Position? _riskZoneAnchorPos;
 
   @override
   Widget build(BuildContext context) {
@@ -51,6 +52,28 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
     ref.watch(locationSyncProvider);
     final vendorsAsync = ref.watch(vendorMarkersProvider);
     final communityReportsAsync = ref.watch(activeCommunityReportsProvider);
+
+    // Re-subscribe the risk zones stream when the user moves >500 m from the
+    // position that was captured when the stream was last built (frozen closure fix).
+    ref.listen(gpsServiceProvider, (_, next) {
+      final current = next.valueOrNull;
+      if (current == null) return;
+      final anchor = _riskZoneAnchorPos;
+      if (anchor == null) {
+        _riskZoneAnchorPos = current;
+        // Provider may have been built while GPS was null → re-subscribe now.
+        ref.invalidate(activeRiskZonesProvider);
+        return;
+      }
+      if (Geolocator.distanceBetween(
+            anchor.latitude, anchor.longitude,
+            current.latitude, current.longitude,
+          ) >
+          500) {
+        _riskZoneAnchorPos = current;
+        ref.invalidate(activeRiskZonesProvider);
+      }
+    });
 
     // Listen for FCM events (accepted/rejected/expired)
     ref.listen<StopEvent?>(stopRequestEventProvider, (_, event) {

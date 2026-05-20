@@ -67,8 +67,14 @@ class StopRequestModule {
   Future<void> rejectStopRequest(String stopId) =>
       _dio.patch('/stops/$stopId/status', data: {'status': 'rejected'});
 
-  Future<void> acceptStopRequest(String stopId) =>
-      _dio.patch('/stops/$stopId/status', data: {'status': 'accepted'});
+  Future<void> acceptStopRequest(
+    String stopId, {
+    List<String> routeWarnings = const [],
+  }) =>
+      _dio.patch('/stops/$stopId/status', data: {
+        'status': 'accepted',
+        if (routeWarnings.isNotEmpty) 'route_warnings': routeWarnings,
+      });
 
   Future<void> completeStopRequest(String stopId) =>
       _dio.patch('/stops/$stopId/status', data: {'status': 'completed'});

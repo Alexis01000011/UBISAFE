@@ -47,6 +47,7 @@ class CreateRideBody(BaseModel):
 class UpdateRideStatusBody(BaseModel):
     status: str
     rejected_reason: str | None = None
+    route_warnings: list[str] = []
 
 
 # Valid state-machine transitions: (from_status, to_status) → required_role

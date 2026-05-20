@@ -264,6 +264,24 @@ class NotificationService:
         )
 
     @staticmethod
+    async def send_route_zone_warning(
+        buyer_uid: str, request_id: str, zone_count: int, *, is_ride: bool
+    ) -> None:
+        """Notifies the buyer that the vendor's route passes through MEDIUM risk zones."""
+        id_key = "ride_id" if is_ride else "stop_id"
+        await NotificationService.send_to_user(
+            uid=buyer_uid,
+            title="Advertencia de ruta",
+            body=f"La ruta pasa por {zone_count} zona(s) de riesgo MEDIO.",
+            data={
+                "type": "route_zone_warning",
+                id_key: request_id,
+                "zone_count": str(zone_count),
+                "risk_level": "MEDIUM",
+            },
+        )
+
+    @staticmethod
     async def notify_risk_zone_alert(
         fcm_tokens: list[str],
         data: dict,
