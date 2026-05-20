@@ -75,6 +75,33 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
       }
     });
 
+    // Show visible SnackBar when a new community report is created within 1 km.
+    ref.listen<Map<String, dynamic>?>(communityReportAlertProvider, (_, alert) {
+      if (alert == null || !context.mounted) return;
+      final reportLat = double.tryParse(alert['lat'] as String? ?? '');
+      final reportLng = double.tryParse(alert['lng'] as String? ?? '');
+      final threatType = alert['threat_type'] as String? ?? '';
+      final typeLabel =
+          threatType == 'animal_muerto' ? 'Animal muerto' : 'Zona sucia';
+
+      final position = ref.read(gpsServiceProvider).valueOrNull;
+      String distanceLabel = '';
+      if (position != null && reportLat != null && reportLng != null) {
+        final distM = Geolocator.distanceBetween(
+          position.latitude, position.longitude, reportLat, reportLng,
+        );
+        distanceLabel = ' a ${distM.round()} m';
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Reporte avistado$distanceLabel — $typeLabel'),
+          backgroundColor: const Color(0xFF795548),
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    });
+
     // Listen for FCM events (accepted/rejected/expired)
     ref.listen<StopEvent?>(stopRequestEventProvider, (_, event) {
       if (event == null) return;

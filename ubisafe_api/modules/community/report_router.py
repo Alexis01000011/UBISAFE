@@ -12,7 +12,8 @@ from modules.shared.notification_service import NotificationService
 
 router = APIRouter()
 
-_PROXIMITY_RADIUS_KM = 4.0
+_PROXIMITY_RADIUS_KM = 1.0
+_DUPLICATE_RADIUS_M = 50.0
 
 
 @router.post("", response_model=CommunityReport, status_code=status.HTTP_201_CREATED)
@@ -45,6 +46,17 @@ async def create_community_report(
                     "message": "Debes estar a ≤ 4 km del área para reportar",
                 },
             )
+
+    if await FirestoreService.has_pending_report_within(
+        body.location.lat, body.location.lng, _DUPLICATE_RADIUS_M
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "nearby_report_exists",
+                "message": "Ya existe un reporte pendiente a menos de 50 m de esta ubicación.",
+            },
+        )
 
     report = await FirestoreService.create_community_report(uid=current_user["uid"], body=body)
 

@@ -40,6 +40,11 @@ final rideEventProvider = StateProvider<RideEvent?>((ref) => null);
 final routeZoneWarningProvider =
     StateProvider<Map<String, dynamic>?>((ref) => null);
 
+/// Carries the FCM payload of a community_report_nearby event so map screens
+/// can show a visible alert with distance and threat type.
+final communityReportAlertProvider =
+    StateProvider<Map<String, dynamic>?>((ref) => null);
+
 class RideEvent {
   const RideEvent(this.rideId, this.type);
   final String rideId;
@@ -64,7 +69,8 @@ class NotificationHandler {
     required void Function(Map<String, dynamic>?) setIncomingStop,
     required void Function(StopEvent?) setStopEvent,
     required void Function() invalidateRiskZones,
-    required void Function() onCommunityReportNearby,
+    required void Function(Map<String, dynamic>) onCommunityReportNearby,
+    required void Function() onReportStatusChanged,
     required void Function(Map<String, dynamic>?) setIncomingRide,
     required void Function(RideEvent?) setRideEvent,
     required void Function(Map<String, dynamic>?) onRouteZoneWarning,
@@ -72,6 +78,7 @@ class NotificationHandler {
         _setStopEvent = setStopEvent,
         _invalidateRiskZones = invalidateRiskZones,
         _onCommunityReportNearby = onCommunityReportNearby,
+        _onReportStatusChanged = onReportStatusChanged,
         _setIncomingRide = setIncomingRide,
         _setRideEvent = setRideEvent,
         _onRouteZoneWarning = onRouteZoneWarning;
@@ -81,7 +88,8 @@ class NotificationHandler {
   final void Function(Map<String, dynamic>?) _setIncomingStop;
   final void Function(StopEvent?) _setStopEvent;
   final void Function() _invalidateRiskZones;
-  final void Function() _onCommunityReportNearby;
+  final void Function(Map<String, dynamic>) _onCommunityReportNearby;
+  final void Function() _onReportStatusChanged;
   final void Function(Map<String, dynamic>?) _setIncomingRide;
   final void Function(RideEvent?) _setRideEvent;
   final void Function(Map<String, dynamic>?) _onRouteZoneWarning;
@@ -189,12 +197,13 @@ class NotificationHandler {
         _invalidateRiskZones();
 
       case 'community_report_nearby':
-        _onCommunityReportNearby();
+        _onCommunityReportNearby(Map<String, dynamic>.from(data));
 
       // B30 — fired by the backend when a report reaches confirmed/dismissed.
-      // Reuses the same callback to refresh the active reports list.
+      // Uses a separate callback to refresh the list without triggering the
+      // proximity alert SnackBar (no location data in this payload).
       case 'report_status_changed':
-        _onCommunityReportNearby();
+        _onReportStatusChanged();
 
       case 'ride_request_incoming':
         _setIncomingRide(Map<String, dynamic>.from(data));
@@ -262,7 +271,11 @@ final notificationHandlerProvider = Provider<NotificationHandler>((ref) {
     setStopEvent: (event) =>
         ref.read(stopRequestEventProvider.notifier).state = event,
     invalidateRiskZones: () => ref.invalidate(activeRiskZonesProvider),
-    onCommunityReportNearby: () =>
+    onCommunityReportNearby: (data) {
+      ref.read(activeCommunityReportsProvider.notifier).refresh();
+      ref.read(communityReportAlertProvider.notifier).state = data;
+    },
+    onReportStatusChanged: () =>
         ref.read(activeCommunityReportsProvider.notifier).refresh(),
     setIncomingRide: (data) =>
         ref.read(incomingRideProvider.notifier).state = data,

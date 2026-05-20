@@ -79,6 +79,8 @@ class _CommunityFormBottomSheetState
       final msg = switch (errorCode) {
         'location_out_of_range' =>
           'Debes estar en la zona para reportar este foco.',
+        'nearby_report_exists' =>
+          'Ya existe un reporte activo en esta zona.',
         _ => code != null
             ? 'No se pudo enviar (error $code). Intenta de nuevo.'
             : 'Sin conexión. Reintentando…',
