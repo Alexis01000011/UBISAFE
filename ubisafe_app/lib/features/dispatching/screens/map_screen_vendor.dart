@@ -48,6 +48,10 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
   double? _buyerLat; // Coordenadas del comprador de la parada activa
   double? _buyerLng;
   String? _activeRideId;
+  double? _ridePickupLat;
+  double? _ridePickupLng;
+  double? _rideDestLat;
+  double? _rideDestLng;
   bool _selectingRiskPoint = false;
   // 1 = going to pickup, 2 = ride in progress (passenger aboard)
   int _ridePhase = 0;
@@ -99,6 +103,10 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
             _ridePhase = 0;
             _routePolyline = [];
             _isNavigating = false;
+            _ridePickupLat = null;
+            _ridePickupLng = null;
+            _rideDestLat = null;
+            _rideDestLng = null;
           });
         }
         unawaited(
@@ -266,6 +274,10 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
           _ridePhase = 0;
           _routePolyline = [];
           _isNavigating = false;
+          _ridePickupLat = null;
+          _ridePickupLng = null;
+          _rideDestLat = null;
+          _rideDestLng = null;
         });
         ref.read(rideEventProvider.notifier).state = null;
         if (!context.mounted) return;
@@ -285,6 +297,10 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
           _ridePhase = 0;
           _routePolyline = [];
           _isNavigating = false;
+          _ridePickupLat = null;
+          _ridePickupLng = null;
+          _rideDestLat = null;
+          _rideDestLng = null;
         });
         ref.read(rideEventProvider.notifier).state = null;
         if (!context.mounted) return;
@@ -295,7 +311,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     });
 
     return Scaffold(
-      drawer: DrawerModule(beforeSignOut: _confirmSignOutIfBusy),
+      drawer: DrawerModule(onSignOut: _handleSignOut),
       appBar: AppBar(
         title: const Text('UbiSafe — Vendedor'),
         actions: [
@@ -653,6 +669,18 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
         destLat: destLat,
         destLng: destLng,
       );
+      if (points != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No se encontró ruta alternativa. '
+              'La ruta puede pasar por una zona de riesgo.',
+            ),
+            backgroundColor: AppColors.warning500,
+            duration: Duration(seconds: 6),
+          ),
+        );
+      }
     }
 
     if (points != null && mounted) {
@@ -807,7 +835,10 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
           setState(() => _pendingDialogRideId = null);
           Navigator.of(context).pop();
           await _acceptRide(context, rideId,
-              pickupLat: pickupLat, pickupLng: pickupLng);
+              pickupLat: pickupLat,
+              pickupLng: pickupLng,
+              destinationLat: destinationLat,
+              destinationLng: destinationLng);
         },
         onReject: () async {
           setState(() => _pendingDialogRideId = null);
@@ -862,6 +893,8 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     String rideId, {
     required String pickupLat,
     required String pickupLng,
+    required String destinationLat,
+    required String destinationLng,
   }) async {
     final position = ref.read(gpsServiceProvider).valueOrNull;
     if (position == null) {
@@ -890,10 +923,40 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
       );
       return;
     }
+
+    final pLat = double.tryParse(pickupLat) ?? 0;
+    final pLng = double.tryParse(pickupLng) ?? 0;
+    final dLat = double.tryParse(destinationLat) ?? 0;
+    final dLng = double.tryParse(destinationLng) ?? 0;
+
     setState(() {
       _activeRideId = rideId;
       _ridePhase = 1;
+      _ridePickupLat = pLat;
+      _ridePickupLng = pLng;
+      _rideDestLat = dLat;
+      _rideDestLng = dLng;
     });
+
+    // Fase 1: ruta del vendedor al punto de recogida (con desvío de zonas HIGH)
+    final zones = await ref
+        .read(activeRiskZonesProvider.future)
+        .catchError((_) => <RiskZone>[]);
+    final highZones = zones.where((z) => z.riskLevel == 'HIGH').toList();
+    final avoidWaypoints = _buildAvoidWaypoints(
+      originLat: position.latitude,
+      originLng: position.longitude,
+      destLat: pLat,
+      destLng: pLng,
+      highZones: highZones,
+    );
+    await _fetchRoute(
+      originLat: position.latitude,
+      originLng: position.longitude,
+      destLat: pLat,
+      destLng: pLng,
+      avoidWaypoints: avoidWaypoints,
+    );
 
     // Watch the ride for status changes (in_progress triggered by vendor action)
     await _rideSub?.cancel();
@@ -912,6 +975,10 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
           _activeRideId = null;
           _ridePhase = 0;
           _routePolyline = [];
+          _ridePickupLat = null;
+          _ridePickupLng = null;
+          _rideDestLat = null;
+          _rideDestLng = null;
         });
       }
     });
@@ -944,6 +1011,35 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
       return;
     }
     if (mounted) setState(() => _ridePhase = 2);
+
+    // Fase 2: ruta desde el punto de recogida al destino (con desvío de zonas HIGH)
+    final dLat = _rideDestLat;
+    final dLng = _rideDestLng;
+    final pLat = _ridePickupLat;
+    final pLng = _ridePickupLng;
+    if (dLat != null && dLng != null && pLat != null && pLng != null) {
+      final currentPos = ref.read(gpsServiceProvider).valueOrNull;
+      final originLat = currentPos?.latitude ?? pLat;
+      final originLng = currentPos?.longitude ?? pLng;
+      final zones = await ref
+          .read(activeRiskZonesProvider.future)
+          .catchError((_) => <RiskZone>[]);
+      final highZones = zones.where((z) => z.riskLevel == 'HIGH').toList();
+      final avoidWaypoints = _buildAvoidWaypoints(
+        originLat: originLat,
+        originLng: originLng,
+        destLat: dLat,
+        destLng: dLng,
+        highZones: highZones,
+      );
+      await _fetchRoute(
+        originLat: originLat,
+        originLng: originLng,
+        destLat: dLat,
+        destLng: dLng,
+        avoidWaypoints: avoidWaypoints,
+      );
+    }
   }
 
   Future<void> _completeRide(BuildContext context) async {
@@ -966,6 +1062,10 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
       _activeRideId = null;
       _ridePhase = 0;
       _routePolyline = [];
+      _ridePickupLat = null;
+      _ridePickupLng = null;
+      _rideDestLat = null;
+      _rideDestLng = null;
     });
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -977,77 +1077,91 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     }
   }
 
-  /// Muestra diálogo de confirmación si hay parada o raite activo.
-  /// Retorna true para permitir cerrar sesión, false para cancelarla.
-  Future<bool> _confirmSignOutIfBusy() async {
+  /// Maneja el cierre de sesión completo desde MapScreenVendor (siempre vivo).
+  /// Si hay solicitud activa muestra diálogo; si cancela, no hace nada.
+  /// Al confirmar: abandona solicitud, detiene GPS, desactiva visibilidad y cierra sesión.
+  Future<void> _handleSignOut() async {
     final stopId = _activeStopId;
     final rideId = _activeRideId;
-    if (stopId == null && rideId == null) return true;
 
-    if (!mounted) return true;
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Solicitud activa'),
-        content: Text(
-          rideId != null
-              ? 'Tienes un raite en curso. Si cierras sesión, el pasajero será notificado que abandonaste la aplicación. ¿Deseas continuar?'
-              : 'Tienes una entrega en curso. Si cierras sesión, el comprador será notificado que abandonaste la aplicación. ¿Deseas continuar?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancelar'),
+    if (stopId != null || rideId != null) {
+      if (!mounted) {
+        // Sin contexto para mostrar diálogo — proceder directamente.
+      } else {
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text('Solicitud activa'),
+            content: Text(
+              rideId != null
+                  ? 'Tienes un raite en curso. Si cierras sesión, el pasajero será notificado que abandonaste la aplicación. ¿Deseas continuar?'
+                  : 'Tienes una entrega en curso. Si cierras sesión, el comprador será notificado que abandonaste la aplicación. ¿Deseas continuar?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancelar'),
+              ),
+              TextButton(
+                style: TextButton.styleFrom(foregroundColor: AppColors.danger500),
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Cerrar sesión'),
+              ),
+            ],
           ),
-          TextButton(
-            style: TextButton.styleFrom(foregroundColor: AppColors.danger500),
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Cerrar sesión'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return false;
+        );
+        if (confirmed != true) return;
+      }
 
-    if (stopId != null) {
-      if (mounted) {
-        setState(() {
-          _activeStopId = null;
-          _isNavigating = false;
-          _routePolyline = [];
-          _buyerLat = null;
-          _buyerLng = null;
-        });
+      if (stopId != null) {
+        if (mounted) {
+          setState(() {
+            _activeStopId = null;
+            _isNavigating = false;
+            _routePolyline = [];
+            _buyerLat = null;
+            _buyerLng = null;
+          });
+        }
+        unawaited(
+          ref
+              .read(stopRequestModuleProvider)
+              .abandonStopRequest(stopId)
+              .timeout(const Duration(seconds: 3))
+              .catchError((_) {}),
+        );
       }
-      unawaited(
-        ref
-            .read(stopRequestModuleProvider)
-            .abandonStopRequest(stopId)
-            .timeout(const Duration(seconds: 3))
-            .catchError((_) {}),
-      );
-    }
-    if (rideId != null) {
-      await _rideSub?.cancel();
-      _rideSub = null;
-      if (mounted) {
-        setState(() {
-          _activeRideId = null;
-          _ridePhase = 0;
-          _routePolyline = [];
-          _isNavigating = false;
-        });
+      if (rideId != null) {
+        await _rideSub?.cancel();
+        _rideSub = null;
+        if (mounted) {
+          setState(() {
+            _activeRideId = null;
+            _ridePhase = 0;
+            _routePolyline = [];
+            _isNavigating = false;
+            _ridePickupLat = null;
+            _ridePickupLng = null;
+            _rideDestLat = null;
+            _rideDestLng = null;
+          });
+        }
+        unawaited(
+          ref
+              .read(rideRequestModuleProvider)
+              .abandonRide(rideId)
+              .timeout(const Duration(seconds: 3))
+              .catchError((_) {}),
+        );
       }
-      unawaited(
-        ref
-            .read(rideRequestModuleProvider)
-            .abandonRide(rideId)
-            .timeout(const Duration(seconds: 3))
-            .catchError((_) {}),
-      );
     }
-    return true;
+
+    // Detener GPS, desactivar visibilidad y cerrar sesión.
+    final gps = ref.read(gpsServiceInstanceProvider);
+    final uid = gps.activeUid;
+    if (uid != null) await gps.stopTransmission(uid);
+    if (mounted) setState(() => _isVisible = false);
+    await ref.read(authModuleProvider).signOut();
   }
 
   @override

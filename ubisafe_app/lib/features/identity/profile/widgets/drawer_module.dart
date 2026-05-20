@@ -12,11 +12,12 @@ import '../../auth/auth_module.dart';
 
 /// App-wide navigation drawer.
 class DrawerModule extends ConsumerStatefulWidget {
-  const DrawerModule({super.key, this.beforeSignOut});
+  const DrawerModule({super.key, this.onSignOut});
 
-  /// Called before signing out. Return false to cancel the sign-out.
-  /// Drawer is already closed when this fires, so dialogs use the parent context.
-  final Future<bool> Function()? beforeSignOut;
+  /// Replaces the drawer's built-in sign-out logic entirely.
+  /// Responsible for confirmation dialogs, GPS stop, visibility reset and signOut.
+  /// When null the drawer handles sign-out directly.
+  final Future<void> Function()? onSignOut;
 
   @override
   ConsumerState<DrawerModule> createState() => _DrawerModuleState();
@@ -177,8 +178,8 @@ class _DrawerModuleState extends ConsumerState<DrawerModule> {
                   ),
                   onPressed: () async {
                     Navigator.pop(context);
-                    if (widget.beforeSignOut != null &&
-                        !(await widget.beforeSignOut!())) {
+                    if (widget.onSignOut != null) {
+                      await widget.onSignOut!();
                       return;
                     }
                     final gps = ref.read(gpsServiceInstanceProvider);
