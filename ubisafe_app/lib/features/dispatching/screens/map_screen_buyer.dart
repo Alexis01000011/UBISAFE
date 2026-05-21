@@ -21,6 +21,8 @@ import '../../safety/services/risk_zone_service.dart';
 import '../../shared/notifications/notification_handler.dart';
 import '../../shared/subscriptions/services/subscription_module.dart';
 import '../../shared/widgets/gps_required_empty_state.dart';
+import '../group_stays/models/group_stay.dart';
+import '../group_stays/services/group_stay_module.dart';
 import '../models/stop_request.dart';
 import '../services/ride_request_module.dart';
 import '../services/stop_request_module.dart';
@@ -42,6 +44,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
   String? _activeRideId;
   String? _activeVendorUid;
   bool _communityReportsLoaded = false;
+  bool _groupStaysLoaded = false;
   bool _speedDialOpen = false;
   bool _selectingRiskPoint = false;
   final Map<String, BitmapDescriptor> _markerIconCache = {};
@@ -53,6 +56,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
     ref.watch(locationSyncProvider);
     final vendorsAsync = ref.watch(vendorMarkersProvider);
     final communityReportsAsync = ref.watch(activeCommunityReportsProvider);
+    final groupStaysAsync = ref.watch(activeGroupStaysProvider);
 
     // Re-subscribe the risk zones stream when the user moves >500 m from the
     // position that was captured when the stream was last built (frozen closure fix).
@@ -346,6 +350,17 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
             });
           }
 
+          // Load active group stays once
+          if (!_groupStaysLoaded) {
+            _groupStaysLoaded = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              ref.read(activeGroupStaysProvider.notifier).load(
+                    position.latitude,
+                    position.longitude,
+                  );
+            });
+          }
+
           final zonesAsync = ref.watch(activeRiskZonesProvider);
           final circles = zonesAsync.maybeWhen(
             data: (zones) => zones
@@ -373,13 +388,18 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
               .map((r) => _communityReportToMarker(r, context))
               .toSet();
 
+          // Group stay markers
+          final stayMarkers = (groupStaysAsync.valueOrNull ?? [])
+              .map((s) => _groupStayToMarker(s, context))
+              .toSet();
+
           return Stack(
             children: [
               GoogleMap(
                 initialCameraPosition: initialCamera,
                 myLocationEnabled: true,
                 myLocationButtonEnabled: true,
-                markers: markers.union(communityMarkers),
+                markers: markers.union(communityMarkers).union(stayMarkers),
                 circles: circles,
                 onTap: _onMapTap,
               ),
@@ -740,6 +760,20 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
   }
 
   // Flujo 9.6.C: duplicates are hidden; canonical pin opens ReportDetailScreen.
+  Marker _groupStayToMarker(GroupStay stay, BuildContext context) {
+    final snippet = stay.status == 'active' ? 'Activa' : 'Programada';
+    return Marker(
+      markerId: MarkerId('gs_${stay.id}'),
+      position: LatLng(stay.locationLat, stay.locationLng),
+      icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueCyan),
+      infoWindow: InfoWindow(
+        title: 'Estancia grupal',
+        snippet: '$snippet · ${stay.attendeesCount} asistentes',
+        onTap: () => context.push('/group-stays/detail', extra: stay),
+      ),
+    );
+  }
+
   Marker _communityReportToMarker(
       CommunityReport report, BuildContext context) {
     final hue = switch (report.threatType) {

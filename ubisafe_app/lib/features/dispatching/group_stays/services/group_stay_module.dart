@@ -1,5 +1,5 @@
-import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
 
 import '../../../../core/api/api_client.dart';
 import '../models/group_stay.dart';
@@ -66,3 +66,28 @@ class GroupStayModule {
 final groupStayModuleProvider = Provider<GroupStayModule>(
   (ref) => GroupStayModule(ref.read(apiClientProvider)),
 );
+
+/// Holds the latest active group stays for the current map view.
+/// Call [load] once per map build to fetch from the backend.
+final activeGroupStaysProvider = StateNotifierProvider<
+    _GroupStaysNotifier, AsyncValue<List<GroupStay>>>(
+  (ref) => _GroupStaysNotifier(ref.read(groupStayModuleProvider)),
+);
+
+class _GroupStaysNotifier extends StateNotifier<AsyncValue<List<GroupStay>>> {
+  _GroupStaysNotifier(this._module) : super(const AsyncValue.data([]));
+
+  final GroupStayModule _module;
+
+  Future<void> load(double lat, double lng) async {
+    if (state is! AsyncData<List<GroupStay>>) {
+      state = const AsyncValue.loading();
+    }
+    try {
+      final stays = await _module.fetchActive(lat: lat, lng: lng);
+      state = AsyncValue.data(stays);
+    } catch (e, st) {
+      state = AsyncValue.error(e, st);
+    }
+  }
+}

@@ -55,6 +55,11 @@ final vendorProximityAlertProvider =
 final lotResolvedProvider =
     StateProvider<Map<String, dynamic>?>((ref) => null);
 
+/// Carries the FCM payload of a group_stay_cancelled event so the detail
+/// screen can pop itself when the stay the buyer is viewing gets cancelled.
+final groupStayCancelledProvider =
+    StateProvider<Map<String, dynamic>?>((ref) => null);
+
 class RideEvent {
   const RideEvent(this.rideId, this.type);
   final String rideId;
@@ -86,6 +91,7 @@ class NotificationHandler {
     required void Function(Map<String, dynamic>?) onRouteZoneWarning,
     required void Function(Map<String, dynamic>) onVendorProximityAlert,
     required void Function(Map<String, dynamic>) onLotResolved,
+    required void Function(Map<String, dynamic>) onGroupStayCancelled,
   })  : _setIncomingStop = setIncomingStop,
         _setStopEvent = setStopEvent,
         _invalidateRiskZones = invalidateRiskZones,
@@ -95,7 +101,8 @@ class NotificationHandler {
         _setRideEvent = setRideEvent,
         _onRouteZoneWarning = onRouteZoneWarning,
         _onVendorProximityAlert = onVendorProximityAlert,
-        _onLotResolved = onLotResolved;
+        _onLotResolved = onLotResolved,
+        _onGroupStayCancelled = onGroupStayCancelled;
 
   final FirebaseMessaging _messaging;
   final Dio _dio;
@@ -109,6 +116,7 @@ class NotificationHandler {
   final void Function(Map<String, dynamic>?) _onRouteZoneWarning;
   final void Function(Map<String, dynamic>) _onVendorProximityAlert;
   final void Function(Map<String, dynamic>) _onLotResolved;
+  final void Function(Map<String, dynamic>) _onGroupStayCancelled;
   bool _initialized = false;
 
   /// Must be called once before runApp() — cannot be in init() because
@@ -273,6 +281,9 @@ class NotificationHandler {
       case 'lot_resolved':
         _onLotResolved(Map<String, dynamic>.from(data));
 
+      case 'group_stay_cancelled':
+        _onGroupStayCancelled(Map<String, dynamic>.from(data));
+
       default:
         debugPrint('FCM unhandled type [$type]');
     }
@@ -310,5 +321,7 @@ final notificationHandlerProvider = Provider<NotificationHandler>((ref) {
       ref.read(activeCommunityReportsProvider.notifier).refresh();
       ref.read(lotResolvedProvider.notifier).state = data;
     },
+    onGroupStayCancelled: (data) =>
+        ref.read(groupStayCancelledProvider.notifier).state = data,
   );
 });

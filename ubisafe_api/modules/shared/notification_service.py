@@ -303,6 +303,25 @@ class NotificationService:
             )
 
     @staticmethod
+    async def send_group_stay_cancelled(
+        attendee_uids: list[str],
+        stay_id: str,
+        reason: str,
+    ) -> None:
+        data = {
+            "type": "group_stay_cancelled",
+            "group_stay_id": stay_id,
+            "reason": reason,
+        }
+        for uid in attendee_uids:
+            await NotificationService.send_to_user(
+                uid=uid,
+                title="Estancia grupal cancelada",
+                body="Una estancia grupal que confirmaste fue cancelada.",
+                data=data,
+            )
+
+    @staticmethod
     async def notify_risk_zone_alert(
         fcm_tokens: list[str],
         data: dict,

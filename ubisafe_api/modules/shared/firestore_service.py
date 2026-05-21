@@ -4,7 +4,7 @@ import math
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from google.cloud.firestore import SERVER_TIMESTAMP
+from google.cloud.firestore import Increment, SERVER_TIMESTAMP
 
 from modules.community.schemas import (
     CommunityReport,
@@ -936,3 +936,95 @@ class FirestoreService:
         _, ref = cls._db().collection("group_stays").add(data)
         doc = ref.get()
         return cls._doc_to_group_stay(doc)
+
+    @classmethod
+    async def list_active_group_stays(
+        cls,
+        lat: float,
+        lng: float,
+        radius_km: float = 1.0,
+    ) -> list["GroupStay"]:
+        """Return scheduled/active stays near (lat, lng) within radius_km.
+
+        Firestore cannot filter by geo-radius, so we fetch all scheduled/active
+        stays and filter in Python with Haversine. Ghosts (R-B7) are skipped.
+        """
+        docs = (
+            cls._db()
+            .collection("group_stays")
+            .where("status", "in", ["scheduled", "active"])
+            .stream()
+        )
+        now = datetime.now(tz=UTC)
+        stays: list[Any] = []
+        for d in docs:
+            raw = d.to_dict() or {}
+            raw_end = raw.get("end_at")
+            if raw_end is None:
+                continue
+            if hasattr(raw_end, "timestamp"):
+                end_dt = datetime.fromtimestamp(raw_end.timestamp(), tz=UTC)
+            else:
+                try:
+                    end_dt = datetime.fromisoformat(str(raw_end))
+                    if end_dt.tzinfo is None:
+                        end_dt = end_dt.replace(tzinfo=UTC)
+                except ValueError:
+                    continue
+            if end_dt <= now:
+                continue  # R-B7 ghost guard
+            loc = raw.get("location", {})
+            if hasattr(loc, "latitude"):
+                slat, slng = loc.latitude, loc.longitude
+            else:
+                slat = float(loc.get("lat") or 0.0)
+                slng = float(loc.get("lng") or 0.0)
+            if _haversine_km(lat, lng, slat, slng) <= radius_km:
+                stays.append(cls._doc_to_group_stay(d))
+        return stays
+
+    @classmethod
+    async def get_group_stay(cls, stay_id: str) -> "GroupStay | None":
+        doc = cls._db().collection("group_stays").document(stay_id).get()
+        if not doc.exists:
+            return None
+        return cls._doc_to_group_stay(doc)
+
+    @classmethod
+    async def get_confirmed_attendance_uids(cls, stay_id: str) -> list[str]:
+        """Return all buyer UIDs that confirmed attendance for stay_id."""
+        docs = (
+            cls._db()
+            .collection("group_stays")
+            .document(stay_id)
+            .collection("attendances")
+            .stream()
+        )
+        return [d.id for d in docs]
+
+    @classmethod
+    async def cancel_group_stay(cls, stay_id: str, reason: str) -> "GroupStay":
+        ref = cls._db().collection("group_stays").document(stay_id)
+        ref.update(
+            {
+                "status": "cancelled",
+                "cancellation_reason": reason,
+                "updated_at": SERVER_TIMESTAMP,
+            }
+        )
+        return cls._doc_to_group_stay(ref.get())
+
+    @classmethod
+    async def confirm_attendance(cls, stay_id: str, buyer_uid: str) -> None:
+        """Record buyer attendance in the attendances sub-collection.
+
+        Uses a read-before-write to avoid double-counting. If the document
+        already exists (buyer already confirmed), this is a no-op.
+        """
+        stay_ref = cls._db().collection("group_stays").document(stay_id)
+        att_ref = stay_ref.collection("attendances").document(buyer_uid)
+        if not att_ref.get().exists:
+            att_ref.set({"confirmed_at": SERVER_TIMESTAMP})
+            stay_ref.update(
+                {"attendees_count": Increment(1), "updated_at": SERVER_TIMESTAMP}
+            )

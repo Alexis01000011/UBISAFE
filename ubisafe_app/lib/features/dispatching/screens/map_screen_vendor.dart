@@ -23,6 +23,8 @@ import '../../safety/screens/risk_form_bottom_sheet.dart';
 import '../../safety/services/risk_zone_service.dart';
 import '../../shared/notifications/notification_handler.dart';
 import '../../shared/widgets/gps_required_empty_state.dart';
+import '../group_stays/models/group_stay.dart';
+import '../group_stays/services/group_stay_module.dart';
 import '../models/ride.dart';
 import '../models/stop_request.dart';
 import '../services/ride_request_module.dart';
@@ -41,6 +43,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
   bool _isVisible = false;
   bool _isNavigating = false;
   bool _communityReportsLoaded = false;
+  bool _groupStaysLoaded = false;
   bool _speedDialOpen = false;
   String _mapsApiKey = '';
   String? _activeStopId;
@@ -189,6 +192,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     });
 
     final communityReportsAsync = ref.watch(activeCommunityReportsProvider);
+    final groupStaysAsync = ref.watch(activeGroupStaysProvider);
 
     // Show visible SnackBar when a new community report is created within 1 km.
     ref.listen<Map<String, dynamic>?>(communityReportAlertProvider, (_, alert) {
@@ -425,6 +429,17 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
             });
           }
 
+          // Load active group stays once
+          if (!_groupStaysLoaded) {
+            _groupStaysLoaded = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              ref.read(activeGroupStaysProvider.notifier).load(
+                    position.latitude,
+                    position.longitude,
+                  );
+            });
+          }
+
           final zonesAsync = ref.watch(activeRiskZonesProvider);
           final circles = zonesAsync.maybeWhen(
             data: (zones) => zones
@@ -451,6 +466,11 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
               .map((r) => _communityReportToMarker(r, context))
               .toSet();
 
+          // Group stay markers
+          final stayMarkers = (groupStaysAsync.valueOrNull ?? [])
+              .map((s) => _groupStayToMarker(s, context))
+              .toSet();
+
           return Stack(
             children: [
               GoogleMap(
@@ -459,7 +479,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
                 myLocationButtonEnabled: true,
                 polylines: polylines,
                 circles: circles,
-                markers: communityMarkers,
+                markers: communityMarkers.union(stayMarkers),
                 onTap: _onMapTap,
               ),
               // Visibility toggle button
@@ -1480,6 +1500,20 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
       context,
       lat: position.latitude,
       lng: position.longitude,
+    );
+  }
+
+  Marker _groupStayToMarker(GroupStay stay, BuildContext context) {
+    final snippet = stay.status == 'active' ? 'Activa' : 'Programada';
+    return Marker(
+      markerId: MarkerId('gs_${stay.id}'),
+      position: LatLng(stay.locationLat, stay.locationLng),
+      icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueCyan),
+      infoWindow: InfoWindow(
+        title: 'Estancia grupal',
+        snippet: '$snippet · ${stay.attendeesCount} asistentes',
+        onTap: () => context.push('/group-stays/detail', extra: stay),
+      ),
     );
   }
 

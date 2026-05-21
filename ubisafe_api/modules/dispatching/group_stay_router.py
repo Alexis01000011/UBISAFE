@@ -1,6 +1,7 @@
 """CU-09 — Group-stay endpoints (Sesión 6: POST ""; Sesión 7: GET, cancel, attendances)."""
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -12,6 +13,7 @@ from modules.dispatching.group_stay_schemas import (
     GroupStay,
 )
 from modules.shared.firestore_service import FirestoreService
+from modules.shared.notification_service import NotificationService
 
 router = APIRouter()
 
@@ -96,3 +98,83 @@ async def create_group_stay(
     )
 
     return CreateGroupStayResponse(stay=stay, warning=warning)
+
+
+@router.get("", response_model=list[GroupStay])
+async def list_active_stays(
+    lat: float,
+    lng: float,
+    radius_km: float = 1.0,
+    current_user: dict = Depends(get_current_user),
+):
+    """Return active group stays within radius_km of (lat, lng)."""
+    return await FirestoreService.list_active_group_stays(lat, lng, radius_km)
+
+
+@router.get("/{stay_id}", response_model=GroupStay)
+async def get_stay(
+    stay_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    stay = await FirestoreService.get_group_stay(stay_id)
+    if stay is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="stay_not_found")
+    return stay
+
+
+@router.patch("/{stay_id}/cancel", response_model=GroupStay)
+async def cancel_stay(
+    stay_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Cancel a scheduled/active stay. Vendor must own the stay.
+
+    Notifies all confirmed attendees via FCM (fire-and-forget, R-B6).
+    """
+    vendor_uid = current_user["uid"]
+    await _require_vendor(vendor_uid)
+
+    stay = await FirestoreService.get_group_stay(stay_id)
+    if stay is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="stay_not_found")
+    if stay.vendor_uid != vendor_uid:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="not_your_stay")
+    if stay.status not in ("scheduled", "active"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="stay_not_cancellable",
+        )
+
+    cancelled = await FirestoreService.cancel_group_stay(stay_id, "vendor_cancelled")
+    attendee_uids = await FirestoreService.get_confirmed_attendance_uids(stay_id)
+    if attendee_uids:
+        asyncio.ensure_future(
+            NotificationService.send_group_stay_cancelled(
+                attendee_uids, stay_id, "vendor_cancelled"
+            )
+        )
+    return cancelled
+
+
+@router.post("/{stay_id}/attendances", status_code=status.HTTP_204_NO_CONTENT)
+async def confirm_attendance(
+    stay_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Buyer confirms attendance for a scheduled/active stay."""
+    buyer_uid = current_user["uid"]
+    profile = await FirestoreService.get_user(buyer_uid)
+    if not profile or profile.role != "BUYER":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only BUYER users can confirm attendance.",
+        )
+    stay = await FirestoreService.get_group_stay(stay_id)
+    if stay is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="stay_not_found")
+    if stay.status not in ("scheduled", "active"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="stay_not_active",
+        )
+    await FirestoreService.confirm_attendance(stay_id, buyer_uid)

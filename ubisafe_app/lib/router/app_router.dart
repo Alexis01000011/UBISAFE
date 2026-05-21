@@ -7,6 +7,8 @@ import 'package:go_router/go_router.dart';
 import '../features/community/models/community_report.dart';
 import '../features/community/screens/active_reports_screen.dart';
 import '../features/community/screens/report_detail_screen.dart';
+import '../features/dispatching/group_stays/models/group_stay.dart';
+import '../features/dispatching/group_stays/screens/group_stay_detail_screen.dart';
 import '../features/dispatching/group_stays/screens/schedule_group_stay_screen.dart';
 import '../features/dispatching/screens/map_screen_buyer.dart';
 import '../features/dispatching/screens/map_screen_vendor.dart';
@@ -107,6 +109,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/group-stays/schedule',
         builder: (_, __) => const ScheduleGroupStayScreen(),
+      ),
+      GoRoute(
+        path: '/group-stays/detail',
+        builder: (_, state) {
+          // B31-style guard: state.extra is lost on process death.
+          final extra = state.extra;
+          if (extra is! GroupStay) return const MapScreenBuyer();
+          return GroupStayDetailScreen(stay: extra);
+        },
       ),
 
       // ── Community [iter.2] ─────────────────────────────────────────────

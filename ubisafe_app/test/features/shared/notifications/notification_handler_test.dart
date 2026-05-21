@@ -48,6 +48,7 @@ void main() {
     void Function(Map<String, dynamic>?)? onRouteZoneWarning,
     void Function(Map<String, dynamic>)? onVendorProximityAlert,
     void Function(Map<String, dynamic>)? onLotResolved,
+    void Function(Map<String, dynamic>)? onGroupStayCancelled,
   }) =>
       NotificationHandler(
         mockMessaging,
@@ -62,6 +63,7 @@ void main() {
         onRouteZoneWarning: onRouteZoneWarning ?? (_) {},
         onVendorProximityAlert: onVendorProximityAlert ?? (_) {},
         onLotResolved: onLotResolved ?? (_) {},
+        onGroupStayCancelled: onGroupStayCancelled ?? (_) {},
       );
 
   group('NotificationHandler.init', () {
