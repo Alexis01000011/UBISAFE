@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../features/community/models/community_report.dart';
 import '../features/community/screens/active_reports_screen.dart';
 import '../features/community/screens/report_detail_screen.dart';
+import '../features/dispatching/group_stays/screens/schedule_group_stay_screen.dart';
 import '../features/dispatching/screens/map_screen_buyer.dart';
 import '../features/dispatching/screens/map_screen_vendor.dart';
 import '../features/dispatching/screens/tracking_screen.dart';
@@ -100,6 +101,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           final stopId = state.uri.queryParameters['stop_id'];
           return TrackingScreen(rideId: rideId, stopRequestId: stopId);
         },
+      ),
+
+      // ── Group Stays [iter.3 CU-09] ────────────────────────────────────────
+      GoRoute(
+        path: '/group-stays/schedule',
+        builder: (_, __) => const ScheduleGroupStayScreen(),
       ),
 
       // ── Community [iter.2] ─────────────────────────────────────────────

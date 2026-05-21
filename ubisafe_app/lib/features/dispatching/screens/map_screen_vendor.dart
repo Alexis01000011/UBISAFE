@@ -121,6 +121,12 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
       }
       // Remove RTDB node so buyers see vendor as offline.
       gps.stopTransmission(uid);
+      // Reset radar flag so CF fires correctly on next activation (B1-fix).
+      unawaited(
+        ref.read(apiClientProvider)
+            .patch<dynamic>('/auth/radar-status', data: {'is_active_radar': false})
+            .then<void>((_) {}, onError: (_) {}),
+      );
     } else if (state == AppLifecycleState.resumed) {
       // App returned to foreground — re-start transmission.
       final profile = ref.read(userProfileProvider).valueOrNull;
@@ -382,6 +388,10 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
         onCommunityReport: () {
           setState(() => _speedDialOpen = false);
           _onCommunityFabPressed(positionAsync.valueOrNull);
+        },
+        onScheduleStay: () {
+          setState(() => _speedDialOpen = false);
+          context.push('/group-stays/schedule');
         },
       ),
       body: positionAsync.when(
@@ -1399,6 +1409,12 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     final uid = gps.activeUid;
     if (uid != null) await gps.stopTransmission(uid);
     if (mounted) setState(() => _isVisible = false);
+    // Reset radar flag before sign-out so CF fires correctly on next session (B1-fix).
+    unawaited(
+      ref.read(apiClientProvider)
+          .patch<dynamic>('/auth/radar-status', data: {'is_active_radar': false})
+          .then<void>((_) {}, onError: (_) {}),
+    );
     await ref.read(authModuleProvider).signOut();
   }
 
@@ -1536,12 +1552,14 @@ class _VendorSpeedDial extends StatelessWidget {
     required this.onToggle,
     required this.onRiskZone,
     required this.onCommunityReport,
+    required this.onScheduleStay,
   });
 
   final bool open;
   final VoidCallback onToggle;
   final VoidCallback onRiskZone;
   final VoidCallback onCommunityReport;
+  final VoidCallback onScheduleStay;
 
   @override
   Widget build(BuildContext context) {
@@ -1550,6 +1568,13 @@ class _VendorSpeedDial extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         if (open) ...[
+          _VendorMiniAction(
+            icon: Icons.event_available_outlined,
+            label: 'Programar estancia',
+            color: AppColors.secondary700,
+            onTap: onScheduleStay,
+          ),
+          const SizedBox(height: 8),
           _VendorMiniAction(
             icon: Icons.coronavirus_outlined,
             label: 'Foco de infección',

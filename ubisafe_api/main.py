@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from modules.community.lot_router import router as community_lot_router
 from modules.community.report_router import router as community_reports_router
 from modules.community.validation_router import router as community_validations_router
+from modules.dispatching.group_stay_router import router as group_stays_router
 from modules.dispatching.ride_router import router as rides_router
 from modules.dispatching.router import router as stops_router
 from modules.identity.router import router as auth_router
@@ -57,3 +58,4 @@ app.include_router(
     community_lot_router, prefix="/community-reports", tags=["vacant-lots"]
 )
 app.include_router(subscriptions_router, prefix="/subscriptions", tags=["subscriptions"])
+app.include_router(group_stays_router, prefix="/group-stays", tags=["group-stays"])

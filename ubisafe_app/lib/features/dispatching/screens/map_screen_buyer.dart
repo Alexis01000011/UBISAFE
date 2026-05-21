@@ -82,8 +82,11 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
       final reportLat = double.tryParse(alert['lat'] as String? ?? '');
       final reportLng = double.tryParse(alert['lng'] as String? ?? '');
       final threatType = alert['threat_type'] as String? ?? '';
-      final typeLabel =
-          threatType == 'animal_muerto' ? 'Animal muerto' : 'Zona sucia';
+      final typeLabel = switch (threatType) {
+        'animal_muerto' => 'Animal muerto',
+        'lote_baldio' => 'Lote baldío',
+        _ => 'Zona sucia',
+      };
 
       final position = ref.read(gpsServiceProvider).valueOrNull;
       String distanceLabel = '';

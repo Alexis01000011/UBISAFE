@@ -823,3 +823,116 @@ class FirestoreService:
                 "cancellation_reason": reason,
             }
         )
+
+    # -------------------------------------------------- group_stays
+    @classmethod
+    def _doc_to_group_stay(cls, doc: Any) -> "GroupStay":
+        from modules.dispatching.group_stay_schemas import GroupStay  # noqa: PLC0415
+
+        raw = doc.to_dict() or {}
+        for field in ("start_at", "end_at", "created_at", "updated_at"):
+            val = raw.get(field)
+            if val is None:
+                continue
+            if hasattr(val, "isoformat"):
+                raw[field] = val.isoformat()
+            elif hasattr(val, "timestamp"):
+                raw[field] = datetime.fromtimestamp(val.timestamp(), tz=UTC).isoformat()
+        loc = raw.get("location", {})
+        if hasattr(loc, "latitude"):
+            raw["location"] = {"lat": loc.latitude, "lng": loc.longitude}
+        return GroupStay(id=doc.id, **raw)
+
+    @classmethod
+    async def get_active_risk_zones_near(
+        cls, lat: float, lng: float, radius_m: float = 200
+    ) -> list[Any]:
+        """Return active risk zones whose center is within radius_m of (lat, lng)."""
+        return await cls.get_active_risk_zones(lat, lng, radius_m / 1000.0)
+
+    @classmethod
+    async def vendor_has_overlapping_stay(
+        cls,
+        vendor_uid: str,
+        new_start: "datetime",
+        new_end: "datetime",
+    ) -> bool:
+        """True if the vendor has a scheduled/active stay that overlaps [new_start, new_end).
+
+        Firestore cannot do compound range queries on multiple fields, so we
+        fetch all scheduled/active stays for the vendor and filter in Python.
+        Stays whose end_at is already in the past are skipped (R-B7 — ghost guard).
+        """
+        now = datetime.now(tz=UTC)
+        docs = (
+            cls._db()
+            .collection("group_stays")
+            .where("vendor_uid", "==", vendor_uid)
+            .where("status", "in", ["scheduled", "active"])
+            .stream()
+        )
+        for d in docs:
+            raw = d.to_dict() or {}
+
+            # Parse end_at to check for ghosts (R-B7)
+            raw_end = raw.get("end_at")
+            if raw_end is None:
+                continue
+            if hasattr(raw_end, "timestamp"):
+                end_dt = datetime.fromtimestamp(raw_end.timestamp(), tz=UTC)
+            else:
+                try:
+                    end_dt = datetime.fromisoformat(str(raw_end))
+                    if end_dt.tzinfo is None:
+                        end_dt = end_dt.replace(tzinfo=UTC)
+                except ValueError:
+                    continue
+            if end_dt <= now:
+                continue  # expired stay not yet cleaned up by CF — skip
+
+            raw_start = raw.get("start_at")
+            if raw_start is None:
+                continue
+            if hasattr(raw_start, "timestamp"):
+                start_dt = datetime.fromtimestamp(raw_start.timestamp(), tz=UTC)
+            else:
+                try:
+                    start_dt = datetime.fromisoformat(str(raw_start))
+                    if start_dt.tzinfo is None:
+                        start_dt = start_dt.replace(tzinfo=UTC)
+                except ValueError:
+                    continue
+
+            # Overlap: existing [start_dt, end_dt) ∩ new [new_start, new_end)
+            if start_dt < new_end and end_dt > new_start:
+                return True
+        return False
+
+    @classmethod
+    async def create_group_stay(
+        cls,
+        vendor_uid: str,
+        body: Any,
+        risk_level_at_creation: str | None,
+    ) -> "GroupStay":
+        """Persist a new group stay document and return the deserialized model."""
+        start_iso = body.start_at.isoformat()
+        end_at = body.start_at + timedelta(minutes=body.duration_minutes)
+        end_iso = end_at.isoformat()
+        data: dict[str, Any] = {
+            "vendor_uid": vendor_uid,
+            "location": body.location.model_dump(),
+            "start_at": start_iso,
+            "start_at_iso": start_iso,  # plain string for FCM data (Sesión 8)
+            "end_at": end_iso,
+            "duration_minutes": body.duration_minutes,
+            "status": "scheduled",
+            "attendees_count": 0,
+            "risk_level_at_creation": risk_level_at_creation,
+            "cancellation_reason": None,
+            "created_at": SERVER_TIMESTAMP,
+            "updated_at": SERVER_TIMESTAMP,
+        }
+        _, ref = cls._db().collection("group_stays").add(data)
+        doc = ref.get()
+        return cls._doc_to_group_stay(doc)
