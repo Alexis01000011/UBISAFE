@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/design_system/theme.dart';
 import 'features/presence/services/gps_service.dart';
+import 'features/shared/notifications/local_notification_service.dart';
 import 'features/shared/notifications/notification_handler.dart';
 import 'router/app_router.dart';
 
@@ -22,6 +23,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
   NotificationHandler.registerBackgroundHandler();
+  await LocalNotificationService.init();
 
   if (_useEmulators) {
     await _connectToEmulators();

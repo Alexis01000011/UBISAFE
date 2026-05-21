@@ -221,6 +221,18 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
       );
     });
 
+    // Remove stay marker and notify vendor when one of their group stays is cancelled (CU-09-D).
+    ref.listen<Map<String, dynamic>?>(groupStayCancelledProvider, (_, data) {
+      if (data == null || !context.mounted) return;
+      final reason = data['reason'] as String? ?? '';
+      final msg = reason == 'risk_zone_high'
+          ? 'Una estancia grupal fue cancelada por zona de riesgo alta.'
+          : 'Una estancia grupal fue cancelada.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg), duration: const Duration(seconds: 5)),
+      );
+    });
+
     // Listen for incoming stop requests (vendor receives FCM)
     ref.listen<Map<String, dynamic>?>(incomingStopRequestProvider, (_, data) {
       if (data == null) return;

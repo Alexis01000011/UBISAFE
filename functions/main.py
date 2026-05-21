@@ -187,6 +187,243 @@ def on_risk_zone_write(
     )
 
 
+# ─── CU-09-D: Expiración y cancelación reactiva de estancias ────────────────
+
+def _notify_stay_cancelled(
+    db, stay_id: str, vendor_uid: str | None, reason: str
+) -> None:
+    """Multicast group_stay_cancelled FCM to vendor + confirmed attendees."""
+    tokens: list[str] = []
+
+    if vendor_uid:
+        vendor_doc = db.collection("users").document(vendor_uid).get()
+        if vendor_doc.exists:
+            token = (vendor_doc.to_dict() or {}).get("fcm_token")
+            if token:
+                tokens.append(token)
+
+    for att_doc in (
+        db.collection("group_stays")
+        .document(stay_id)
+        .collection("attendances")
+        .stream()
+    ):
+        buyer_doc = db.collection("users").document(att_doc.id).get()
+        if buyer_doc.exists:
+            token = (buyer_doc.to_dict() or {}).get("fcm_token")
+            if token:
+                tokens.append(token)
+
+    _fan_send_multicast(tokens, data={
+        "type": "group_stay_cancelled",
+        "group_stay_id": stay_id,
+        "reason": reason,
+    })
+
+
+@scheduler_fn.on_schedule(schedule="every 5 minutes")
+def expire_group_stays(event: scheduler_fn.ScheduledEvent) -> None:
+    """Transition group stays automatically.
+
+    scheduled → active  when start_at  <= now
+    active    → ended   when end_at    <= now
+
+    start_at and end_at are stored as ISO 8601 UTC strings, so string
+    comparison is valid here (all values share the same format/timezone).
+    A batch write avoids partial updates if the function is interrupted.
+    """
+    now_iso = datetime.now(tz=UTC).isoformat()
+    db = firestore.client()
+
+    to_activate = (
+        db.collection("group_stays")
+        .where("status", "==", "scheduled")
+        .where("start_at", "<=", now_iso)
+        .stream()
+    )
+    to_end = (
+        db.collection("group_stays")
+        .where("status", "==", "active")
+        .where("end_at", "<=", now_iso)
+        .stream()
+    )
+
+    batch = db.batch()
+    for s in to_activate:
+        batch.update(
+            s.reference,
+            {"status": "active", "updated_at": firestore.SERVER_TIMESTAMP},
+        )
+    for s in to_end:
+        batch.update(
+            s.reference,
+            {"status": "ended", "updated_at": firestore.SERVER_TIMESTAMP},
+        )
+    batch.commit()
+
+
+@firestore_fn.on_document_updated(document="risk_zones/{zone_id}")
+def cancel_stay_on_risk_zone_change(
+    event: firestore_fn.Event[
+        firestore_fn.Change[firestore_fn.DocumentSnapshot | None]
+    ],
+) -> None:
+    """Cancel scheduled/active stays inside a risk zone that transitions to HIGH.
+
+    Guards:
+    - Only fires on the LOW/MEDIUM → HIGH transition (not on every update).
+    - Zone must be active at the time of the write.
+    """
+    before_snap = event.data.before
+    after_snap = event.data.after
+
+    before = before_snap.to_dict() if before_snap and before_snap.exists else {}
+    after = after_snap.to_dict() if after_snap and after_snap.exists else {}
+
+    # Guard: only react when risk_level transitions TO HIGH
+    if after.get("risk_level") != "HIGH" or not after.get("active", False):
+        return
+    if before.get("risk_level") == "HIGH":
+        return  # was already HIGH — no transition to handle
+
+    zone_loc = after.get("location") or {}
+    if hasattr(zone_loc, "latitude"):
+        zone_lat, zone_lng = zone_loc.latitude, zone_loc.longitude
+    else:
+        zone_lat = zone_loc.get("lat")
+        zone_lng = zone_loc.get("lng")
+    if zone_lat is None or zone_lng is None:
+        return
+
+    zone_radius_m: float = float(after.get("radius_meters", 100))
+    db = firestore.client()
+
+    for s in (
+        db.collection("group_stays")
+        .where("status", "in", ["scheduled", "active"])
+        .stream()
+    ):
+        data = s.to_dict() or {}
+        loc = data.get("location") or {}
+        if hasattr(loc, "latitude"):
+            slat, slng = loc.latitude, loc.longitude
+        else:
+            slat = loc.get("lat", 0.0)
+            slng = loc.get("lng", 0.0)
+
+        if _haversine_km(zone_lat, zone_lng, slat, slng) * 1000 <= zone_radius_m:
+            s.reference.update({
+                "status": "cancelled",
+                "cancellation_reason": "risk_zone_high",
+                "updated_at": firestore.SERVER_TIMESTAMP,
+            })
+            _notify_stay_cancelled(
+                db, s.id, data.get("vendor_uid"), reason="risk_zone_high"
+            )
+
+
+# ─── CU-09-C: Notificación de estancia grupal en radio ──────────────────────
+
+_GROUP_STAY_NOTIFY_RADIUS_KM = 0.5
+
+
+def _find_nearby_users(
+    db,
+    lat: float,
+    lng: float,
+    *,
+    radius_km: float,
+    exclude_uid: str | None,
+    role_filter: str,
+) -> list[str]:
+    """Return FCM tokens for users matching role_filter within radius_km.
+
+    Skips the user with UID == exclude_uid (e.g., the vendor who created the stay).
+    Only returns tokens for users who have a registered FCM token and a recent
+    last_location.
+    """
+    tokens: list[str] = []
+    for user_doc in db.collection("users").stream():
+        data = user_doc.to_dict() or {}
+        if user_doc.id == exclude_uid:
+            continue
+        if data.get("role") != role_filter:
+            continue
+        token = data.get("fcm_token")
+        if not token:
+            continue
+        loc = data.get("last_location")
+        if not loc:
+            continue
+        if hasattr(loc, "latitude"):
+            ulat, ulng = loc.latitude, loc.longitude
+        else:
+            ulat = loc.get("lat", 0.0)
+            ulng = loc.get("lng", 0.0)
+        if _fan_haversine_km(lat, lng, ulat, ulng) <= radius_km:
+            tokens.append(token)
+    return tokens
+
+
+@firestore_fn.on_document_created(document="group_stays/{stay_id}")
+def notify_group_stay_in_radius(
+    event: firestore_fn.Event[firestore_fn.DocumentSnapshot],
+) -> None:
+    """Send rsvp_group_stay FCM to BUYERS within 500 m when a stay is created.
+
+    Payload (all strings for FCM data messages):
+      type, group_stay_id, vendor_uid, vendor_name (best-effort),
+      start_at (ISO string from start_at_iso field), duration_minutes,
+      location_lat, location_lng.
+    """
+    stay_id: str = event.params["stay_id"]
+    snapshot = event.data
+    if snapshot is None:
+        return
+
+    stay = snapshot.to_dict() or {}
+    loc = stay.get("location", {})
+    if hasattr(loc, "latitude"):
+        lat, lng = loc.latitude, loc.longitude
+    else:
+        lat = loc.get("lat")
+        lng = loc.get("lng")
+    if lat is None or lng is None:
+        return
+
+    vendor_uid: str = stay.get("vendor_uid", "")
+    db = firestore.client()
+
+    tokens = _find_nearby_users(
+        db,
+        lat,
+        lng,
+        radius_km=_GROUP_STAY_NOTIFY_RADIUS_KM,
+        exclude_uid=vendor_uid,
+        role_filter="BUYER",
+    )
+    if not tokens:
+        return
+
+    payload: dict[str, str] = {
+        "type": "rsvp_group_stay",
+        "group_stay_id": stay_id,
+        "vendor_uid": vendor_uid,
+        "start_at": stay.get("start_at_iso", ""),
+        "duration_minutes": str(stay.get("duration_minutes", 60)),
+        "location_lat": str(lat),
+        "location_lng": str(lng),
+    }
+
+    # Best-effort: add vendor name for a friendlier notification body
+    vendor_doc = db.collection("users").document(vendor_uid).get()
+    if vendor_doc.exists:
+        vendor_data = vendor_doc.to_dict() or {}
+        payload["vendor_name"] = vendor_data.get("name", "Un vendedor")
+
+    _fan_send_multicast(tokens, data=payload)
+
+
 # ─── CU-08-C: Notificación de proximidad a suscriptores ─────────────────────
 
 _PROXIMITY_RADIUS_KM = 4.0

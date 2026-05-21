@@ -120,6 +120,44 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
       );
     });
 
+    // Show SnackBar with "Ver" when an rsvp_group_stay FCM arrives (CU-09-C).
+    ref.listen<Map<String, dynamic>?>(rsvpGroupStayAlertProvider, (_, payload) {
+      if (payload == null || !context.mounted) return;
+      final stayId = payload['group_stay_id'] as String? ?? '';
+      final vendorName = payload['vendor_name'] as String? ?? 'Un vendedor';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Estancia grupal cerca — $vendorName'),
+          duration: const Duration(seconds: 8),
+          action: stayId.isEmpty
+              ? null
+              : SnackBarAction(
+                  label: 'Ver',
+                  onPressed: () => ref
+                      .read(groupStayModuleProvider)
+                      .getStay(stayId)
+                      .then((stay) {
+                    if (context.mounted) {
+                      context.push('/group-stays/detail', extra: stay);
+                    }
+                  }).catchError((_) {}),
+                ),
+        ),
+      );
+    });
+
+    // Remove stay marker and notify buyer when a group stay is cancelled (CU-09-D).
+    ref.listen<Map<String, dynamic>?>(groupStayCancelledProvider, (_, data) {
+      if (data == null || !context.mounted) return;
+      final reason = data['reason'] as String? ?? '';
+      final msg = reason == 'risk_zone_high'
+          ? 'Una estancia grupal fue cancelada por zona de riesgo alta.'
+          : 'Una estancia grupal fue cancelada por el vendedor.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg), duration: const Duration(seconds: 5)),
+      );
+    });
+
     // Listen for FCM events (accepted/rejected/expired)
     ref.listen<StopEvent?>(stopRequestEventProvider, (_, event) {
       if (event == null) return;
