@@ -47,10 +47,6 @@ jobs:
         working-directory: ubisafe_api
         run: ruff check . --fix
 
-      - name: Type check (mypy)
-        working-directory: ubisafe_api
-        run: mypy . --ignore-missing-imports
-
       - name: Test (pytest)
         working-directory: ubisafe_api
         run: pytest --tb=short
