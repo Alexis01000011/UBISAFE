@@ -161,6 +161,11 @@ class TestStopRequests:
                 return_value=_buyer_profile(),
             ),
             patch(
+                "modules.shared.firestore_service.FirestoreService.vendor_has_active_requests",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch(
                 "modules.shared.firestore_service.FirestoreService.create_stop_request",
                 new_callable=AsyncMock,
                 return_value=stop,
@@ -219,6 +224,11 @@ class TestStopRequests:
                 "modules.shared.firestore_service.FirestoreService.get_user",
                 new_callable=AsyncMock,
                 return_value=_vendor_profile(),
+            ),
+            patch(
+                "modules.shared.firestore_service.FirestoreService.vendor_has_active_requests",
+                new_callable=AsyncMock,
+                return_value=False,
             ),
             patch(
                 "modules.shared.firestore_service.FirestoreService.update_stop_status_if_in_state",

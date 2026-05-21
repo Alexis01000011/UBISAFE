@@ -223,6 +223,7 @@ async def test_vendor_accepts_pending_ride(mock_firebase, as_vendor):
     with (
         patch(_GET_RIDE, new_callable=AsyncMock, return_value=_PENDING_RIDE),
         patch(_GET_USER, new_callable=AsyncMock, return_value=_vendor_profile()),
+        patch(_VENDOR_BUSY, new_callable=AsyncMock, return_value=False),
         patch(_UPD_STATUS, new_callable=AsyncMock, return_value=_ACCEPTED_RIDE),
         patch(_NOTIF_ACCEPTED, new_callable=AsyncMock),
     ):

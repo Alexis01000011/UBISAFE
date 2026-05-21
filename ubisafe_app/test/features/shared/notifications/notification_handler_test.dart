@@ -41,9 +41,11 @@ void main() {
     void Function(Map<String, dynamic>?)? onIncoming,
     void Function(StopEvent?)? onEvent,
     void Function()? onInvalidateRiskZones,
-    void Function()? onCommunityReportNearby,
+    void Function(Map<String, dynamic>)? onCommunityReportNearby,
+    void Function()? onReportStatusChanged,
     void Function(Map<String, dynamic>?)? onIncomingRide,
     void Function(RideEvent?)? onRideEvent,
+    void Function(Map<String, dynamic>?)? onRouteZoneWarning,
   }) =>
       NotificationHandler(
         mockMessaging,
@@ -51,9 +53,11 @@ void main() {
         setIncomingStop: onIncoming ?? (_) {},
         setStopEvent: onEvent ?? (_) {},
         invalidateRiskZones: onInvalidateRiskZones ?? () {},
-        onCommunityReportNearby: onCommunityReportNearby ?? () {},
+        onCommunityReportNearby: onCommunityReportNearby ?? (_) {},
+        onReportStatusChanged: onReportStatusChanged ?? () {},
         setIncomingRide: onIncomingRide ?? (_) {},
         setRideEvent: onRideEvent ?? (_) {},
+        onRouteZoneWarning: onRouteZoneWarning ?? (_) {},
       );
 
   group('NotificationHandler.init', () {

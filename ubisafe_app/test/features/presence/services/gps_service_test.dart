@@ -105,8 +105,8 @@ void main() {
       ctrl.add(pos(0.0, 0.0));
       await pumpEventQueue();
 
-      expect(callOrder.indexOf('onDisconnect'),
-          lessThan(callOrder.indexOf('set')));
+      expect(callOrder.indexOf('set'),
+          lessThan(callOrder.indexOf('onDisconnect')));
 
       service.dispose();
       await ctrl.close();

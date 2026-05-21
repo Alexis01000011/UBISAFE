@@ -35,6 +35,7 @@ _BODY = {
 _R = "modules.community.report_router"
 _CREATE = "modules.shared.firestore_service.FirestoreService.create_community_report"
 _LIST = "modules.shared.firestore_service.FirestoreService.get_community_reports_in_bbox"
+_PENDING_CHECK = "modules.shared.firestore_service.FirestoreService.has_pending_report_within"
 _NOTIFY = f"{_R}._notify_nearby"
 
 _AUTH = {"Authorization": "Bearer tok"}
@@ -70,6 +71,7 @@ async def test_create_report_success(mock_firebase, as_reporter):
     from main import app
 
     with (
+        patch(_PENDING_CHECK, new_callable=AsyncMock, return_value=False),
         patch(_CREATE, new_callable=AsyncMock, return_value=_ACTIVE_REPORT),
         patch(_NOTIFY, new_callable=AsyncMock),
         # Bypass user-profile proximity check (no last_location stored)

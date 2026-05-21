@@ -70,6 +70,7 @@ Widget _buildVendorScreen({
       vendorMarkersProvider.overrideWith(
         (ref) => Stream.value([]),
       ),
+      locationSyncProvider.overrideWith((ref) => null),
       userProfileProvider.overrideWith((ref) => userProfile),
       // En tests de diálogo entrante se actualiza este provider después del primer pump.
       incomingStopRequestProvider.overrideWith((ref) => null),
@@ -101,6 +102,7 @@ void main() {
             }),
             gpsServiceProvider.overrideWith((ref) => const Stream.empty()),
             vendorMarkersProvider.overrideWith((ref) => Stream.value([])),
+            locationSyncProvider.overrideWith((ref) => null),
             incomingStopRequestProvider.overrideWith((ref) => null),
             activeRiskZonesProvider.overrideWith(
                 (ref) => Stream.value(<RiskZone>[])),

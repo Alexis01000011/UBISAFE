@@ -38,6 +38,7 @@ _GET_STOP = f"{_R}.FirestoreService.get_stop_request"
 _CREATE_STOP = f"{_R}.FirestoreService.create_stop_request"
 _UPD_STATUS = f"{_R}.FirestoreService.update_stop_status_if_in_state"
 _UPD_PENDING = f"{_R}.FirestoreService.update_stop_status_if_pending"
+_VENDOR_BUSY = f"{_R}.FirestoreService.vendor_has_active_requests"
 _NOTIF_INCOMING = f"{_R}.NotificationService.send_stop_incoming"
 _NOTIF_ACCEPTED = f"{_R}.NotificationService.send_stop_accepted"
 
@@ -105,6 +106,7 @@ async def test_create_stop_as_buyer(mock_firebase, as_buyer):
 
     with (
         patch(_GET_USER, new_callable=AsyncMock, return_value=_buyer_profile()),
+        patch(_VENDOR_BUSY, new_callable=AsyncMock, return_value=False),
         patch(_CREATE_STOP, new_callable=AsyncMock, return_value=_PENDING_STOP),
         patch(_NOTIF_INCOMING, new_callable=AsyncMock),
     ):
@@ -182,6 +184,7 @@ async def test_vendor_accepts_pending_stop(mock_firebase, as_vendor):
     with (
         patch(_GET_STOP, new_callable=AsyncMock, return_value=_PENDING_STOP),
         patch(_GET_USER, new_callable=AsyncMock, return_value=_vendor_profile()),
+        patch(_VENDOR_BUSY, new_callable=AsyncMock, return_value=False),
         patch(_UPD_STATUS, new_callable=AsyncMock, return_value=(_ACCEPTED_STOP, True)),
         patch(_NOTIF_ACCEPTED, new_callable=AsyncMock),
     ):
