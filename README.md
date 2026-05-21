@@ -41,7 +41,9 @@ UBISAFE connects street vendors and buyers in real time on a shared map, while l
 | State management | Riverpod 2 (code-gen ready) |
 | Navigation | GoRouter 13 |
 | Auth & Database | Firebase Auth + Cloud Firestore |
+| Realtime presence | Firebase Realtime Database (RTDB) |
 | Push notifications | Firebase Cloud Messaging (FCM) |
+| Scheduled jobs | Firebase Cloud Functions |
 | Backend API | FastAPI (Python) — accessed via Dio |
 | Maps | Google Maps Flutter |
 | Location | Geolocator |
@@ -74,7 +76,7 @@ The app follows a **modular monolith** pattern:
 │  │  core/  (api_client, design_system)                        │ │
 │  └────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────┘
-         │ Dio (HTTP)                │ Firestore / FCM
+         │ Dio (HTTP)                │ Firestore / RTDB / FCM
          ▼                           ▼
    FastAPI backend              Firebase services
 ```
@@ -105,9 +107,11 @@ ubisafe_app/
 │   │   │   ├── auth/
 │   │   │   │   ├── auth_module.dart       # Firebase Auth helpers + providers
 │   │   │   │   └── screens/
+│   │   │   │       ├── splash_screen.dart
 │   │   │   │       ├── welcome_screen.dart
 │   │   │   │       ├── login_screen.dart
-│   │   │   │       └── signup_screen.dart
+│   │   │   │       ├── signup_data_screen.dart  # Paso 1: nombre, email, contraseña
+│   │   │   │       └── signup_role_screen.dart  # Paso 2: rol (BUYER/VENDOR) + producto
 │   │   │   └── profile/
 │   │   │       ├── screens/
 │   │   │       │   ├── profile_screen.dart
@@ -118,10 +122,10 @@ ubisafe_app/
 │   │   │
 │   │   ├── presence/                      # 📡 Presence
 │   │   │   ├── services/
-│   │   │   │   ├── gps_service.dart       # Geolocator stream provider
-│   │   │   │   └── vendor_tracker.dart    # Firestore vendor list stream
+│   │   │   │   ├── gps_service.dart       # Geolocator stream provider; escribe en RTDB vendedores_activos
+│   │   │   │   └── vendor_tracker.dart    # RTDB vendedores_activos → filtro 4 km → VendorMarker stream
 │   │   │   └── models/
-│   │   │       └── vendor_marker.dart     # [iter.2] +rideEnabled field
+│   │   │       └── vendor_marker.dart     # [iter.2] +rideEnabled +product +lastTimestamp
 │   │   │
 │   │   ├── dispatching/                   # 🗺️ Dispatching
 │   │   │   ├── screens/
@@ -141,12 +145,17 @@ ubisafe_app/
 │   │   ├── safety/                        # ⚠️ Safety
 │   │   │   ├── screens/
 │   │   │   │   └── risk_form_bottom_sheet.dart
+│   │   │   ├── services/
+│   │   │   │   └── risk_zone_service.dart  # StreamProvider<List<RiskZone>> directo a Firestore
 │   │   │   └── models/
 │   │   │       └── risk_zone.dart
 │   │   │
 │   │   ├── community/                     # 🌐 Community  ☆ ACTIVATED IN ITER. 2
 │   │   │   ├── screens/
-│   │   │   │   └── community_reports_history_screen.dart  # ☆ [iter.2]
+│   │   │   │   ├── active_reports_screen.dart             # ☆ [iter.2] Lista de reportes activos + votación
+│   │   │   │   ├── report_detail_screen.dart              # ☆ [iter.2] Detalle + confirmar/desestimar
+│   │   │   │   ├── community_form_bottom_sheet.dart       # ☆ [iter.2] Formulario de nuevo reporte
+│   │   │   │   └── community_reports_history_screen.dart  # ☆ [iter.2] Historial de reportes propios
 │   │   │   ├── services/
 │   │   │   │   ├── community_report_module.dart           # ☆ [iter.2] CU-05
 │   │   │   │   └── report_validation_module.dart          # ☆ [iter.2] CU-06
@@ -224,12 +233,14 @@ Handles **authentication** (Firebase Auth) and **user profile**.
 | File | Purpose |
 |---|---|
 | `auth/auth_module.dart` | `AuthModule` class + `authStateProvider` stream. |
+| `auth/screens/splash_screen.dart` | Session check on cold start; redirige a mapa o welcome. |
 | `auth/screens/welcome_screen.dart` | Landing screen with Login / Sign-up CTAs. |
 | `auth/screens/login_screen.dart` | Email + password login form. |
-| `auth/screens/signup_screen.dart` | New account registration form. |
+| `auth/screens/signup_data_screen.dart` | Paso 1 del registro: nombre, email, contraseña. |
+| `auth/screens/signup_role_screen.dart` | Paso 2 del registro: rol BUYER/VENDOR + producto (obligatorio para VENDOR). |
 | `profile/screens/profile_screen.dart` | Displays current user info. |
 | `profile/screens/history_screen.dart` | Trip / report history list. |
-| `profile/widgets/drawer_module.dart` | `Drawer` widget with nav links + sign-out. |
+| `profile/widgets/drawer_module.dart` | `Drawer` widget con nav links, toggle ride_enabled, sign-out con abandon de solicitud activa. |
 
 ### `features/presence/`
 
@@ -237,9 +248,9 @@ Tracks **vendor locations** in real time via Firestore.
 
 | File | Purpose |
 |---|---|
-| `services/gps_service.dart` | `StreamProvider<Position?>` — device GPS with permission handling. |
-| `services/vendor_tracker.dart` | `StreamProvider<List<VendorMarker>>` — active vendors from Firestore. |
-| `models/vendor_marker.dart` | Firestore-serialisable vendor location model. |
+| `services/gps_service.dart` | `StreamProvider<Position?>` — device GPS con permisos; escribe presencia del vendedor en RTDB `vendedores_activos`. |
+| `services/vendor_tracker.dart` | `StreamProvider<List<VendorMarker>>` — lee RTDB `vendedores_activos` y filtra vendedores activos en radio 4 km; detecta desconexiones vía `vendorOfflineStream`. |
+| `models/vendor_marker.dart` | Modelo de presencia del vendedor: uid, lat, lng, activo, product, rideEnabled, lastTimestamp. |
 
 ### `features/dispatching/`
 
@@ -264,7 +275,8 @@ Community-reported **risk zones**.
 | File | Purpose |
 |---|---|
 | `screens/risk_form_bottom_sheet.dart` | Modal form for reporting a risk zone. |
-| `models/risk_zone.dart` | Firestore-serialisable risk-zone model. |
+| `services/risk_zone_service.dart` | `StreamProvider<List<RiskZone>>` — suscripción directa a Firestore `risk_zones where active==true`; reacciona a expiraciones en ~1 s. |
+| `models/risk_zone.dart` | Firestore-serialisable risk-zone model (riskLevel, radiusMeters, expiresAt). |
 
 ### `features/community/`
 
@@ -272,9 +284,12 @@ Community-reported **risk zones**.
 
 | File | Purpose |
 |---|---|
-| `screens/community_reports_history_screen.dart` | ☆ List of the user's own reports. |
-| `services/community_report_module.dart` | ☆ CU-05: submit report + watch active reports stream. |
-| `services/report_validation_module.dart` | ☆ CU-06: confirm / dismiss vote using Firestore batch. |
+| `screens/active_reports_screen.dart` | ☆ Lista de reportes comunitarios activos cerca del usuario. |
+| `screens/report_detail_screen.dart` | ☆ Detalle de reporte + botones Confirmar / Desestimar (CU-06). |
+| `screens/community_form_bottom_sheet.dart` | ☆ Formulario de nuevo reporte con selección de tipo y punto en mapa. |
+| `screens/community_reports_history_screen.dart` | ☆ Historial de reportes propios del usuario. |
+| `services/community_report_module.dart` | ☆ CU-05: POST reporte + `StateNotifier` de reportes activos con stale-while-revalidate. |
+| `services/report_validation_module.dart` | ☆ CU-06: votar confirmar / desestimar vía transacción Firestore atómica. |
 | `widgets/report_marker_panel.dart` | ☆ Bottom-card detail panel when a report marker is tapped. |
 | `models/community_report.dart` | ☆ `CommunityReport` Firestore model with status + vote counters. |
 
@@ -284,7 +299,7 @@ Cross-cutting concerns consumed by multiple feature modules.
 
 | File | Purpose |
 |---|---|
-| `notifications/notification_handler.dart` | FCM initialisation + foreground / tap event routing. [iter.2 ext] handles `ride_request`, `ride_accepted`, `ride_completed`, `community_report`, `report_confirmed`. |
+| `notifications/notification_handler.dart` | FCM initialisation + foreground / tap event routing. Despacha eventos de stop, ride, zonas de riesgo, reportes comunitarios y `route_zone_warning` a sus providers de Riverpod. |
 | `widgets/gps_required_empty_state.dart` | Empty-state widget shown when GPS is unavailable. |
 
 ### `router/`
@@ -301,30 +316,40 @@ Cross-cutting concerns consumed by multiple feature modules.
 
 | File | Purpose |
 |---|---|
-| `router.py` | `GET /auth/me` — fetch own profile. `POST /auth/sync-profile` — upsert user in Firestore. `PATCH /auth/device-token` — store FCM token. |
-| `schemas.py` | `UserProfile`, `SyncProfileRequest`, `DeviceTokenRequest` |
+| `router.py` | `GET /auth/me` — fetch own profile. `POST /auth/sync-profile` — upsert user in Firestore. `PATCH /auth/device-token` — store FCM token. `PATCH /auth/location` — sync last known location for proximity-based FCM. `PATCH /auth/ride-enabled` — toggle vendor ride offering. |
+| `schemas.py` | `UserProfile`, `SyncProfileRequest`, `DeviceTokenRequest`, `UpdateLocationBody` |
 
 ### `modules/dispatching/`
 
 | File | Purpose |
 |---|---|
-| `router.py` | `POST /stops` — create stop request + FCM to vendor. `GET /stops/{id}` — read request. `PATCH /stops/{id}/status` — transition state machine (pending → accepted / rejected / expired / completed). |
-| `schemas.py` | `StopRequest`, `CreateStopRequestBody`, `UpdateStatusBody`, `StopRequestStatus` enum, `VALID_TRANSITIONS` map |
+| `router.py` | `POST /stops` — create stop request + FCM to vendor. `GET /stops/{id}` — read request. `PATCH /stops/{id}/status` — transition state machine (pending → accepted / rejected / expired / cancelled / completed / abandoned). |
+| `schemas.py` | `StopRequest`, `CreateStopRequestBody`, `UpdateStatusBody` (incl. `route_warnings`), `VALID_TRANSITIONS` map. |
+| `ride_router.py` | ☆ [iter.2] `POST /rides` — create ride + FCM to vendor. `PATCH /rides/{id}/status` — lifecycle (pending → accepted / rejected / expired / cancelled / in_progress / completed / abandoned). `PATCH /rides/{id}/vendor-arrived` — vendor signals arrival at pickup. |
+| `ride_schemas.py` | ☆ [iter.2] `Ride`, `CreateRideBody`, `UpdateRideStatusBody`, `RIDE_VALID_TRANSITIONS` map. |
 
 ### `modules/safety/`
 
 | File | Purpose |
 |---|---|
-| `router.py` | `GET /risk-zones` — list zones near a coordinate. `POST /risk-zones` — report a new risk zone. |
+| `router.py` | `GET /risk-zones` — list zones near a coordinate. `POST /risk-zones` — report a new risk zone. `DELETE /risk-zones/{id}` — deactivate a zone. |
 | `schemas.py` | `RiskZone`, `CreateRiskZoneBody` |
+
+### `modules/community/` ☆ [iter.2]
+
+| File | Purpose |
+|---|---|
+| `report_router.py` | `POST /community-reports` — submit report + FCM a usuarios en radio 1 km. `GET /community-reports` — reportes activos cerca de una coordenada. |
+| `validation_router.py` | `POST /community-reports/{id}/vote` — voto confirmar/desestimar con transacción atómica; envía FCM `report_status_changed` al reportador al alcanzar umbral. |
+| `schemas.py` | `CommunityReport`, `CreateReportBody`, `VoteBody`, `ThreatType` enum. |
 
 ### `modules/shared/`
 
 | File | Purpose |
 |---|---|
 | `firebase_admin_init.py` | `FirebaseAdminInit` — singleton SDK init. Uses `_EmulatorCredential` (AnonymousCredentials) when `FIREBASE_AUTH_EMULATOR_HOST` is set; `Certificate` when `FIREBASE_SERVICE_ACCOUNT_JSON` is set; `ApplicationDefault` otherwise. |
-| `firestore_service.py` | `FirestoreService` — async CRUD helpers for `users`, `stop_requests`, `risk_zones` collections. |
-| `notification_service.py` | `NotificationService.send()` — wraps `firebase_admin.messaging` to dispatch FCM push notifications. |
+| `firestore_service.py` | `FirestoreService` — async CRUD helpers for `users`, `stop_requests`, `rides`, `risk_zones`, `community_reports` collections. Incluye helpers de transacción atómica y filtro Haversine para FCM por proximidad. |
+| `notification_service.py` | `NotificationService` — envío de FCM data-only vía Firebase Admin SDK. Métodos especializados por evento (stop, ride, risk zone, community report, route zone warning). |
 
 ### `dependencies.py`
 
@@ -337,15 +362,45 @@ FastAPI dependency `get_current_user` — validates the Firebase ID token from `
 | Tag | Status | Description |
 |---|---|---|
 | iter.1 | ✅ Structure | Core skeleton, auth, presence, dispatching (stop requests). |
-| iter.2 | ✅ Completed | CU-04 Rides, CU-05/06 Community reports, FCM events, Hardening F8. |
+| iter.2 | ✅ Completed | CU-04 Rides, CU-05/06 Community reports, FCM events. Hardening en `Rama-Miguel`: ~156 correcciones de producto, concurrencia, GPS/RTDB offline, zonas de riesgo y lifecycle. |
 
 ---
 
 ## Getting Started
 
-> **Start order:** Firebase Emulators → FastAPI → Flutter. The app and the API both need the emulators running first.
+El entorno activo del proyecto usa **Firebase de producción** (`ubisafe-ca262`) y el backend FastAPI desplegado en la nube. No se requieren emuladores locales para desarrollar.
 
-### 1. Firebase Emulators
+### Flujo de producción (activo)
+
+#### 1. Requisitos previos
+
+- `google-services.json` del proyecto `ubisafe-ca262` en `ubisafe_app/android/app/` (nunca commitear)
+- Maps API key en `ubisafe_app/android/local.properties`:
+  ```
+  MAPS_API_KEY=<tu_key>
+  ```
+  La key debe tener habilitada "Maps SDK for Android" en Google Cloud Console.
+
+#### 2. Flutter app
+
+```bash
+cd ubisafe_app
+flutter pub get
+
+# Instalar en dispositivo físico Android vía ADB (wireless o USB):
+flutter build apk
+adb install build/app/outputs/flutter-apk/app-debug.apk
+```
+
+> No se usa `adb reverse` de puertos — la app se conecta directamente a Firebase y al backend en la nube.
+
+---
+
+### Flujo local con emuladores (desarrollo opcional)
+
+Útil para correr los tests de pytest o desarrollar sin tocar datos de producción.
+
+#### 1. Firebase Emulators
 
 ```bash
 # From the repo root
@@ -354,9 +409,7 @@ firebase emulators:start --project demo-ubisafe
 # Auth: 9099 | Firestore: 8080 | RTDB: 9000 | Functions: 5001
 ```
 
-> Firestore runs on **port 8080**. See `firebase.json`.
-
-### 2. FastAPI backend
+#### 2. FastAPI backend
 
 ```bash
 cd ubisafe_api
@@ -365,36 +418,26 @@ source .venv/bin/activate   # Windows: .venv\Scripts\activate
 python -m pip install -r requirements.txt
 
 cp .env.example .env
-# Minimum required for emulator development:
+# Mínimo para desarrollo con emuladores:
 #   FIREBASE_AUTH_EMULATOR_HOST=localhost:9099
 #   FIRESTORE_EMULATOR_HOST=127.0.0.1:8080
-# (No service account needed — _EmulatorCredential handles auth when emulator host is set)
+# (No se requiere service account — _EmulatorCredential maneja auth cuando el host de emulador está configurado)
 
 python -m uvicorn main:app --reload
 # API docs: http://localhost:8000/docs
 ```
 
-### 3. Flutter app
+#### 3. Flutter app contra emuladores
 
 ```bash
 cd ubisafe_app
-flutter pub get
-
-# Place google-services.json at android/app/google-services.json (never commit)
-# Add your Maps API key to android/local.properties:
-#   MAPS_API_KEY=<your_key>
-# The key must have "Maps SDK for Android" enabled in Google Cloud Console.
-
-# Physical device over USB — run adb reverse before flutter run (re-run after reconnect):
+# adb reverse para redirigir puertos del emulador al dispositivo físico:
 adb reverse tcp:9099 tcp:9099
 adb reverse tcp:8080 tcp:8080
 adb reverse tcp:9000 tcp:9000
 adb reverse tcp:8000 tcp:8000
 
 flutter run
-
-# Against production Firebase + Render backend (no emulators needed):
-flutter run --dart-define=USE_EMULATORS=false --dart-define=API_BASE_URL=https://ubisafe-j1fg.onrender.com
 ```
 
 #### Docker (FastAPI)
