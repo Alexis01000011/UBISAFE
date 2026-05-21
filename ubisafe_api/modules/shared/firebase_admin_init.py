@@ -17,6 +17,7 @@ class _EmulatorCredential(credentials.Base):
 
     def get_credential(self):
         from google.auth.credentials import AnonymousCredentials  # type: ignore[import]
+
         return AnonymousCredentials()
 
 

@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 /// Represents a community-reported risk zone (CU-03).
 /// Schema matches SDD §7.2.3.
 class RiskZone {
@@ -46,6 +48,32 @@ class RiskZone {
       expiredAt: json['expired_at'] != null
           ? DateTime.parse(json['expired_at'] as String)
           : null,
+    );
+  }
+
+  /// Constructs a RiskZone from a Firestore document snapshot.
+  /// Handles date fields stored as Firestore Timestamp (created_at, expired_at)
+  /// or as ISO 8601 strings (expires_at — set by the Python backend).
+  factory RiskZone.fromFirestore(String id, Map<String, dynamic> data) {
+    DateTime parseDate(dynamic v) {
+      if (v is Timestamp) return v.toDate();
+      if (v is String) return DateTime.parse(v);
+      return DateTime.now();
+    }
+
+    final loc = data['location'] as Map<String, dynamic>;
+    return RiskZone(
+      id: id,
+      reporterUid: data['reporter_uid'] as String,
+      threatType: data['threat_type'] as String,
+      riskLevel: data['risk_level'] as String,
+      latitude: (loc['lat'] as num).toDouble(),
+      longitude: (loc['lng'] as num).toDouble(),
+      radiusMeters: (data['radius_meters'] as num).toInt(),
+      active: data['active'] as bool,
+      createdAt: parseDate(data['created_at']),
+      expiresAt: parseDate(data['expires_at']),
+      expiredAt: data['expired_at'] != null ? parseDate(data['expired_at']) : null,
     );
   }
 }

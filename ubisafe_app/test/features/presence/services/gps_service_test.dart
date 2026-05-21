@@ -45,7 +45,7 @@ void main() {
 
       service.startTransmission('vendor-1');
       ctrl.add(pos(19.432608, -99.133209));
-      await Future.microtask(() {});
+      await pumpEventQueue();
 
       final captured =
           verify(() => mockRef.set(captureAny())).captured.last as Map;
@@ -103,10 +103,10 @@ void main() {
 
       service.startTransmission('vendor-1');
       ctrl.add(pos(0.0, 0.0));
-      await Future.microtask(() {});
+      await pumpEventQueue();
 
-      expect(callOrder.indexOf('onDisconnect'),
-          lessThan(callOrder.indexOf('set')));
+      expect(callOrder.indexOf('set'),
+          lessThan(callOrder.indexOf('onDisconnect')));
 
       service.dispose();
       await ctrl.close();

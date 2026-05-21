@@ -1,12 +1,16 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../core/api/api_client.dart';
 import '../../../../core/design_system/colors.dart';
 import '../../../../core/design_system/typography.dart';
 import '../../../../core/providers/auth_providers.dart';
+import '../../../shared/notifications/notification_handler.dart';
 import '../auth_module.dart';
 
 /// Shows the brand splash and resolves the initial route based on session state.
@@ -23,27 +27,26 @@ class SplashScreen extends ConsumerStatefulWidget {
 }
 
 class _SplashScreenState extends ConsumerState<SplashScreen> {
-  Timer? _timer;
   bool _navigated = false;
 
   @override
   void initState() {
     super.initState();
-    // Give Firebase Auth time to restore the persisted session.
-    _timer = Timer(const Duration(milliseconds: 500), _checkSession);
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
+    // addPostFrameCallback so the first frame is rendered (showing the brand
+    // screen) before we do any async work or navigation.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkSession());
   }
 
   Future<void> _checkSession() async {
     if (!mounted || _navigated) return;
 
-    final authAsync = ref.read(authStateProvider);
-    final user = authAsync.valueOrNull;
+    // Firebase.initializeApp() is awaited before runApp(), so currentUser is
+    // synchronously available here. The session is cleared on every
+    // AppLifecycleState.paused (main.dart), so currentUser is always null on a
+    // fresh app open — no need to await the authStateChanges() stream.
+    // The only time currentUser is non-null here is immediately after login,
+    // when LoginScreen explicitly navigates to /splash.
+    final user = FirebaseAuth.instance.currentUser;
 
     if (user == null) {
       _go('/welcome');
@@ -51,18 +54,28 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
     }
 
     try {
-      final profile = await ref
-          .read(userProfileProvider.future)
-          .timeout(const Duration(seconds: 5));
-      if (profile == null) {
-        // await ref.read(authModuleProvider).signOut();
-        _go('/welcome');
-        return;
+      final dio = ref.read(apiClientProvider);
+      final response = await dio.get<Map<String, dynamic>>(
+        '/auth/me',
+        // Skip to the last retry so the interceptor only makes one extra
+        // attempt — avoids blocking the splash for 40+ seconds on cold start.
+        options: Options(extra: {'_retryCount': 2}),
+      );
+      final profile = UserProfile.fromJson(response.data!);
+      // Re-sync FCM token: at this point auth is confirmed and backend is awake,
+      // so the token is guaranteed to reach Firestore even on cold starts.
+      unawaited(ref.read(notificationHandlerProvider).syncTokenIfNeeded());
+      _go(profile.role == 'VENDOR' ? '/home/vendor' : '/home/buyer');
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) {
+        // Confirmed: no profile in Firestore (partial registration).
+        // Sign out so the router doesn't redirect authenticated user to /splash.
+        try { await ref.read(authModuleProvider).signOut(); } catch (_) {}
       }
-      final home = profile.role == 'VENDOR' ? '/home/vendor' : '/home/buyer';
-      _go(home);
-    } on TimeoutException {
-      debugPrint('SplashScreen: Firestore timeout — redirecting to welcome');
+      // Any other error (Render cold start, network outage, 5xx) → do NOT sign
+      // out. The Firebase Auth session is still valid. The user stays
+      // authenticated and will be redirected to /splash again on the next
+      // login tap, which retries GET /auth/me once Render is warm.
       _go('/welcome');
     } catch (_) {
       _go('/welcome');

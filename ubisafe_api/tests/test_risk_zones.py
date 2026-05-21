@@ -1,4 +1,5 @@
-"""F5.1 — RiskZoneRouter tests: creation, duplicate detection, geo filter, soft delete."""
+"""F5 — RiskZoneRouter tests: creación, validación, filtrado geo, expiración, 401/403/404."""
+
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -6,8 +7,8 @@ from httpx import ASGITransport, AsyncClient
 
 from modules.safety.schemas import GeoPoint, RiskZone
 
-REPORTER_UID = "reporter-uid-001"
-OTHER_UID = "other-uid-002"
+REPORTER_UID = "reporter-uid-111"
+OTHER_UID = "other-uid-222"
 ZONE_ID = "rz-high-001"
 
 _REPORTER_TOKEN = {"uid": REPORTER_UID, "email": "reporter@test.com"}
@@ -16,7 +17,7 @@ _OTHER_TOKEN = {"uid": OTHER_UID, "email": "other@test.com"}
 _HIGH_ZONE = RiskZone(
     id=ZONE_ID,
     reporter_uid=REPORTER_UID,
-    threat_type="robo con violencia",
+    threat_type="Robo/Asalto",
     risk_level="HIGH",
     location=GeoPoint(lat=20.6741, lng=-103.4451),
     radius_meters=100,
@@ -29,7 +30,7 @@ _HIGH_ZONE = RiskZone(
 _ZONE_DICT = {
     "id": ZONE_ID,
     "reporter_uid": REPORTER_UID,
-    "threat_type": "robo con violencia",
+    "threat_type": "Robo/Asalto",
     "risk_level": "HIGH",
     "location": {"lat": 20.6741, "lng": -103.4451},
     "radius_meters": 100,
@@ -39,12 +40,15 @@ _ZONE_DICT = {
     "expired_at": None,
 }
 
+_AUTH = {"Authorization": "Bearer tok"}
+
 _R = "modules.safety.router"
-_CREATE_ZONE = f"{_R}.FirestoreService.create_risk_zone"
 _QUERY_BBOX = f"{_R}.FirestoreService.query_active_risk_zones_bbox"
+_CREATE_ZONE = f"{_R}.FirestoreService.create_risk_zone"
+_GET_ZONES = f"{_R}.FirestoreService.get_active_risk_zones"
 _GET_ZONE = f"{_R}.FirestoreService.get_risk_zone"
 _EXPIRE_ZONE = f"{_R}.FirestoreService.expire_risk_zone"
-_GET_TOKENS = f"{_R}.FirestoreService.get_all_fcm_tokens"
+_GET_TOKENS = f"{_R}.FirestoreService.get_nearby_user_fcm_tokens"
 _NOTIFY = f"{_R}.NotificationService.notify_risk_zone_alert"
 
 
@@ -70,7 +74,24 @@ def as_other():
 
 
 @pytest.mark.asyncio
-async def test_create_risk_zone_success(mock_firebase, as_reporter):
+async def test_create_zone_no_token(mock_firebase):
+    from main import app
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/risk-zones",
+            json={
+                "threat_type": "Robo",
+                "risk_level": "HIGH",
+                "location": {"lat": 20.67, "lng": -103.34},
+            },
+        )
+
+    assert res.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_create_zone_success(mock_firebase, as_reporter):
     from main import app
 
     with (
@@ -79,176 +100,158 @@ async def test_create_risk_zone_success(mock_firebase, as_reporter):
         patch(_GET_TOKENS, new_callable=AsyncMock, return_value=[]),
         patch(_NOTIFY, new_callable=AsyncMock),
     ):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as c:
-            r = await c.post(
-                "/risk-zones/",
-                headers={"Authorization": "Bearer tok"},
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            res = await client.post(
+                "/risk-zones",
+                headers=_AUTH,
                 json={
-                    "threat_type": "robo",
+                    "threat_type": "Robo/Asalto",
                     "risk_level": "HIGH",
                     "location": {"lat": 20.6741, "lng": -103.4451},
                     "radius_meters": 100,
                 },
             )
-    assert r.status_code == 201
-    assert r.json()["risk_level"] == "HIGH"
-    assert r.json()["reporter_uid"] == REPORTER_UID
+
+    assert res.status_code == 201
+    data = res.json()
+    assert data["id"] == ZONE_ID
+    assert data["risk_level"] == "HIGH"
+    assert data["active"] is True
+    assert data["reporter_uid"] == REPORTER_UID
 
 
 @pytest.mark.asyncio
-async def test_create_risk_zone_no_auth(mock_firebase):
-    from main import app
-
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as c:
-        r = await c.post(
-            "/risk-zones/",
-            json={
-                "threat_type": "robo",
-                "risk_level": "HIGH",
-                "location": {"lat": 20.6741, "lng": -103.4451},
-            },
-        )
-    assert r.status_code == 401
-
-
-@pytest.mark.asyncio
-async def test_create_risk_zone_invalid_level(mock_firebase, as_reporter):
+async def test_create_zone_invalid_level(mock_firebase, as_reporter):
     from main import app
 
     with patch(_QUERY_BBOX, new_callable=AsyncMock, return_value=[]):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as c:
-            r = await c.post(
-                "/risk-zones/",
-                headers={"Authorization": "Bearer tok"},
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            res = await client.post(
+                "/risk-zones",
+                headers=_AUTH,
                 json={
-                    "threat_type": "robo",
+                    "threat_type": "Robo",
                     "risk_level": "EXTREME",
                     "location": {"lat": 20.6741, "lng": -103.4451},
                 },
             )
-    assert r.status_code == 422
+
+    assert res.status_code == 422
 
 
 @pytest.mark.asyncio
-async def test_create_risk_zone_duplicate_returns_409(mock_firebase, as_reporter):
-    """Zone at the same coordinates as an active zone → 409 Conflict."""
+async def test_create_zone_duplicate_returns_409(mock_firebase, as_reporter):
     from main import app
 
-    # The candidate is at the same lat/lng — distance = 0 < radius_meters=100
     with patch(_QUERY_BBOX, new_callable=AsyncMock, return_value=[_ZONE_DICT]):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as c:
-            r = await c.post(
-                "/risk-zones/",
-                headers={"Authorization": "Bearer tok"},
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            res = await client.post(
+                "/risk-zones",
+                headers=_AUTH,
                 json={
-                    "threat_type": "robo",
+                    "threat_type": "Robo/Asalto",
                     "risk_level": "HIGH",
                     "location": {"lat": 20.6741, "lng": -103.4451},
                     "radius_meters": 100,
                 },
             )
-    assert r.status_code == 409
-    assert r.json()["detail"]["error"] == "duplicate_risk_zone"
-    assert r.json()["detail"]["existing_zone_id"] == ZONE_ID
+
+    assert res.status_code == 409
+    detail = res.json()["detail"]
+    assert detail["error"] == "duplicate_risk_zone"
+    assert detail["existing_zone_id"] == ZONE_ID
 
 
-# ── GET /risk-zones/ ─────────────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_list_risk_zones_returns_zones_in_radius(mock_firebase, as_reporter):
-    from main import app
-
-    # Zone at same coords as query center — should be included
-    with patch(_QUERY_BBOX, new_callable=AsyncMock, return_value=[_ZONE_DICT]):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as c:
-            r = await c.get(
-                "/risk-zones/",
-                headers={"Authorization": "Bearer tok"},
-                params={"lat": 20.6741, "lng": -103.4451, "radius_km": 5},
-            )
-    assert r.status_code == 200
-    assert len(r.json()) == 1
-    assert r.json()[0]["risk_level"] == "HIGH"
+# ── GET /risk-zones/ ──────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_list_risk_zones_filters_by_haversine(mock_firebase, as_reporter):
-    """Zone 10 km away should NOT appear in a 5 km radius query."""
+async def test_list_zones_no_token(mock_firebase):
     from main import app
 
-    far_zone = dict(_ZONE_DICT)
-    far_zone["location"] = {"lat": 20.7800, "lng": -103.4451}  # ~11 km north
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.get("/risk-zones")
 
-    with patch(_QUERY_BBOX, new_callable=AsyncMock, return_value=[far_zone]):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as c:
-            r = await c.get(
-                "/risk-zones/",
-                headers={"Authorization": "Bearer tok"},
-                params={"lat": 20.6741, "lng": -103.4451, "radius_km": 5},
+    assert res.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_list_zones_with_filters(mock_firebase, as_reporter):
+    from main import app
+
+    with patch(_GET_ZONES, new_callable=AsyncMock, return_value=[_HIGH_ZONE]):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            res = await client.get(
+                "/risk-zones",
+                headers=_AUTH,
+                params={"lat": 20.6741, "lng": -103.4451, "radius_km": 5.0},
             )
-    assert r.status_code == 200
-    assert len(r.json()) == 0
+
+    assert res.status_code == 200
+    zones = res.json()
+    assert len(zones) == 1
+    assert zones[0]["id"] == ZONE_ID
+
+
+@pytest.mark.asyncio
+async def test_list_zones_empty(mock_firebase, as_reporter):
+    from main import app
+
+    with patch(_GET_ZONES, new_callable=AsyncMock, return_value=[]):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            res = await client.get("/risk-zones", headers=_AUTH)
+
+    assert res.status_code == 200
+    assert res.json() == []
 
 
 # ── DELETE /risk-zones/{id} ───────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_expire_risk_zone_by_reporter(mock_firebase, as_reporter):
+async def test_expire_zone_by_reporter_returns_204(mock_firebase, as_reporter):
     from main import app
 
     with (
-        patch(_GET_ZONE, new_callable=AsyncMock, return_value=_ZONE_DICT),
+        patch(_GET_ZONE, new_callable=AsyncMock, return_value=_HIGH_ZONE),
         patch(_EXPIRE_ZONE, new_callable=AsyncMock),
     ):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as c:
-            r = await c.delete(
-                f"/risk-zones/{ZONE_ID}",
-                headers={"Authorization": "Bearer tok"},
-            )
-    assert r.status_code == 204
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            res = await client.delete(f"/risk-zones/{ZONE_ID}", headers=_AUTH)
+
+    assert res.status_code == 204
 
 
 @pytest.mark.asyncio
-async def test_expire_risk_zone_by_other_returns_403(mock_firebase, as_other):
+async def test_expire_zone_by_non_reporter_returns_403(mock_firebase, as_other):
     from main import app
 
-    with patch(_GET_ZONE, new_callable=AsyncMock, return_value=_ZONE_DICT):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as c:
-            r = await c.delete(
-                f"/risk-zones/{ZONE_ID}",
-                headers={"Authorization": "Bearer tok"},
-            )
-    assert r.status_code == 403
+    with patch(_GET_ZONE, new_callable=AsyncMock, return_value=_HIGH_ZONE):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            res = await client.delete(f"/risk-zones/{ZONE_ID}", headers=_AUTH)
+
+    assert res.status_code == 403
 
 
 @pytest.mark.asyncio
-async def test_expire_risk_zone_not_found(mock_firebase, as_reporter):
+async def test_expire_zone_not_found_returns_404(mock_firebase, as_reporter):
     from main import app
 
     with patch(_GET_ZONE, new_callable=AsyncMock, return_value=None):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as c:
-            r = await c.delete(
-                "/risk-zones/nonexistent",
-                headers={"Authorization": "Bearer tok"},
-            )
-    assert r.status_code == 404
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            res = await client.delete(f"/risk-zones/{ZONE_ID}", headers=_AUTH)
+
+    assert res.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_expire_zone_already_expired_returns_409(mock_firebase, as_reporter):
+    from main import app
+
+    inactive_zone = _HIGH_ZONE.model_copy(update={"active": False})
+    with patch(_GET_ZONE, new_callable=AsyncMock, return_value=inactive_zone):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            res = await client.delete(f"/risk-zones/{ZONE_ID}", headers=_AUTH)
+
+    assert res.status_code == 409
+    assert "already expired" in res.json()["detail"]

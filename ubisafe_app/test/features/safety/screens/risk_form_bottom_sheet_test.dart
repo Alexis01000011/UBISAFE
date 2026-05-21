@@ -75,46 +75,29 @@ void main() {
         dio: mockDio,
         location: const LatLng(19.43000, -99.13000),
       );
-      // Should display lat/lng formatted to 5 decimals
       expect(find.textContaining('19.43000'), findsOneWidget);
     });
 
-    testWidgets('muestra campo de texto "Tipo de amenaza"', (tester) async {
+    testWidgets('muestra tipo de amenaza fijo: Jauría', (tester) async {
       final mockDio = MockDio();
       await _pumpBottomSheet(tester, dio: mockDio);
 
-      expect(find.byType(TextFormField), findsOneWidget);
-      expect(find.text('Tipo de amenaza'), findsOneWidget);
+      expect(find.text('Tipo de amenaza: Jauría'), findsOneWidget);
+      expect(find.byType(TextFormField), findsNothing);
     });
   });
 
   group('RiskFormBottomSheet — validación de formulario', () {
-    testWidgets('no envía si el tipo de amenaza está vacío', (tester) async {
-      final mockDio = MockDio();
-      await _pumpBottomSheet(tester, dio: mockDio);
-
-      // Tap submit without filling anything
-      await tester.tap(find.text('Reportar'));
-      await tester.pumpAndSettle();
-
-      // Form validation error should appear
-      expect(find.text('Requerido'), findsOneWidget);
-
-      // API should NOT have been called
-      verifyNever(() => mockDio.post<dynamic>(any(), data: any(named: 'data')));
-    });
-
     testWidgets('muestra SnackBar si no se selecciona nivel de riesgo',
         (tester) async {
       final mockDio = MockDio();
       await _pumpBottomSheet(tester, dio: mockDio);
 
-      // Fill the threat type but skip risk level selection
-      await tester.enterText(find.byType(TextFormField), 'robo');
       await tester.tap(find.text('Reportar'));
       await tester.pumpAndSettle();
 
       expect(find.text('Selecciona un nivel de riesgo'), findsOneWidget);
+      verifyNever(() => mockDio.post<dynamic>(any(), data: any(named: 'data')));
     });
 
     testWidgets('seleccionar chip HIGH lo marca como selected', (tester) async {
@@ -124,7 +107,6 @@ void main() {
       await tester.tap(find.text('ALTO'));
       await tester.pumpAndSettle();
 
-      // FilterChip should now be selected — verified by checking chip state
       final chips = tester.widgetList<FilterChip>(find.byType(FilterChip));
       final altoChip =
           chips.firstWhere((c) => (c.label as Text).data == 'ALTO');
@@ -149,15 +131,12 @@ void main() {
 
       await _pumpBottomSheet(tester, dio: mockDio);
 
-      await tester.enterText(find.byType(TextFormField), 'accidente vial');
       await tester.tap(find.text('ALTO'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Reportar'));
       await tester.pumpAndSettle();
 
-      // Sheet should be dismissed
       expect(find.text('Reportar zona de riesgo'), findsNothing);
-      // Success snackbar
       expect(find.text('Zona de riesgo reportada'), findsOneWidget);
     });
   });
@@ -184,19 +163,15 @@ void main() {
 
       await _pumpBottomSheet(tester, dio: mockDio);
 
-      await tester.enterText(find.byType(TextFormField), 'zona duplicada');
       await tester.tap(find.text('MEDIO'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Reportar'));
       await tester.pumpAndSettle();
 
-      // Inline error message (not a SnackBar — it's _duplicateError)
       expect(
         find.text('Ya existe un reporte activo en esta zona'),
         findsOneWidget,
       );
-
-      // Sheet should still be open
       expect(find.text('Reportar zona de riesgo'), findsOneWidget);
     });
 
@@ -220,16 +195,13 @@ void main() {
       );
 
       await _pumpBottomSheet(tester, dio: mockDio);
-      await tester.enterText(find.byType(TextFormField), 'zona');
       await tester.tap(find.text('ALTO'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Reportar'));
       await tester.pumpAndSettle();
 
-      // Error is shown
       expect(find.text('Ya existe un reporte activo en esta zona'), findsOneWidget);
 
-      // Tapping another chip should clear the error
       await tester.tap(find.text('BAJO'));
       await tester.pumpAndSettle();
       expect(find.text('Ya existe un reporte activo en esta zona'), findsNothing);
@@ -255,16 +227,12 @@ void main() {
       );
 
       await _pumpBottomSheet(tester, dio: mockDio);
-      await tester.enterText(find.byType(TextFormField), 'amenaza');
       await tester.tap(find.text('BAJO'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Reportar'));
       await tester.pumpAndSettle();
 
-      expect(
-        find.text('Error al reportar la zona. Intenta de nuevo.'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('Error 500:'), findsOneWidget);
     });
   });
 
@@ -277,7 +245,6 @@ void main() {
       await tester.tap(find.text('Cancelar'));
       await tester.pumpAndSettle();
 
-      // Sheet closed
       expect(find.text('Reportar zona de riesgo'), findsNothing);
       verifyNever(() => mockDio.post<dynamic>(any(), data: any(named: 'data')));
     });

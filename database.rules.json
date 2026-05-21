@@ -1,6 +1,7 @@
 {
   "rules": {
     "vendedores_activos": {
+      ".read": "auth != null",
       "$vendor_uid": {
         ".write": "auth != null && auth.uid === $vendor_uid",
         ".read": "auth != null",
@@ -16,6 +17,9 @@
         },
         "activo": {
           ".validate": "newData.isBoolean() && newData.val() === true"
+        },
+        "ride_enabled": {
+          ".validate": "newData.isBoolean()"
         }
       }
     }

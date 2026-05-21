@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-enum StopRequestStatus { pending, accepted, rejected, completed, expired }
+enum StopRequestStatus { pending, accepted, rejected, completed, expired, cancelled, abandoned }
 
 class StopRequest {
   const StopRequest({

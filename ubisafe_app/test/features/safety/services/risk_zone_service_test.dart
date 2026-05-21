@@ -1,25 +1,16 @@
 // risk_zone_service_test.dart
-// Tests unitarios para el servicio de zonas de riesgo (CU-03).
-// Ref: SDD_FASE4_UBISAFE.md §8.3 (flujos HIGH, MEDIUM, LOW y duplicado)
-//      SDD_FASE3_UBISAFE.md §7.2.3 (esquema risk_zones)
+// Tests unitarios para el modelo RiskZone (CU-03).
+// Los tests del StreamProvider requieren Firestore real o fake_cloud_firestore;
+// aquí se cubren los factories fromJson y fromFirestore sin conexión de red.
 
-import 'package:dio/dio.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:mocktail/mocktail.dart';
 
-import 'package:ubisafe_app/core/api/api_client.dart';
 import 'package:ubisafe_app/features/safety/models/risk_zone.dart';
-import 'package:ubisafe_app/features/safety/services/risk_zone_service.dart';
-
-// ─── Mocks ───────────────────────────────────────────────────────────────────
-
-class MockDio extends Mock implements Dio {}
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
-Map<String, dynamic> _riskZoneJson({
+Map<String, dynamic> _jsonFixture({
   String id = 'zone-1',
   String riskLevel = 'HIGH',
   bool active = true,
@@ -37,167 +28,101 @@ Map<String, dynamic> _riskZoneJson({
       'expired_at': null,
     };
 
+Map<String, dynamic> _firestoreFixture({
+  String riskLevel = 'HIGH',
+  bool active = true,
+  bool nativeTimestamps = false,
+}) {
+  final createdAt = DateTime.utc(2025, 5, 1, 10);
+  final expiresAt = DateTime.utc(2025, 5, 2, 10);
+  return {
+    'reporter_uid': 'user-reporter',
+    'threat_type': 'robo',
+    'risk_level': riskLevel,
+    'location': {'lat': 19.43, 'lng': -99.13},
+    'radius_meters': 100,
+    'active': active,
+    // created_at llega como Timestamp (SERVER_TIMESTAMP en Firestore),
+    // expires_at llega como String ISO (isoformat() del backend Python).
+    'created_at': nativeTimestamps
+        ? Timestamp.fromDate(createdAt)
+        : createdAt.toIso8601String(),
+    'expires_at': nativeTimestamps
+        ? Timestamp.fromDate(expiresAt)
+        : expiresAt.toIso8601String(),
+    'expired_at': null,
+  };
+}
+
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 void main() {
-  group('activeRiskZonesProvider — llamada a GET /risk-zones', () {
-    test('devuelve lista de RiskZone mapeada correctamente', () async {
-      final mockDio = MockDio();
-      final responseData = [
-        _riskZoneJson(id: 'zone-1', riskLevel: 'HIGH'),
-        _riskZoneJson(id: 'zone-2', riskLevel: 'MEDIUM'),
-        _riskZoneJson(id: 'zone-3', riskLevel: 'LOW'),
-      ];
-
-      when(() => mockDio.get<dynamic>(
-            '/risk-zones',
-            queryParameters: any(named: 'queryParameters'),
-          )).thenAnswer(
-        (_) async => Response(
-          data: responseData,
-          statusCode: 200,
-          requestOptions: RequestOptions(path: '/risk-zones'),
-        ),
-      );
-
-      final container = ProviderContainer(
-        overrides: [
-          apiClientProvider.overrideWithValue(mockDio),
-        ],
-      );
-      addTearDown(container.dispose);
-
-      const center = LatLng(19.43, -99.13);
-      final zones = await container.read(activeRiskZonesProvider(center).future);
-
-      expect(zones, hasLength(3));
-      expect(zones[0].riskLevel, 'HIGH');
-      expect(zones[1].riskLevel, 'MEDIUM');
-      expect(zones[2].riskLevel, 'LOW');
-    });
-
-    test('solo incluye zonas activas (active=true) cuando el backend filtra', () async {
-      // The API should only return active zones; this test validates client mapping
-      final mockDio = MockDio();
-      final responseData = [
-        _riskZoneJson(id: 'zone-active', active: true),
-        // Backend filters inactive zones; client receives only active ones
-      ];
-
-      when(() => mockDio.get<dynamic>(
-            '/risk-zones',
-            queryParameters: any(named: 'queryParameters'),
-          )).thenAnswer(
-        (_) async => Response(
-          data: responseData,
-          statusCode: 200,
-          requestOptions: RequestOptions(path: '/risk-zones'),
-        ),
-      );
-
-      final container = ProviderContainer(
-        overrides: [apiClientProvider.overrideWithValue(mockDio)],
-      );
-      addTearDown(container.dispose);
-
-      const center = LatLng(19.43, -99.13);
-      final zones = await container.read(activeRiskZonesProvider(center).future);
-
-      expect(zones, hasLength(1));
-      expect(zones.first.active, isTrue);
-    });
-
-    test('lanza DioException cuando la API devuelve 500', () async {
-      final mockDio = MockDio();
-
-      when(() => mockDio.get<dynamic>(
-            '/risk-zones',
-            queryParameters: any(named: 'queryParameters'),
-          )).thenThrow(
-        DioException(
-          requestOptions: RequestOptions(path: '/risk-zones'),
-          type: DioExceptionType.badResponse,
-          response: Response(
-            data: {'detail': 'Internal Server Error'},
-            statusCode: 500,
-            requestOptions: RequestOptions(path: '/risk-zones'),
-          ),
-        ),
-      );
-
-      final container = ProviderContainer(
-        overrides: [apiClientProvider.overrideWithValue(mockDio)],
-      );
-      addTearDown(container.dispose);
-
-      const center = LatLng(19.43, -99.13);
-      await expectLater(
-        container.read(activeRiskZonesProvider(center).future),
-        throwsA(isA<DioException>()),
-      );
-    });
-  });
-
-  group('RiskZone.fromJson — mapeo de esquema (SDD §7.2.3)', () {
-    test('campos obligatorios created_at y expires_at se parsean correctamente',
-        () {
-      final json = _riskZoneJson();
-      final zone = RiskZone.fromJson(json);
-
+  group('RiskZone.fromJson — mapeo desde REST API (SDD §7.2.3)', () {
+    test('campos obligatorios se parsean correctamente', () {
+      final zone = RiskZone.fromJson(_jsonFixture());
       expect(zone.id, 'zone-1');
       expect(zone.riskLevel, 'HIGH');
       expect(zone.active, isTrue);
-      // createdAt and expiresAt are required DateTime fields (non-nullable)
-      // Both are parsed from the JSON strings provided in the fixture
       expect(zone.createdAt, isA<DateTime>());
       expect(zone.expiresAt, isA<DateTime>());
       expect(zone.expiresAt.isAfter(zone.createdAt), isTrue);
       expect(zone.expiredAt, isNull);
     });
 
-    test('expired_at es null cuando la zona no ha expirado', () {
-      final json = _riskZoneJson()..remove('expired_at');
+    test('expired_at null cuando la zona no ha expirado', () {
+      final json = _jsonFixture();
       json['expired_at'] = null;
-      final zone = RiskZone.fromJson(json);
-      expect(zone.expiredAt, isNull);
+      expect(RiskZone.fromJson(json).expiredAt, isNull);
+    });
+
+    test('mapea los tres niveles de riesgo', () {
+      for (final level in ['HIGH', 'MEDIUM', 'LOW']) {
+        expect(
+          RiskZone.fromJson(_jsonFixture(riskLevel: level)).riskLevel,
+          level,
+        );
+      }
     });
   });
 
-  group('riskZoneRefreshProvider — actualización por FCM', () {
-    test('incrementar riskZoneRefreshProvider vuelve a ejecutar el provider',
-        () async {
-      int callCount = 0;
-      final mockDio = MockDio();
+  group('RiskZone.fromFirestore — mapeo desde snapshot en tiempo real', () {
+    test('parsea fechas como String ISO (ruta habitual del backend Python)', () {
+      final zone = RiskZone.fromFirestore('zone-fs-1', _firestoreFixture());
+      expect(zone.id, 'zone-fs-1');
+      expect(zone.riskLevel, 'HIGH');
+      expect(zone.active, isTrue);
+      expect(zone.createdAt, isA<DateTime>());
+      expect(zone.expiresAt, isA<DateTime>());
+      expect(zone.expiresAt.isAfter(zone.createdAt), isTrue);
+      expect(zone.expiredAt, isNull);
+    });
 
-      when(() => mockDio.get<dynamic>(
-            '/risk-zones',
-            queryParameters: any(named: 'queryParameters'),
-          )).thenAnswer((_) async {
-        callCount++;
-        return Response(
-          data: <dynamic>[],
-          statusCode: 200,
-          requestOptions: RequestOptions(path: '/risk-zones'),
-        );
-      });
+    test('parsea created_at como Timestamp nativo de Firestore', () {
+      final zone =
+          RiskZone.fromFirestore('zone-fs-2', _firestoreFixture(nativeTimestamps: true));
+      expect(zone.createdAt, isA<DateTime>());
+      expect(zone.expiresAt, isA<DateTime>());
+    });
 
-      final container = ProviderContainer(
-        overrides: [apiClientProvider.overrideWithValue(mockDio)],
-      );
-      addTearDown(container.dispose);
+    test('zona inactiva (active=false) se mapea correctamente', () {
+      final zone =
+          RiskZone.fromFirestore('zone-fs-3', _firestoreFixture(active: false));
+      expect(zone.active, isFalse);
+    });
 
-      const center = LatLng(19.43, -99.13);
+    test('expired_at como Timestamp nativo se convierte a DateTime', () {
+      final data = _firestoreFixture();
+      data['expired_at'] = Timestamp.fromDate(DateTime.utc(2025, 5, 2, 10, 30));
+      final zone = RiskZone.fromFirestore('zone-fs-4', data);
+      expect(zone.expiredAt, isA<DateTime>());
+      expect(zone.expiredAt!.minute, 30);
+    });
 
-      // First call
-      await container.read(activeRiskZonesProvider(center).future);
-      expect(callCount, 1);
-
-      // Simulate FCM trigger (increment refresh counter)
-      container.read(riskZoneRefreshProvider.notifier).state++;
-
-      // Second call after invalidation
-      await container.read(activeRiskZonesProvider(center).future);
-      expect(callCount, 2);
+    test('expired_at como String ISO se convierte a DateTime', () {
+      final data = _firestoreFixture();
+      data['expired_at'] = '2025-05-02T10:30:00.000Z';
+      final zone = RiskZone.fromFirestore('zone-fs-5', data);
+      expect(zone.expiredAt, isA<DateTime>());
     });
   });
 }

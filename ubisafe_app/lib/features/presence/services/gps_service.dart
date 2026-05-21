@@ -1,8 +1,11 @@
 import 'dart:async';
 
 import 'package:firebase_database/firebase_database.dart';
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
+
+import '../../../core/api/api_client.dart';
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
 
@@ -56,7 +59,7 @@ final gpsServiceProvider = StreamProvider<Position?>((ref) async* {
   yield* Geolocator.getPositionStream(
     locationSettings: const LocationSettings(
       accuracy: LocationAccuracy.high,
-      distanceFilter: 10,
+      distanceFilter: 0,
     ),
   ).map((p) => p as Position?);
 });
@@ -66,6 +69,53 @@ final gpsServiceInstanceProvider = Provider<GPSService>((ref) {
   final service = GPSService();
   ref.onDispose(service.dispose);
   return service;
+});
+
+/// Watches [gpsServiceProvider] and keeps `last_location` in Firestore current
+/// via PATCH /auth/location. Fires at most once per 60 s or 100 m of movement.
+/// Activate by calling `ref.watch(locationSyncProvider)` in a map-screen build.
+final locationSyncProvider = Provider.autoDispose<Object?>((ref) {
+  final apiClient = ref.read(apiClientProvider);
+  DateTime? lastSync;
+  double? lastLat;
+  double? lastLng;
+
+  ref.listen<AsyncValue<Position?>>(gpsServiceProvider, (_, next) async {
+    final pos = next.valueOrNull;
+    if (pos == null) return;
+
+    final now = DateTime.now();
+    final distance = (lastLat != null && lastLng != null)
+        ? Geolocator.distanceBetween(lastLat!, lastLng!, pos.latitude, pos.longitude)
+        : double.infinity;
+
+    if (lastSync != null &&
+        now.difference(lastSync!) < const Duration(seconds: 60) &&
+        distance < 100) {
+      return;
+    }
+
+    // Mark throttle before awaiting so concurrent GPS ticks don't queue
+    // additional requests while one is already in flight.
+    lastSync = now;
+    lastLat = pos.latitude;
+    lastLng = pos.longitude;
+
+    try {
+      await apiClient.patch<dynamic>(
+        '/auth/location',
+        data: {'lat': pos.latitude, 'lng': pos.longitude},
+      );
+    } catch (_) {
+      // B15 — on failure (e.g. cold-start timeout) reset the throttle so the
+      // next GPS tick retries immediately instead of waiting 60 s with a stale
+      // last_location in Firestore, which would cause get_nearby_user_fcm_tokens
+      // to return [] and suppress all proximity FCM notifications.
+      lastSync = null;
+    }
+  });
+
+  return null;
 });
 
 // ─── Type aliases (for dependency injection / testing) ────────────────────────
@@ -91,7 +141,6 @@ class GPSService {
             positionStreamFactory ?? _defaultPositionStream,
         _rtdbRefFactory = rtdbRefFactory ?? _defaultRtdbRef;
 
-  static const _kNoSignalTimeout = Duration(seconds: 10);
   static const _kRetryDelay = Duration(seconds: 5);
 
   final PositionStreamFactory _positionStreamFactory;
@@ -101,16 +150,33 @@ class GPSService {
   StreamSubscription<Position>? _posSub;
   Timer? _retryTimer;
   String? _activeUid;
+  bool _rideEnabled = false;
+  // True once _rideEnabled has been set from profile or by an explicit toggle.
+  // Prevents startTransmission from overwriting a user-toggled value with a
+  // stale profile read when the vendor deactivates and reactivates visibility.
+  bool _rideEnabledSet = false;
+  String? _product;
 
   /// Broadcasts [GPSServiceState] transitions.
   Stream<GPSServiceState> get stateStream => _stateCtrl.stream;
 
   /// Activates GPS stream and RTDB writes for [vendorUid].
   ///
-  /// Registers onDisconnect().remove() before the first write so that a
-  /// crash or network drop automatically removes the stale RTDB node.
-  void startTransmission(String vendorUid) {
+  /// [rideEnabled] is used as the initial value only on the first call per app
+  /// session (when [_rideEnabledSet] is false). After any explicit toggle via
+  /// [updateRideEnabled], the stored value is preserved across
+  /// deactivation/reactivation cycles.
+  void startTransmission(
+    String vendorUid, {
+    bool rideEnabled = false,
+    String? product,
+  }) {
     _activeUid = vendorUid;
+    if (!_rideEnabledSet) {
+      _rideEnabled = rideEnabled;
+      _rideEnabledSet = true;
+    }
+    _product = product;
     _stateCtrl.add(GPSServiceState.active);
     _subscribe(vendorUid);
   }
@@ -121,32 +187,60 @@ class GPSService {
     _retryTimer = null;
     await _posSub?.cancel();
     _posSub = null;
-    await _rtdbRefFactory(vendorUid).remove();
+    // Fire-and-forget with a short deadline. Firebase SDK queues RTDB
+    // operations and can hang indefinitely when the emulator is unreachable —
+    // the onDisconnect().remove() handler cleans up the node once connectivity
+    // is restored, so blocking here is unnecessary.
+    unawaited(
+      _rtdbRefFactory(vendorUid).remove().timeout(
+        const Duration(seconds: 2),
+        onTimeout: () {},
+      ).catchError((_) {}),
+    );
     if (!_stateCtrl.isClosed) _stateCtrl.add(GPSServiceState.inactive);
     _activeUid = null;
   }
 
-  void _subscribe(String vendorUid) {
-    // Register the disconnect handler BEFORE any write (safety invariant).
-    _rtdbRefFactory(vendorUid).onDisconnect().remove();
-
-    _posSub?.cancel();
+  // Returns Future so the old subscription is fully cancelled before the new
+  // one starts — prevents duplicate RTDB writes during retry (BUG-014).
+  Future<void> _subscribe(String vendorUid) async {
+    final oldSub = _posSub;
+    _posSub = null;
+    await oldSub?.cancel();
     _posSub = _positionStreamFactory(
       const LocationSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: 10,
-        timeLimit: _kNoSignalTimeout,
+        distanceFilter: 0,
       ),
     ).listen(
       (pos) {
         _retryTimer?.cancel();
         _retryTimer = null;
-        _rtdbRefFactory(vendorUid).set({
+        final ref = _rtdbRefFactory(vendorUid);
+        ref.set({
           'lat': pos.latitude,
           'lng': pos.longitude,
           'timestamp': DateTime.now().millisecondsSinceEpoch,
           'activo': true,
-        });
+          'ride_enabled': _rideEnabled,
+          if (_product != null) 'product': _product,
+        }).then(
+          (_) {
+            // Re-register onDisconnect AFTER each successful set().
+            // Firebase RTDB protocol cancels any pending onDisconnect handler
+            // when set() is called on the same reference, so the handler must
+            // be re-registered after every write to stay active.
+            unawaited(
+              ref.onDisconnect().remove().catchError((Object e) {
+                if (kDebugMode) debugPrint('GPSService: onDisconnect re-register failed — $e');
+              }),
+            );
+            if (kDebugMode) debugPrint('GPSService: RTDB write OK ($vendorUid)');
+          },
+          onError: (Object e) {
+            debugPrint('GPSService: RTDB write FAILED — $e');
+          },
+        );
         if (!_stateCtrl.isClosed) _stateCtrl.add(GPSServiceState.active);
       },
       onError: (_) {
@@ -163,6 +257,28 @@ class GPSService {
     _retryTimer = Timer(_kRetryDelay, () {
       if (_activeUid == vendorUid) _subscribe(vendorUid);
     });
+  }
+
+  /// Returns the vendor UID currently transmitting, or null if inactive.
+  String? get activeUid => _activeUid;
+
+  /// Updates the `ride_enabled` flag in memory and on the active RTDB node.
+  void updateRideEnabled(String vendorUid, bool value) {
+    _rideEnabled = value;
+    _rideEnabledSet = true;
+    if (_activeUid != vendorUid) return;
+    _rtdbRefFactory(vendorUid).update({'ride_enabled': value});
+  }
+
+  /// Updates the `product` field in memory and writes it to the active RTDB node.
+  ///
+  /// Called from map_screen_vendor when userProfileProvider completes after
+  /// startTransmission was already called (timing fix — the profile may not be
+  /// loaded yet at the moment the vendor activates visibility).
+  void updateProduct(String vendorUid, String product) {
+    _product = product;
+    if (_activeUid != vendorUid) return;
+    _rtdbRefFactory(vendorUid).update({'product': product});
   }
 
   void dispose() {

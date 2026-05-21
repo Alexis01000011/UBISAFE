@@ -29,7 +29,7 @@ service cloud.firestore {
       allow read: if isAuthenticated()
                   && (resource.data.buyer_uid == request.auth.uid
                       || resource.data.vendor_uid == request.auth.uid);
-      allow write: if false;
+      allow write: if false; // Solo Admin SDK (FastAPI)
     }
 
     // ─── COLECCIÓN: risk_zones ─────────────────────────────────────────────
@@ -42,8 +42,28 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // ─── iter.2: rides, community_reports ─────────────────────────────────
-    // Se añaden en F6 y F7 respectivamente.
+    // ─── COLECCIÓN: community_reports [iter. 2 — CU-05/CU-06] ───────────
+    // Lectura pública para autenticados (mapa muestra reportes a todos).
+    // Validaciones de negocio (distancia, doble voto, voto propio, umbrales)
+    // las aplica FastAPI con Admin SDK antes de escribir.
+    match /community_reports/{reportId} {
+      allow read:   if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if false;
+    }
+
+    // ─── COLECCIÓN: rides [iter.2 — CU-04] ───────────────────────────────
+    // Buyer y vendor pueden leer su propia ride.
+    // La lógica de negocio (rol, máquina de estados, distancia) la aplica
+    // FastAPI con Admin SDK. El cliente solo lee para la TrackingScreen
+    // via Firestore listener (status, vendor_location updates).
+    match /rides/{rideId} {
+      allow read: if isAuthenticated()
+                  && (resource.data.buyer_uid == request.auth.uid
+                      || resource.data.vendor_uid == request.auth.uid);
+      allow write: if false;  // solo Admin SDK (FastAPI)
+    }
 
   }
 }

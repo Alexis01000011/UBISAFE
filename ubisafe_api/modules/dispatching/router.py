@@ -29,17 +29,23 @@ async def health() -> dict:
     return {"status": "ok"}
 
 
-@router.get("/", response_model=list[StopRequest])
+@router.get("", response_model=list[StopRequest])
 async def list_stops(current_user: dict = Depends(get_current_user)):
     return await FirestoreService.list_stop_requests(current_user["uid"])
 
 
-@router.post("/", response_model=StopRequest, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=StopRequest, status_code=status.HTTP_201_CREATED)
 async def create_stop(
     body: CreateStopRequestBody,
     current_user: dict = Depends(get_current_user),
 ):
     await _require_role(current_user["uid"], "BUYER")
+    busy = await FirestoreService.vendor_has_active_requests(body.vendor_uid)
+    if busy:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="vendor_not_available",
+        )
     doc = await FirestoreService.create_stop_request(current_user["uid"], body)
     asyncio.ensure_future(
         NotificationService.send_stop_incoming(
@@ -97,18 +103,67 @@ async def update_stop_status(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Stop request already in status '{updated_doc.status}'",
             )
+        asyncio.ensure_future(
+            NotificationService.send_stop_expired(updated_doc.buyer_uid, stop_id)
+        )
+        if updated_doc.vendor_uid:
+            asyncio.ensure_future(
+                NotificationService.send_stop_expired_vendor(updated_doc.vendor_uid, stop_id)
+            )
         return updated_doc
 
-    updated = await FirestoreService.update_stop_status(stop_id, body.status)
-    if updated is None:
+    extra: dict | None = None
+    if body.status == "accepted":
+        # Verify the vendor is not already handling another stop or ride before
+        # accepting.  exclude_stop_id skips this request so it doesn't count as
+        # a blocker against itself.
+        if doc.vendor_uid:
+            busy = await FirestoreService.vendor_has_active_requests(
+                doc.vendor_uid, exclude_stop_id=stop_id
+            )
+            if busy:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="vendor_already_busy",
+                )
+        extra = {"accepted_at": True}
+    elif body.status == "completed":
+        extra = {"completed_at": True}
+    elif body.status == "abandoned":
+        extra = None
+
+    # Use an atomic transaction to close the TOCTOU window between the
+    # VALID_TRANSITIONS check above and the Firestore write.  Without this,
+    # a concurrent 'expired' write committed between the two operations could
+    # be silently overwritten by a late-arriving 'accepted' write (B-new).
+    updated, was_updated = await FirestoreService.update_stop_status_if_in_state(
+        stop_id, doc.status, body.status, extra=extra
+    )
+    if updated is None and not was_updated:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stop request not found")
+    if not was_updated:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Stop request already in status '{updated.status}'",
+        )
 
     buyer_uid = updated.buyer_uid
+    vendor_uid = updated.vendor_uid
     if body.status == "accepted":
         asyncio.ensure_future(NotificationService.send_stop_accepted(buyer_uid, stop_id))
+        if body.route_warnings:
+            asyncio.ensure_future(
+                NotificationService.send_route_zone_warning(
+                    buyer_uid, stop_id, len(body.route_warnings), is_ride=False
+                )
+            )
     elif body.status == "rejected":
         asyncio.ensure_future(NotificationService.send_stop_rejected(buyer_uid, stop_id))
     elif body.status == "completed":
         asyncio.ensure_future(NotificationService.send_stop_completed(buyer_uid, stop_id))
+    elif body.status == "cancelled" and vendor_uid:
+        asyncio.ensure_future(NotificationService.send_stop_cancelled(vendor_uid, stop_id))
+    elif body.status == "abandoned":
+        asyncio.ensure_future(NotificationService.send_stop_abandoned(buyer_uid, stop_id))
 
     return updated

@@ -20,8 +20,12 @@ final userProfileProvider = FutureProvider<UserProfile?>((ref) async {
   try {
     final response = await dio.get<Map<String, dynamic>>('/auth/me');
     return UserProfile.fromJson(response.data!);
-  } on DioException catch (e) {
-    if (e.response?.statusCode == 404) return null;
-    rethrow;
+  } on DioException catch (_) {
+    // Any API or network error (404, 401 stale token, 500, timeout, connection
+    // refused) → return null so the Drawer degrades gracefully instead of
+    // entering the error state and showing the minimal fallback.
+    return null;
+  } catch (_) {
+    return null;
   }
 });

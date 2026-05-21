@@ -46,14 +46,16 @@ void main() {
     test('añade Bearer token cuando el usuario está logueado', () async {
       final mockUser = _MockUser();
       when(() => mockAuth.currentUser).thenReturn(mockUser);
-      when(() => mockUser.getIdToken(any())).thenAnswer((_) async => 'test.jwt.token');
+      when(() => mockUser.getIdToken(any()))
+          .thenAnswer((_) async => 'test.jwt.token');
 
       final options = RequestOptions(path: '/test');
       final handler = _FakeRequestHandler();
 
       await interceptor.onRequest(options, handler);
 
-      expect(handler.captured?.headers['Authorization'], equals('Bearer test.jwt.token'));
+      expect(handler.captured?.headers['Authorization'],
+          equals('Bearer test.jwt.token'));
     });
 
     test('onError no llama signOut y propaga el error', () {
@@ -77,7 +79,8 @@ void main() {
     test('hace signOut silencioso cuando getIdToken falla', () async {
       final mockUser = _MockUser();
       when(() => mockAuth.currentUser).thenReturn(mockUser);
-      when(() => mockUser.getIdToken(any())).thenThrow(Exception('token error'));
+      when(() => mockUser.getIdToken(any()))
+          .thenThrow(Exception('token error'));
       when(() => mockAuth.signOut()).thenAnswer((_) async {});
 
       final options = RequestOptions(path: '/test');

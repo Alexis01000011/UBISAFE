@@ -6,6 +6,8 @@ class UserProfile {
     this.role,
     this.email,
     this.fcmToken,
+    this.rideEnabled,
+    this.product,
   });
 
   final String uid;
@@ -14,6 +16,8 @@ class UserProfile {
   final String? role;
   final String? email;
   final String? fcmToken;
+  final bool? rideEnabled;
+  final String? product;
 
   factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(
         uid: json['uid'] as String,
@@ -22,5 +26,7 @@ class UserProfile {
         role: json['role'] as String?,
         email: json['email'] as String?,
         fcmToken: json['fcm_token'] as String?,
+        rideEnabled: json['ride_enabled'] as bool?,
+        product: json['product'] as String?,
       );
 }

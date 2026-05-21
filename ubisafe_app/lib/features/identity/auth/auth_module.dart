@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -17,8 +19,7 @@ class AuthModule {
   final FirebaseAuth _auth;
   final Dio _dio;
 
-  Future<String?> getCurrentToken() async =>
-      _auth.currentUser?.getIdToken();
+  Future<String?> getCurrentToken() async => _auth.currentUser?.getIdToken();
 
   /// Signs in and then syncs the profile timestamp + FCM token (SDD §8.4.B).
   Future<void> login({
@@ -35,9 +36,14 @@ class AuthModule {
       // otherwise we rethrow so the caller sees the real error.
       if (_auth.currentUser == null) rethrow;
     }
-    // Update updated_at on every login (SDD §8.4.B)
-    await _dio.post<dynamic>('/auth/sync-profile', data: <String, dynamic>{});
-    await _syncDeviceToken();
+    // Both calls are best-effort — run in the background so login() returns
+    // immediately after sign-in, preventing the UI from blocking on network.
+    unawaited(
+      _dio
+          .post<dynamic>('/auth/sync-profile', data: <String, dynamic>{})
+          .then<void>((_) {}, onError: (_) {}),
+    );
+    unawaited(_syncDeviceToken());
   }
 
   /// Creates a Firebase Auth account, syncs the profile to Firestore,
@@ -48,15 +54,24 @@ class AuthModule {
     required String role,
     required String email,
     required String password,
+    String? product,
   }) async {
-    await _auth.createUserWithEmailAndPassword(
-      email: email,
-      password: password,
-    );
+    try {
+      await _auth.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+    } catch (e) {
+      // firebase_auth 4.16.0 on Android: same Pigeon deserialisation bug as
+      // signIn — account IS created but a type-cast exception is thrown.
+      // If currentUser is not null the account exists — continue normally.
+      if (_auth.currentUser == null) rethrow;
+    }
     await _dio.post<dynamic>('/auth/sync-profile', data: {
       'name': name,
       'phone': phone,
       'role': role,
+      if (product != null) 'product': product,
     });
     await _syncDeviceToken();
   }

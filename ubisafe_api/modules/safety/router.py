@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from dependencies import get_current_user
 from modules.safety.schemas import CreateRiskZoneBody, RiskZone
@@ -12,7 +12,6 @@ from modules.shared.notification_service import NotificationService
 router = APIRouter()
 
 _VALID_RISK_LEVELS = {"HIGH", "MEDIUM", "LOW"}
-
 
 _EARTH_RADIUS_M = 6_371_000
 
@@ -28,8 +27,10 @@ def _haversine_meters(lat1: float, lng1: float, lat2: float, lng2: float) -> flo
     return 2 * _EARTH_RADIUS_M * math.asin(math.sqrt(a))
 
 
-def _bbox_delta(radius_meters: float) -> float:
-    return radius_meters / 111_000
+def _bbox_delta(radius_meters: float, lat: float) -> tuple[float, float]:
+    lat_delta = radius_meters / 111_000
+    lng_delta = radius_meters / (111_000 * math.cos(math.radians(lat)))
+    return lat_delta, lng_delta
 
 
 @router.get("/health")
@@ -37,7 +38,17 @@ async def health() -> dict:
     return {"status": "ok"}
 
 
-@router.post("/", response_model=RiskZone, status_code=status.HTTP_201_CREATED)
+@router.get("", response_model=list[RiskZone])
+async def list_risk_zones(
+    lat: float | None = Query(None),
+    lng: float | None = Query(None),
+    radius_km: float | None = Query(None),
+    current_user: dict = Depends(get_current_user),
+):
+    return await FirestoreService.get_active_risk_zones(lat, lng, radius_km)
+
+
+@router.post("", response_model=RiskZone, status_code=status.HTTP_201_CREATED)
 async def create_risk_zone(
     body: CreateRiskZoneBody,
     current_user: dict = Depends(get_current_user),
@@ -48,9 +59,9 @@ async def create_risk_zone(
             detail=f"risk_level must be one of {sorted(_VALID_RISK_LEVELS)}",
         )
 
-    delta = _bbox_delta(body.radius_meters)
+    lat_delta, lng_delta = _bbox_delta(body.radius_meters, body.location.lat)
     candidates = await FirestoreService.query_active_risk_zones_bbox(
-        body.location.lat, body.location.lng, delta
+        body.location.lat, body.location.lng, lat_delta, lng_delta
     )
     for cand in candidates:
         loc = cand.get("location") or {}
@@ -72,8 +83,10 @@ async def create_risk_zone(
 
     zone = await FirestoreService.create_risk_zone(current_user["uid"], body)
 
-    fcm_tokens = await FirestoreService.get_all_fcm_tokens()
     loc = zone.location
+    fcm_tokens = await FirestoreService.get_nearby_user_fcm_tokens(
+        loc.lat, loc.lng, radius_km=5.0
+    )
     await NotificationService.notify_risk_zone_alert(
         fcm_tokens,
         {
@@ -89,38 +102,6 @@ async def create_risk_zone(
     return zone
 
 
-@router.get("/", response_model=list[RiskZone])
-async def list_risk_zones(
-    lat: float,
-    lng: float,
-    radius_km: float = 5.0,
-    current_user: dict = Depends(get_current_user),
-):
-    delta = _bbox_delta(radius_km * 1000)
-    candidates = await FirestoreService.query_active_risk_zones_bbox(lat, lng, delta)
-    radius_m = radius_km * 1000
-    results = []
-    for cand in candidates:
-        loc = cand.get("location") or {}
-        dist = _haversine_meters(lat, lng, loc.get("lat", 0), loc.get("lng", 0))
-        if dist <= radius_m:
-            results.append(
-                RiskZone(
-                    id=cand["id"],
-                    reporter_uid=cand.get("reporter_uid", ""),
-                    threat_type=cand.get("threat_type", ""),
-                    risk_level=cand.get("risk_level", ""),
-                    location={"lat": loc.get("lat", 0), "lng": loc.get("lng", 0)},
-                    radius_meters=cand.get("radius_meters", 100),
-                    active=cand.get("active", True),
-                    created_at=cand.get("created_at"),
-                    expires_at=cand.get("expires_at"),
-                    expired_at=cand.get("expired_at"),
-                )
-            )
-    return results
-
-
 @router.delete("/{zone_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def expire_risk_zone(
     zone_id: str,
@@ -132,9 +113,14 @@ async def expire_risk_zone(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Zone not found",
         )
-    if zone.get("reporter_uid") != current_user["uid"]:
+    if zone.reporter_uid != current_user["uid"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only the reporter can expire this zone",
+        )
+    if not zone.active:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Risk zone is already expired",
         )
     await FirestoreService.expire_risk_zone(zone_id)

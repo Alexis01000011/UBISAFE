@@ -29,6 +29,7 @@ class CreateStopRequestBody(BaseModel):
 
 class UpdateStatusBody(BaseModel):
     status: str
+    route_warnings: list[str] = []
 
 
 # Valid state-machine transitions: (from_status, to_status) → required_role
@@ -36,5 +37,8 @@ VALID_TRANSITIONS: dict[tuple[str, str], str] = {
     ("pending", "accepted"): "VENDOR",
     ("pending", "rejected"): "VENDOR",
     ("pending", "expired"): "BUYER",
+    ("pending", "cancelled"): "BUYER",
     ("accepted", "completed"): "VENDOR",
+    ("accepted", "cancelled"): "BUYER",
+    ("accepted", "abandoned"): "VENDOR",
 }

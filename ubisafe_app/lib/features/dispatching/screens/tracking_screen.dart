@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -5,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../core/design_system/colors.dart';
+import '../../presence/models/vendor_marker.dart';
 import '../../presence/services/gps_service.dart';
 import '../../presence/services/vendor_tracker.dart';
 import '../../shared/notifications/notification_handler.dart';
@@ -38,11 +40,111 @@ class TrackingScreen extends ConsumerStatefulWidget {
 class _TrackingScreenState extends ConsumerState<TrackingScreen> {
   String? _vendorUid;
 
+  // Last known vendor position — shown as a frozen orange marker when the
+  // vendor goes offline (RTDB timestamp stops updating or node disappears).
+  LatLng? _lastKnownVendorPos;
+
+  // True once the "tracking paused" snackbar has been shown for the current
+  // offline event; reset when the vendor comes back online.
+  bool _vendorOfflineNotified = false;
+
+  // Fires every 10 s to detect when the RTDB timestamp stops updating
+  // (vendor lost internet but onDisconnect didn't fire — e.g., emulator via
+  // ADB tunnel stays alive when mobile data is off).
+  Timer? _stalenessTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.stopRequestId != null) {
+      // Belt-and-suspenders: cancel the 60-second expiry timer that
+      // StopRequestModule started when the buyer sent the stop request.
+      // map_screen_buyer.dart already calls cancelTimer() on the accepted FCM
+      // event, but if FCM and the timer race (FCM arrives within the last ~1s),
+      // the timer callback fires anyway and hits a 400 on the already-accepted
+      // stop.  Cancelling here guarantees the timer is dead before it can fire.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) ref.read(stopRequestModuleProvider).cancelTimer();
+      });
+    }
+    // Show route_zone_warning if it arrived before this screen was pushed.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final warning = ref.read(routeZoneWarningProvider);
+      if (warning != null) {
+        _showRouteZoneSnackbar(warning);
+        ref.read(routeZoneWarningProvider.notifier).state = null;
+      }
+    });
+    _stalenessTimer = Timer.periodic(const Duration(seconds: 10), (_) => _checkStaleness());
+  }
+
+  @override
+  void dispose() {
+    _stalenessTimer?.cancel();
+    super.dispose();
+  }
+
+  /// Checks whether the tracked vendor's RTDB timestamp stopped updating —
+  /// primary offline-detection mechanism when onDisconnect doesn't fire.
+  void _checkStaleness() {
+    if (!mounted || _vendorUid == null) return;
+    final uid = _vendorUid!;
+    final vendors = ref.read(vendorMarkersProvider).valueOrNull;
+    if (vendors == null) return;
+
+    VendorMarker? vendor;
+    try {
+      vendor = vendors.firstWhere((v) => v.uid == uid);
+    } catch (_) {}
+
+    if (vendor != null) {
+      // Vendor is still in RTDB — check if timestamp went stale.
+      final ts = vendor.lastTimestamp;
+      if (ts != null) {
+        final ageMs = DateTime.now().millisecondsSinceEpoch - ts;
+        if (ageMs > 30000) {
+          _notifyVendorOffline();
+        } else {
+          // Timestamp is fresh — vendor is live, reset the offline flag.
+          _vendorOfflineNotified = false;
+        }
+      } else {
+        // No timestamp field — treat as live.
+        _vendorOfflineNotified = false;
+      }
+    } else if (_lastKnownVendorPos != null) {
+      // Vendor node was removed (onDisconnect or stopTransmission) — show orange marker.
+      _notifyVendorOffline();
+    }
+  }
+
+  void _notifyVendorOffline() {
+    if (_vendorOfflineNotified) return;
+    _vendorOfflineNotified = true;
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('El seguimiento en tiempo real se ha pausado.'),
+        duration: Duration(seconds: 6),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final positionAsync = ref.watch(gpsServiceProvider);
     final vendorsAsync = ref.watch(vendorMarkersProvider);
     final stopId = widget.stopRequestId ?? '';
+
+    // Route zone warning — may arrive after navigation to this screen.
+    ref.listen<Map<String, dynamic>?>(routeZoneWarningProvider, (_, data) {
+      if (data == null) return;
+      _showRouteZoneSnackbar(data);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) ref.read(routeZoneWarningProvider.notifier).state = null;
+      });
+    });
 
     // Unconditional listener — stop request status changes (completed)
     ref.listen<StopEvent?>(stopRequestEventProvider, (_, event) {
@@ -50,6 +152,7 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
       if (event.stopId != stopId) return;
       if (event.status == StopRequestStatus.completed) {
         ref.read(stopRequestEventProvider.notifier).state = null;
+        if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('¡El vendedor llegó!'),
@@ -57,19 +160,62 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
           ),
         );
         Navigator.of(context).pop();
+      } else if (event.status == StopRequestStatus.abandoned) {
+        ref.read(stopRequestEventProvider.notifier).state = null;
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('El vendedor abandonó la aplicación.'),
+            backgroundColor: AppColors.warning500,
+          ),
+        );
+        Navigator.of(context).pop();
       }
     });
 
-    // Unconditional listener — derive vendor_uid from Firestore stream
+    // Unconditional listener — derive vendor_uid from Firestore stream.
+    // Seeds _lastKnownVendorPos immediately so the orange marker has a position
+    // to fall back to even if vendorMarkersProvider doesn't emit again (G05).
     ref.listen<AsyncValue<StopRequest?>>(
       _stopRequestStreamProvider(stopId),
       (_, asyncStop) {
         final stop = asyncStop.valueOrNull;
         if (stop?.vendorUid != null && _vendorUid == null) {
-          setState(() => _vendorUid = stop!.vendorUid);
+          final uid = stop!.vendorUid!;
+          setState(() {
+            _vendorUid = uid;
+            VendorMarker? v;
+            try {
+              v = ref
+                  .read(vendorMarkersProvider)
+                  .valueOrNull
+                  ?.firstWhere((m) => m.uid == uid);
+            } catch (_) {}
+            if (v != null) {
+              _lastKnownVendorPos = LatLng(v.latitude, v.longitude);
+            }
+          });
         }
       },
     );
+
+    // Keep _lastKnownVendorPos fresh so the frozen marker is always accurate.
+    // Notification logic lives in _checkStaleness() (timer) instead of here
+    // to handle both cases: stale RTDB node AND disappeared node.
+    ref.listen<AsyncValue<List<VendorMarker>>>(vendorMarkersProvider, (_, next) {
+      final uid = _vendorUid;
+      if (uid == null) return;
+      VendorMarker? vendor;
+      try {
+        vendor = next.valueOrNull?.firstWhere((v) => v.uid == uid);
+      } catch (_) {}
+      if (vendor != null) {
+        setState(() {
+          _lastKnownVendorPos = LatLng(vendor!.latitude, vendor.longitude);
+        });
+        _vendorOfflineNotified = false;
+      }
+    });
 
     return Scaffold(
       appBar: AppBar(
@@ -86,40 +232,47 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
             zoom: 16,
           );
 
-          final vendorMarker = _vendorUid == null
-              ? null
-              : vendorsAsync.maybeWhen(
-                  data: (vendors) {
-                    try {
-                      return vendors.firstWhere((v) => v.uid == _vendorUid);
-                    } catch (_) {
-                      return null;
-                    }
-                  },
-                  orElse: () => null,
-                );
+          // Live vendor position from RTDB (null when offline or not yet loaded).
+          VendorMarker? vendorMarker;
+          if (_vendorUid != null) {
+            try {
+              vendorMarker = vendorsAsync.valueOrNull
+                  ?.firstWhere((v) => v.uid == _vendorUid);
+            } catch (_) {}
+          }
+
+          // Display position: prefer live, fallback to cached last-known.
+          final displayPos = vendorMarker != null
+              ? LatLng(vendorMarker.latitude, vendorMarker.longitude)
+              : _lastKnownVendorPos;
 
           final markers = <Marker>{};
-          if (vendorMarker != null) {
+          if (displayPos != null) {
+            final isLive = vendorMarker != null;
             markers.add(
               Marker(
                 markerId: const MarkerId('tracked_vendor'),
-                position: LatLng(vendorMarker.latitude, vendorMarker.longitude),
+                position: displayPos,
+                // Blue = live position. Orange = last-known (vendor offline).
                 icon: BitmapDescriptor.defaultMarkerWithHue(
-                  BitmapDescriptor.hueBlue,
+                  isLive
+                      ? BitmapDescriptor.hueBlue
+                      : BitmapDescriptor.hueOrange,
                 ),
-                infoWindow: const InfoWindow(title: 'Vendedor'),
+                infoWindow: InfoWindow(
+                  title: isLive ? 'Vendedor' : 'Última posición conocida',
+                ),
               ),
             );
           }
 
-          final distanceKm = vendorMarker == null
+          final distanceKm = displayPos == null
               ? null
               : _haversineKm(
                   position.latitude,
                   position.longitude,
-                  vendorMarker.latitude,
-                  vendorMarker.longitude,
+                  displayPos.latitude,
+                  displayPos.longitude,
                 );
 
           return Stack(
@@ -180,6 +333,20 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
     );
   }
 
+  void _showRouteZoneSnackbar(Map<String, dynamic> data) {
+    if (!context.mounted) return;
+    final zoneCount = data['zone_count'] as String? ?? '?';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'La ruta del vendedor pasa por $zoneCount zona(s) de riesgo MEDIO.',
+        ),
+        backgroundColor: AppColors.warning500,
+        duration: const Duration(seconds: 8),
+      ),
+    );
+  }
+
   Future<void> _confirmCancel(BuildContext context) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -202,8 +369,14 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
     final stopId = widget.stopRequestId;
     if (stopId != null) {
       try {
-        await ref.read(stopRequestModuleProvider).expireStopRequest(stopId);
-      } catch (_) {}
+        await ref.read(stopRequestModuleProvider).cancelStopRequest(stopId);
+      } catch (e) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al cancelar: $e')),
+        );
+        return;
+      }
     }
     if (context.mounted) Navigator.of(context).pop();
   }
