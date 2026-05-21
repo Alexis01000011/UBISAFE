@@ -52,7 +52,9 @@ async def validate_report(
         )
 
     try:
-        updated = await FirestoreService.vote_community_report(report_id, voter_uid, body.vote.value)
+        updated = await FirestoreService.vote_community_report(
+            report_id, voter_uid, body.vote.value
+        )
     except VoteConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.detail)
 

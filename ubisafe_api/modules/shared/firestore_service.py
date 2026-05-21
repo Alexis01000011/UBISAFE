@@ -134,7 +134,9 @@ class FirestoreService:
         return cls._doc_to_stop_request(doc)
 
     @classmethod
-    async def update_stop_status(cls, stop_id: str, new_status: str, extra: dict | None = None) -> StopRequest | None:
+    async def update_stop_status(
+        cls, stop_id: str, new_status: str, extra: dict | None = None
+    ) -> StopRequest | None:
         ref = cls._db().collection("stop_requests").document(stop_id)
         doc = ref.get()
         if not doc.exists:
@@ -394,7 +396,7 @@ class FirestoreService:
     async def has_pending_report_within(
         cls, lat: float, lng: float, radius_m: float, threat_type: str
     ) -> bool:
-        """Return True if a pending_validation report of the same threat_type exists within radius_m metres."""
+        """True if a pending_validation report of the same threat_type exists within radius_m."""
         radius_km = radius_m / 1000.0
         docs = (
             cls._db()
