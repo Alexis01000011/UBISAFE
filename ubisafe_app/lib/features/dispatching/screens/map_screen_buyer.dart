@@ -19,6 +19,7 @@ import '../../safety/models/risk_zone.dart';
 import '../../safety/screens/risk_form_bottom_sheet.dart';
 import '../../safety/services/risk_zone_service.dart';
 import '../../shared/notifications/notification_handler.dart';
+import '../../shared/subscriptions/services/subscription_module.dart';
 import '../../shared/widgets/gps_required_empty_state.dart';
 import '../models/stop_request.dart';
 import '../services/ride_request_module.dart';
@@ -947,12 +948,99 @@ class _WaitingOverlay extends StatelessWidget {
   }
 }
 
-class _VendorBottomSheet extends StatelessWidget {
-  const _VendorBottomSheet(
-      {required this.vendorUid, required this.rideEnabled});
+class _VendorBottomSheet extends ConsumerStatefulWidget {
+  const _VendorBottomSheet({
+    required this.vendorUid,
+    required this.rideEnabled,
+  });
 
   final String vendorUid;
   final bool rideEnabled;
+
+  @override
+  ConsumerState<_VendorBottomSheet> createState() => _VendorBottomSheetState();
+}
+
+class _VendorBottomSheetState extends ConsumerState<_VendorBottomSheet> {
+  bool _subscriptionLoading = true;
+  bool? _isSubscribed;
+  String? _subscriptionId;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSubscriptionState();
+  }
+
+  Future<void> _loadSubscriptionState() async {
+    try {
+      final subs = await ref.read(subscriptionModuleProvider).listActive();
+      final match =
+          subs.where((s) => s.vendorUid == widget.vendorUid).firstOrNull;
+      if (!mounted) return;
+      setState(() {
+        _isSubscribed = match != null;
+        _subscriptionId = match?.id;
+        _subscriptionLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _subscriptionLoading = false);
+    }
+  }
+
+  Future<void> _toggleSubscription() async {
+    final prev = _isSubscribed;
+    final prevId = _subscriptionId;
+    if (prev == null) return;
+
+    // Soft warning before subscribing
+    if (!prev) {
+      try {
+        final subs = await ref.read(subscriptionModuleProvider).listActive();
+        if (subs.length >= 10) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Tienes muchas suscripciones — podrías recibir muchas notificaciones.',
+              ),
+            ),
+          );
+        }
+      } catch (_) {}
+    }
+
+    // Optimistic update (R-F9)
+    setState(() {
+      _isSubscribed = !prev;
+      if (prev) _subscriptionId = null;
+    });
+
+    try {
+      if (prev) {
+        await ref.read(subscriptionModuleProvider).unsubscribe(prevId!);
+      } else {
+        final sub = await ref
+            .read(subscriptionModuleProvider)
+            .subscribe(widget.vendorUid);
+        if (!mounted) return;
+        setState(() => _subscriptionId = sub.id);
+      }
+    } catch (_) {
+      // Rollback on error
+      if (!mounted) return;
+      setState(() {
+        _isSubscribed = prev;
+        _subscriptionId = prevId;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Error al actualizar suscripción. Intenta de nuevo.'),
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -993,7 +1081,7 @@ class _VendorBottomSheet extends StatelessWidget {
             label: const Text('Solicitar Parada'),
             onPressed: () => Navigator.of(context).pop('stop'),
           ),
-          if (rideEnabled) ...[
+          if (widget.rideEnabled) ...[
             const SizedBox(height: 10),
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
@@ -1006,6 +1094,29 @@ class _VendorBottomSheet extends StatelessWidget {
               onPressed: () => Navigator.of(context).pop('ride'),
             ),
           ],
+          const SizedBox(height: 10),
+          if (_subscriptionLoading)
+            const Center(
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            )
+          else
+            OutlinedButton.icon(
+              icon: Icon(
+                _isSubscribed == true
+                    ? Icons.bookmark_remove
+                    : Icons.bookmark_add,
+              ),
+              label: Text(
+                _isSubscribed == true
+                    ? 'Cancelar suscripción'
+                    : 'Suscribirme',
+              ),
+              onPressed: _toggleSubscription,
+            ),
           const SizedBox(height: 8),
           TextButton(
             onPressed: () => Navigator.of(context).pop(null),

@@ -125,6 +125,15 @@ class _DrawerModuleState extends ConsumerState<DrawerModule> {
                         context.push('/community/reports');
                       },
                     ),
+                    if (!isVendor)
+                      _buildDrawerItem(
+                        icon: Icons.bookmark_outline,
+                        title: 'Mis suscripciones',
+                        onTap: () {
+                          Navigator.pop(context);
+                          context.push('/subscriptions');
+                        },
+                      ),
                     if (isVendor) ...[
                       const Padding(
                         padding: EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),

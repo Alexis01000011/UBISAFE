@@ -18,6 +18,7 @@ from modules.dispatching.schemas import CreateStopRequestBody, StopRequest
 from modules.identity.schemas import SyncProfileRequest, UserProfile
 from modules.safety.schemas import CreateRiskZoneBody, RiskZone
 from modules.shared.firebase_admin_init import FirebaseAdminInit
+from modules.shared.subscription_schemas import Subscription
 
 _RISK_ZONE_TTL_HOURS = 24
 _COMMUNITY_REPORT_TTL_HOURS = 24
@@ -696,4 +697,67 @@ class FirestoreService:
                 "updated_at": SERVER_TIMESTAMP,
             },
             merge=True,
+        )
+
+    # -------------------------------------------------- subscriptions
+    @classmethod
+    def _doc_to_subscription(cls, doc: Any) -> Subscription:
+        raw = doc.to_dict() or {}
+        for field in ("created_at", "cancelled_at"):
+            val = raw.get(field)
+            if val is None:
+                continue
+            if hasattr(val, "isoformat"):
+                raw[field] = val.isoformat()
+            elif hasattr(val, "timestamp"):
+                raw[field] = datetime.fromtimestamp(val.timestamp(), tz=UTC).isoformat()
+        return Subscription(id=doc.id, **raw)
+
+    @classmethod
+    async def get_subscription(cls, subscription_id: str) -> Subscription | None:
+        doc = cls._db().collection("subscriptions").document(subscription_id).get()
+        if not doc.exists:
+            return None
+        return cls._doc_to_subscription(doc)
+
+    @classmethod
+    async def create_subscription(cls, buyer_uid: str, vendor_uid: str) -> Subscription:
+        doc_id = f"{buyer_uid}_{vendor_uid}"
+        ref = cls._db().collection("subscriptions").document(doc_id)
+        doc = ref.get()
+        if doc.exists:
+            ref.update({"active": True, "cancelled_at": None, "cancellation_reason": None})
+        else:
+            ref.set(
+                {
+                    "buyer_uid": buyer_uid,
+                    "vendor_uid": vendor_uid,
+                    "active": True,
+                    "created_at": SERVER_TIMESTAMP,
+                    "cancelled_at": None,
+                    "cancellation_reason": None,
+                }
+            )
+        doc = ref.get()
+        return cls._doc_to_subscription(doc)
+
+    @classmethod
+    async def list_active_subscriptions(cls, buyer_uid: str) -> list[Subscription]:
+        docs = (
+            cls._db()
+            .collection("subscriptions")
+            .where("buyer_uid", "==", buyer_uid)
+            .where("active", "==", True)
+            .stream()
+        )
+        return [cls._doc_to_subscription(d) for d in docs]
+
+    @classmethod
+    async def cancel_subscription(cls, subscription_id: str, reason: str) -> None:
+        cls._db().collection("subscriptions").document(subscription_id).update(
+            {
+                "active": False,
+                "cancelled_at": SERVER_TIMESTAMP,
+                "cancellation_reason": reason,
+            }
         )

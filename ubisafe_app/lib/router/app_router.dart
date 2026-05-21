@@ -17,6 +17,7 @@ import '../features/identity/auth/screens/splash_screen.dart';
 import '../features/identity/auth/screens/welcome_screen.dart';
 import '../features/identity/profile/screens/history_screen.dart';
 import '../features/identity/profile/screens/profile_screen.dart';
+import '../features/shared/subscriptions/screens/subscriptions_screen.dart';
 
 /// Auth-guard paths — allowed without a session.
 const _authPaths = {
@@ -83,6 +84,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       // ── Drawer ─────────────────────────────────────────────────────────
       GoRoute(path: '/profile', builder: (_, __) => const ProfileScreen()),
       GoRoute(path: '/history', builder: (_, __) => const HistoryScreen()),
+      GoRoute(
+        path: '/subscriptions',
+        builder: (_, __) => const SubscriptionsScreen(),
+      ),
 
       // ── Dispatching ────────────────────────────────────────────────────
       GoRoute(path: '/home/buyer', builder: (_, __) => const MapScreenBuyer()),
