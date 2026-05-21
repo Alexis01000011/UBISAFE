@@ -46,11 +46,19 @@ class _CommunityFormBottomSheetState
     extends ConsumerState<CommunityFormBottomSheet> {
   String? _threatType;
   bool _loading = false;
+  final _descriptionController = TextEditingController();
 
   static const _threatOptions = [
     ('animal_muerto', 'Animal muerto'),
     ('zona_sucia', 'Zona sucia / Basura'),
+    ('lote_baldio', 'Lote baldío'),
   ];
+
+  @override
+  void dispose() {
+    _descriptionController.dispose();
+    super.dispose();
+  }
 
   Future<void> _submit() async {
     if (_threatType == null) return;
@@ -60,6 +68,10 @@ class _CommunityFormBottomSheetState
             threatType: _threatType!,
             lat: widget.currentLat,
             lng: widget.currentLng,
+            description: _threatType == 'lote_baldio' &&
+                    _descriptionController.text.isNotEmpty
+                ? _descriptionController.text.trim()
+                : null,
           );
 
       await ref.read(activeCommunityReportsProvider.notifier).refresh();
@@ -152,6 +164,22 @@ class _CommunityFormBottomSheetState
                 .toList(),
             onChanged: (v) => setState(() => _threatType = v),
           ),
+          if (_threatType == 'lote_baldio') ...[
+            const SizedBox(height: 12),
+            TextField(
+              controller: _descriptionController,
+              maxLength: 200,
+              maxLines: 2,
+              decoration: InputDecoration(
+                labelText: 'Descripción (opcional)',
+                hintText: 'Describe brevemente el problema...',
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8)),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              ),
+            ),
+          ],
           const SizedBox(height: 16),
           // Location chip (readonly — GPS auto-captured)
           Row(

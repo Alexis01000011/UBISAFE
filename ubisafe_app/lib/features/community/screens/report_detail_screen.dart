@@ -22,12 +22,104 @@ class ReportDetailScreen extends ConsumerStatefulWidget {
 
 class _ReportDetailScreenState extends ConsumerState<ReportDetailScreen> {
   bool _voting = false;
+  bool _supporting = false;
+  bool _resolving = false;
   CommunityReport? _current;
 
   @override
   void initState() {
     super.initState();
     _current = widget.report;
+  }
+
+  Future<void> _support() async {
+    final snapshot = _current!;
+    setState(() {
+      _supporting = true;
+      // optimistic update
+      _current = CommunityReport(
+        id: snapshot.id,
+        reporterUid: snapshot.reporterUid,
+        threatType: snapshot.threatType,
+        latitude: snapshot.latitude,
+        longitude: snapshot.longitude,
+        radiusMeters: snapshot.radiusMeters,
+        status: snapshot.status,
+        validations: snapshot.validations,
+        confirmCount: snapshot.confirmCount,
+        dismissCount: snapshot.dismissCount,
+        isDuplicate: snapshot.isDuplicate,
+        canonicalReportId: snapshot.canonicalReportId,
+        createdAt: snapshot.createdAt,
+        updatedAt: snapshot.updatedAt,
+        expiresAt: snapshot.expiresAt,
+        description: snapshot.description,
+        supportCount: snapshot.supportCount + 1,
+        supporters: [...snapshot.supporters, ref.read(authStateProvider).valueOrNull?.uid ?? ''],
+        pendingResolverUid: snapshot.pendingResolverUid,
+        resolvedAt: snapshot.resolvedAt,
+        resolvedByUid: snapshot.resolvedByUid,
+      );
+    });
+    try {
+      final updated = await ref
+          .read(communityReportModuleProvider)
+          .supportReport(snapshot.id);
+      if (!mounted) return;
+      setState(() => _current = updated);
+      unawaited(ref.read(activeCommunityReportsProvider.notifier).refresh());
+    } on DioException catch (e) {
+      if (!mounted) return;
+      setState(() => _current = snapshot);
+      final detail = (e.response?.data as Map?)?['detail'] as String?;
+      final msg = switch (detail) {
+        'already_supported' => 'Ya apoyaste este reporte.',
+        final String s when s.startsWith('report_status_is_') =>
+          'Este lote ya no está disponible para apoyar.',
+        _ => 'Error al apoyar. Intenta de nuevo.',
+      };
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    } on Exception catch (_) {
+      if (!mounted) return;
+      setState(() => _current = snapshot);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Error de conexión. Intenta de nuevo.')),
+      );
+    } finally {
+      if (mounted) setState(() => _supporting = false);
+    }
+  }
+
+  Future<void> _resolve() async {
+    setState(() => _resolving = true);
+    try {
+      final updated = await ref
+          .read(communityReportModuleProvider)
+          .resolveLot(_current!.id);
+      if (!mounted) return;
+      setState(() => _current = updated);
+      unawaited(ref.read(activeCommunityReportsProvider.notifier).refresh());
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Lote marcado como resuelto.')),
+      );
+    } on DioException catch (e) {
+      if (!mounted) return;
+      final detail = (e.response?.data as Map?)?['detail'] as String?;
+      final msg = switch (detail) {
+        'not_pending_resolver' => 'Solo el tercer apoyo puede marcar como resuelto.',
+        final String s when s.startsWith('report_status_is_') =>
+          'Este lote ya fue resuelto.',
+        _ => 'Error al resolver. Intenta de nuevo.',
+      };
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    } on Exception catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Error de conexión. Intenta de nuevo.')),
+      );
+    } finally {
+      if (mounted) setState(() => _resolving = false);
+    }
   }
 
   Future<void> _vote(String vote) async {
@@ -70,24 +162,39 @@ class _ReportDetailScreenState extends ConsumerState<ReportDetailScreen> {
     final currentUser = ref.watch(authStateProvider).valueOrNull;
     final currentUid = currentUser?.uid ?? '';
 
-    final typeLabel = report.threatType == ThreatType.animalMuerto
-        ? 'Animal muerto'
-        : 'Zona sucia';
-    final iconColor = report.threatType == ThreatType.animalMuerto
-        ? AppColors.neutral900
-        : const Color(0xFF795548);
+    final isLote = report.threatType == ThreatType.loteBaldio;
+    final typeLabel = switch (report.threatType) {
+      ThreatType.animalMuerto => 'Animal muerto',
+      ThreatType.zonaSucia => 'Zona sucia',
+      ThreatType.loteBaldio => 'Lote baldío',
+    };
+    final iconColor = switch (report.threatType) {
+      ThreatType.animalMuerto => AppColors.neutral900,
+      ThreatType.zonaSucia => const Color(0xFF795548),
+      ThreatType.loteBaldio => const Color(0xFF6D4C41),
+    };
     final statusLabel = switch (report.status) {
       ReportStatus.pendingValidation => 'Pendiente de validación',
       ReportStatus.confirmed => 'Validado',
       ReportStatus.dismissed => 'Descartado',
       ReportStatus.expired => 'Expirado',
+      ReportStatus.resolved => 'Resuelto',
     };
 
     final isReporter = report.reporterUid == currentUid;
     final alreadyVoted =
         report.validations.any((v) => v['user_uid'] == currentUid);
-    final canVote = !isReporter &&
+    final canVote = !isLote &&
+        !isReporter &&
         !alreadyVoted &&
+        report.status == ReportStatus.pendingValidation;
+
+    final alreadySupported = report.supporters.contains(currentUid);
+    final canSupport = isLote &&
+        !alreadySupported &&
+        report.status == ReportStatus.pendingValidation;
+    final canResolve = isLote &&
+        report.pendingResolverUid == currentUid &&
         report.status == ReportStatus.pendingValidation;
 
     return Scaffold(
@@ -116,8 +223,57 @@ class _ReportDetailScreenState extends ConsumerState<ReportDetailScreen> {
               const SizedBox(height: 8),
               const Chip(label: Text('Reporte agrupado')),
             ],
+            if (isLote) ...[
+              _InfoRow(
+                label: 'Apoyos',
+                value: report.supportCount.toString(),
+              ),
+              if (report.description != null && report.description!.isNotEmpty)
+                _InfoRow(label: 'Descripción', value: report.description!),
+            ],
             const Divider(height: 32),
-            if (!canVote) ...[
+            if (isLote) ...[
+              if (canSupport)
+                FilledButton.icon(
+                  onPressed: _supporting ? null : _support,
+                  icon: _supporting
+                      ? const SizedBox(
+                          height: 18,
+                          width: 18,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Icon(Icons.thumb_up_outlined),
+                  label: const Text('Apoyar'),
+                )
+              else if (alreadySupported)
+                const Text(
+                  'Ya apoyaste este lote.',
+                  style: TextStyle(color: AppColors.textSecondary),
+                )
+              else if (report.status != ReportStatus.pendingValidation)
+                Text(
+                  statusLabel,
+                  style: const TextStyle(color: AppColors.textSecondary),
+                ),
+              if (canResolve) ...[
+                const SizedBox(height: 12),
+                FilledButton.icon(
+                  onPressed: _resolving ? null : _resolve,
+                  style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF388E3C)),
+                  icon: _resolving
+                      ? const SizedBox(
+                          height: 18,
+                          width: 18,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Icon(Icons.check_circle_outline),
+                  label: const Text('Marcar como resuelto'),
+                ),
+              ],
+            ] else if (!canVote) ...[
               Text(
                 isReporter
                     ? 'No puedes votar en tu propio reporte.'

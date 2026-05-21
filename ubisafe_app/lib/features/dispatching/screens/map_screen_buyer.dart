@@ -103,6 +103,16 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
       );
     });
 
+    ref.listen<Map<String, dynamic>?>(vendorProximityAlertProvider, (_, alert) {
+      if (alert == null || !context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Un vendedor al que estás suscrito está cerca'),
+          duration: Duration(seconds: 5),
+        ),
+      );
+    });
+
     // Listen for FCM events (accepted/rejected/expired)
     ref.listen<StopEvent?>(stopRequestEventProvider, (_, event) {
       if (event == null) return;
@@ -355,7 +365,8 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
               .where((r) =>
                   !r.isDuplicate &&
                   r.status != ReportStatus.expired &&
-                  r.status != ReportStatus.dismissed)
+                  r.status != ReportStatus.dismissed &&
+                  r.status != ReportStatus.resolved)
               .map((r) => _communityReportToMarker(r, context))
               .toSet();
 
@@ -728,12 +739,16 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
   // Flujo 9.6.C: duplicates are hidden; canonical pin opens ReportDetailScreen.
   Marker _communityReportToMarker(
       CommunityReport report, BuildContext context) {
-    final hue = report.threatType == ThreatType.animalMuerto
-        ? BitmapDescriptor.hueRose // closest to black in Maps SDK hues
-        : BitmapDescriptor.hueOrange; // café approximation
-    final label = report.threatType == ThreatType.animalMuerto
-        ? 'Animal muerto'
-        : 'Zona sucia';
+    final hue = switch (report.threatType) {
+      ThreatType.animalMuerto => BitmapDescriptor.hueRose,
+      ThreatType.zonaSucia => BitmapDescriptor.hueOrange,
+      ThreatType.loteBaldio => BitmapDescriptor.hueYellow,
+    };
+    final label = switch (report.threatType) {
+      ThreatType.animalMuerto => 'Animal muerto',
+      ThreatType.zonaSucia => 'Zona sucia',
+      ThreatType.loteBaldio => 'Lote baldío',
+    };
     final statusLabel = report.status == ReportStatus.confirmed
         ? ' · Validado'
         : ' · Pendiente';
@@ -1012,6 +1027,7 @@ class _VendorBottomSheetState extends ConsumerState<_VendorBottomSheet> {
     }
 
     // Optimistic update (R-F9)
+    if (!mounted) return;
     setState(() {
       _isSubscribed = !prev;
       if (prev) _subscriptionId = null;

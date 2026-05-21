@@ -10,6 +10,7 @@ from modules.community.schemas import (
     CommunityReport,
     CreateCommunityReportBody,
     ReportStatus,
+    ThreatType,
     Validation,
     ValidationVerdict,
 )
@@ -359,8 +360,10 @@ class FirestoreService:
                 )
             )
         raw["validations"] = [v.model_dump() for v in validations]
-        for field in ("created_at", "updated_at", "expires_at"):
+        for field in ("created_at", "updated_at", "expires_at", "resolved_at"):
             val = raw.get(field)
+            if val is None:
+                continue
             if hasattr(val, "isoformat"):
                 raw[field] = val.isoformat()
             elif hasattr(val, "timestamp"):
@@ -389,6 +392,13 @@ class FirestoreService:
             "updated_at": SERVER_TIMESTAMP,
             "expires_at": expires_at,
         }
+        if body.threat_type == ThreatType.lote_baldio:
+            data["description"] = body.description
+            data["support_count"] = 0
+            data["supporters"] = []
+            data["pending_resolver_uid"] = None
+            data["resolved_at"] = None
+            data["resolved_by_uid"] = None
         _, ref = cls._db().collection("community_reports").add(data)
         doc = ref.get()
         return cls._doc_to_community_report(doc)
@@ -512,6 +522,51 @@ class FirestoreService:
             transaction.update(ref, update)
 
         _txn(db.transaction())
+        return cls._doc_to_community_report(ref.get())
+
+    @classmethod
+    async def support_community_report(cls, report_id: str, uid: str) -> CommunityReport:
+        """Atomically append a supporter UID and set pending_resolver_uid at the 3rd support."""
+        from google.cloud.firestore import transactional as fs_transactional  # noqa: PLC0415
+
+        db = cls._db()
+        ref = db.collection("community_reports").document(report_id)
+
+        @fs_transactional
+        def _txn(transaction):
+            doc = ref.get(transaction=transaction)
+            data = doc.to_dict() or {}
+
+            if data.get("status") != ReportStatus.pending_validation.value:
+                raise VoteConflictError(f"report_status_is_{data.get('status', 'unknown')}")
+            if uid in (data.get("supporters") or []):
+                raise VoteConflictError("already_supported")
+
+            supporters = list(data.get("supporters") or [])
+            supporters.append(uid)
+            support_count = len(supporters)
+            update: dict[str, Any] = {
+                "supporters": supporters,
+                "support_count": support_count,
+                "updated_at": SERVER_TIMESTAMP,
+            }
+            if support_count >= 3 and data.get("pending_resolver_uid") is None:
+                update["pending_resolver_uid"] = uid
+            transaction.update(ref, update)
+
+        _txn(db.transaction())
+        return cls._doc_to_community_report(ref.get())
+
+    @classmethod
+    async def resolve_community_report(cls, report_id: str, uid: str) -> CommunityReport:
+        """Mark a lote_baldio report as resolved."""
+        ref = cls._db().collection("community_reports").document(report_id)
+        ref.update({
+            "status": ReportStatus.resolved.value,
+            "resolved_at": SERVER_TIMESTAMP,
+            "resolved_by_uid": uid,
+            "updated_at": SERVER_TIMESTAMP,
+        })
         return cls._doc_to_community_report(ref.get())
 
     # ------------------------------------------------------------------ rides
@@ -696,6 +751,13 @@ class FirestoreService:
                 "last_location_at": SERVER_TIMESTAMP,
                 "updated_at": SERVER_TIMESTAMP,
             },
+            merge=True,
+        )
+
+    @classmethod
+    async def update_radar_status(cls, uid: str, is_active_radar: bool) -> None:
+        cls._db().collection("users").document(uid).set(
+            {"is_active_radar": is_active_radar, "updated_at": SERVER_TIMESTAMP},
             merge=True,
         )
 

@@ -45,6 +45,16 @@ final routeZoneWarningProvider =
 final communityReportAlertProvider =
     StateProvider<Map<String, dynamic>?>((ref) => null);
 
+/// Carries the FCM payload of a vendor_proximity_alert event so map screens
+/// can show a SnackBar when a subscribed vendor activates their radar.
+final vendorProximityAlertProvider =
+    StateProvider<Map<String, dynamic>?>((ref) => null);
+
+/// Carries the FCM payload of a lot_resolved event so map screens can remove
+/// the resolved lote_baldio marker without waiting for the next poll.
+final lotResolvedProvider =
+    StateProvider<Map<String, dynamic>?>((ref) => null);
+
 class RideEvent {
   const RideEvent(this.rideId, this.type);
   final String rideId;
@@ -74,6 +84,8 @@ class NotificationHandler {
     required void Function(Map<String, dynamic>?) setIncomingRide,
     required void Function(RideEvent?) setRideEvent,
     required void Function(Map<String, dynamic>?) onRouteZoneWarning,
+    required void Function(Map<String, dynamic>) onVendorProximityAlert,
+    required void Function(Map<String, dynamic>) onLotResolved,
   })  : _setIncomingStop = setIncomingStop,
         _setStopEvent = setStopEvent,
         _invalidateRiskZones = invalidateRiskZones,
@@ -81,7 +93,9 @@ class NotificationHandler {
         _onReportStatusChanged = onReportStatusChanged,
         _setIncomingRide = setIncomingRide,
         _setRideEvent = setRideEvent,
-        _onRouteZoneWarning = onRouteZoneWarning;
+        _onRouteZoneWarning = onRouteZoneWarning,
+        _onVendorProximityAlert = onVendorProximityAlert,
+        _onLotResolved = onLotResolved;
 
   final FirebaseMessaging _messaging;
   final Dio _dio;
@@ -93,6 +107,8 @@ class NotificationHandler {
   final void Function(Map<String, dynamic>?) _setIncomingRide;
   final void Function(RideEvent?) _setRideEvent;
   final void Function(Map<String, dynamic>?) _onRouteZoneWarning;
+  final void Function(Map<String, dynamic>) _onVendorProximityAlert;
+  final void Function(Map<String, dynamic>) _onLotResolved;
   bool _initialized = false;
 
   /// Must be called once before runApp() — cannot be in init() because
@@ -251,6 +267,12 @@ class NotificationHandler {
       case 'route_zone_warning':
         _onRouteZoneWarning(Map<String, dynamic>.from(data));
 
+      case 'vendor_proximity_alert':
+        _onVendorProximityAlert(Map<String, dynamic>.from(data));
+
+      case 'lot_resolved':
+        _onLotResolved(Map<String, dynamic>.from(data));
+
       default:
         debugPrint('FCM unhandled type [$type]');
     }
@@ -282,5 +304,11 @@ final notificationHandlerProvider = Provider<NotificationHandler>((ref) {
     setRideEvent: (event) => ref.read(rideEventProvider.notifier).state = event,
     onRouteZoneWarning: (data) =>
         ref.read(routeZoneWarningProvider.notifier).state = data,
+    onVendorProximityAlert: (data) =>
+        ref.read(vendorProximityAlertProvider.notifier).state = data,
+    onLotResolved: (data) {
+      ref.read(activeCommunityReportsProvider.notifier).refresh();
+      ref.read(lotResolvedProvider.notifier).state = data;
+    },
   );
 });

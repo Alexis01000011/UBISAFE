@@ -46,6 +46,8 @@ void main() {
     void Function(Map<String, dynamic>?)? onIncomingRide,
     void Function(RideEvent?)? onRideEvent,
     void Function(Map<String, dynamic>?)? onRouteZoneWarning,
+    void Function(Map<String, dynamic>)? onVendorProximityAlert,
+    void Function(Map<String, dynamic>)? onLotResolved,
   }) =>
       NotificationHandler(
         mockMessaging,
@@ -58,6 +60,8 @@ void main() {
         setIncomingRide: onIncomingRide ?? (_) {},
         setRideEvent: onRideEvent ?? (_) {},
         onRouteZoneWarning: onRouteZoneWarning ?? (_) {},
+        onVendorProximityAlert: onVendorProximityAlert ?? (_) {},
+        onLotResolved: onLotResolved ?? (_) {},
       );
 
   group('NotificationHandler.init', () {
@@ -184,6 +188,21 @@ void main() {
       });
 
       expect(invalidated, isTrue);
+    });
+
+    test('lot_resolved calls onLotResolved with data', () {
+      Map<String, dynamic>? received;
+      final handler = makeHandler(onLotResolved: (d) => received = d);
+
+      handler.handleMessageForTest({
+        'type': 'lot_resolved',
+        'report_id': 'lot-abc',
+        'resolved_by_uid': 'uid-resolver',
+      });
+
+      expect(received, isNotNull);
+      expect(received!['report_id'], equals('lot-abc'));
+      expect(received!['resolved_by_uid'], equals('uid-resolver'));
     });
 
     test('unknown type does not dispatch anything', () {

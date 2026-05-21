@@ -9,6 +9,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+import '../../../core/api/api_client.dart';
 import '../../../core/design_system/colors.dart';
 import '../../../core/providers/auth_providers.dart';
 import '../../identity/auth/auth_module.dart';
@@ -435,7 +436,8 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
               .where((r) =>
                   !r.isDuplicate &&
                   r.status != ReportStatus.expired &&
-                  r.status != ReportStatus.dismissed)
+                  r.status != ReportStatus.dismissed &&
+                  r.status != ReportStatus.resolved)
               .map((r) => _communityReportToMarker(r, context))
               .toSet();
 
@@ -538,6 +540,12 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     if (_isVisible) {
       await ref.read(gpsServiceInstanceProvider).stopTransmission(uid);
       if (mounted) setState(() => _isVisible = false);
+      // Fire-and-forget: update is_active_radar in Firestore for CF trigger (CU-08-C)
+      unawaited(
+        ref.read(apiClientProvider)
+            .patch<dynamic>('/auth/radar-status', data: {'is_active_radar': false})
+            .then<void>((_) {}, onError: (_) {}),
+      );
     } else {
       final confirmed = await showDialog<bool>(
         context: context,
@@ -569,6 +577,12 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
         product: product,
       );
       if (mounted) setState(() => _isVisible = true);
+      // Fire-and-forget: update is_active_radar in Firestore for CF trigger (CU-08-C)
+      unawaited(
+        ref.read(apiClientProvider)
+            .patch<dynamic>('/auth/radar-status', data: {'is_active_radar': true})
+            .then<void>((_) {}, onError: (_) {}),
+      );
     }
   }
 
@@ -1455,12 +1469,16 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
 
   Marker _communityReportToMarker(
       CommunityReport report, BuildContext context) {
-    final hue = report.threatType == ThreatType.animalMuerto
-        ? BitmapDescriptor.hueRose
-        : BitmapDescriptor.hueOrange;
-    final label = report.threatType == ThreatType.animalMuerto
-        ? 'Animal muerto'
-        : 'Zona sucia';
+    final hue = switch (report.threatType) {
+      ThreatType.animalMuerto => BitmapDescriptor.hueRose,
+      ThreatType.zonaSucia => BitmapDescriptor.hueOrange,
+      ThreatType.loteBaldio => BitmapDescriptor.hueYellow,
+    };
+    final label = switch (report.threatType) {
+      ThreatType.animalMuerto => 'Animal muerto',
+      ThreatType.zonaSucia => 'Zona sucia',
+      ThreatType.loteBaldio => 'Lote baldío',
+    };
     final statusLabel = report.status == ReportStatus.confirmed
         ? ' · Validado'
         : ' · Pendiente';

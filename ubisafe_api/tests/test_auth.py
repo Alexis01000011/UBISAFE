@@ -196,3 +196,68 @@ async def test_patch_location_no_token_returns_401(mock_firebase):
             json={"lat": 20.659698, "lng": -103.349609},
         )
     assert response.status_code == 401
+
+
+# ── PATCH /auth/radar-status ──────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_vendor_can_activate_radar(mock_firebase, mock_valid_token):
+    """PATCH /auth/radar-status with VENDOR profile → 204."""
+    from main import app
+    from modules.identity.schemas import UserProfile
+
+    vendor_profile = UserProfile(uid=VALID_UID, role="VENDOR")
+    with (
+        patch(
+            "modules.identity.router.FirestoreService.get_user",
+            new_callable=AsyncMock,
+            return_value=vendor_profile,
+        ),
+        patch(
+            "modules.identity.router.FirestoreService.update_radar_status",
+            new_callable=AsyncMock,
+            return_value=None,
+        ),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.patch(
+                "/auth/radar-status",
+                headers={"Authorization": "Bearer valid-token"},
+                json={"is_active_radar": True},
+            )
+    assert response.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_buyer_cannot_update_radar_status_returns_403(mock_firebase, mock_valid_token):
+    """PATCH /auth/radar-status with BUYER profile → 403."""
+    from main import app
+    from modules.identity.schemas import UserProfile
+
+    buyer_profile = UserProfile(uid=VALID_UID, role="BUYER")
+    with patch(
+        "modules.identity.router.FirestoreService.get_user",
+        new_callable=AsyncMock,
+        return_value=buyer_profile,
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.patch(
+                "/auth/radar-status",
+                headers={"Authorization": "Bearer valid-token"},
+                json={"is_active_radar": True},
+            )
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_radar_status_no_token_returns_401(mock_firebase):
+    """PATCH /auth/radar-status without token → 401."""
+    from main import app
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.patch(
+            "/auth/radar-status",
+            json={"is_active_radar": True},
+        )
+    assert response.status_code == 401

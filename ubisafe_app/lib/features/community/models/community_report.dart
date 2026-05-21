@@ -3,7 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 // SDD2_FASE3B §7.2.5 — community_reports schema
 enum ThreatType {
   animalMuerto('animal_muerto'),
-  zonaSucia('zona_sucia');
+  zonaSucia('zona_sucia'),
+  loteBaldio('lote_baldio');
 
   const ThreatType(this.value);
   final String value;
@@ -18,7 +19,8 @@ enum ReportStatus {
   pendingValidation('pending_validation'),
   confirmed('confirmed'),
   dismissed('dismissed'),
-  expired('expired');
+  expired('expired'),
+  resolved('resolved');
 
   const ReportStatus(this.value);
   final String value;
@@ -46,6 +48,13 @@ class CommunityReport {
     this.createdAt,
     this.updatedAt,
     this.expiresAt,
+    // lote_baldio-only fields
+    this.description,
+    this.supportCount = 0,
+    this.supporters = const [],
+    this.pendingResolverUid,
+    this.resolvedAt,
+    this.resolvedByUid,
   });
 
   final String id;
@@ -63,6 +72,13 @@ class CommunityReport {
   final DateTime? createdAt;
   final DateTime? updatedAt;
   final DateTime? expiresAt;
+  // lote_baldio-only fields (null / default for other threat types)
+  final String? description;
+  final int supportCount;
+  final List<String> supporters;
+  final String? pendingResolverUid;
+  final DateTime? resolvedAt;
+  final String? resolvedByUid;
 
   static DateTime? _parseTimestamp(dynamic v) {
     if (v is Timestamp) return v.toDate();
@@ -98,6 +114,12 @@ class CommunityReport {
       createdAt: _parseTimestamp(map['created_at']),
       updatedAt: _parseTimestamp(map['updated_at']),
       expiresAt: _parseTimestamp(map['expires_at']),
+      description: map['description'] as String?,
+      supportCount: (map['support_count'] as num?)?.toInt() ?? 0,
+      supporters: (map['supporters'] as List?)?.cast<String>() ?? const [],
+      pendingResolverUid: map['pending_resolver_uid'] as String?,
+      resolvedAt: _parseTimestamp(map['resolved_at']),
+      resolvedByUid: map['resolved_by_uid'] as String?,
     );
   }
 
@@ -121,6 +143,12 @@ class CommunityReport {
       createdAt: _parseTimestamp(json['created_at']),
       updatedAt: _parseTimestamp(json['updated_at']),
       expiresAt: _parseTimestamp(json['expires_at']),
+      description: json['description'] as String?,
+      supportCount: (json['support_count'] as num?)?.toInt() ?? 0,
+      supporters: (json['supporters'] as List?)?.cast<String>() ?? const [],
+      pendingResolverUid: json['pending_resolver_uid'] as String?,
+      resolvedAt: _parseTimestamp(json['resolved_at']),
+      resolvedByUid: json['resolved_by_uid'] as String?,
     );
   }
 }

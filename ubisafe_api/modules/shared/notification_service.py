@@ -282,6 +282,27 @@ class NotificationService:
         )
 
     @staticmethod
+    async def send_lot_resolved(
+        reporter_uid: str,
+        supporter_uids: list[str],
+        report_id: str,
+        resolved_by_uid: str,
+    ) -> None:
+        data = {
+            "type": "lot_resolved",
+            "report_id": report_id,
+            "resolved_by_uid": resolved_by_uid,
+        }
+        recipients = list({reporter_uid} | set(supporter_uids))
+        for uid in recipients:
+            await NotificationService.send_to_user(
+                uid=uid,
+                title="Lote baldío resuelto",
+                body="Un lote baldío que seguías fue marcado como resuelto.",
+                data=data,
+            )
+
+    @staticmethod
     async def notify_risk_zone_alert(
         fcm_tokens: list[str],
         data: dict,

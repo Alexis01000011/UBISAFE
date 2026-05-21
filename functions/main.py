@@ -23,6 +23,8 @@ from firebase_admin import firestore, messaging
 from firebase_functions import firestore_fn, options, scheduler_fn
 
 from services.duplicate_detector import find_canonical
+from services.fan_out import haversine_km as _fan_haversine_km
+from services.fan_out import send_multicast as _fan_send_multicast
 
 firebase_admin.initialize_app()
 
@@ -183,3 +185,79 @@ def on_risk_zone_write(
             android=messaging.AndroidConfig(priority="high"),
         )
     )
+
+
+# ─── CU-08-C: Notificación de proximidad a suscriptores ─────────────────────
+
+_PROXIMITY_RADIUS_KM = 4.0
+
+
+@firestore_fn.on_document_updated(document="users/{uid}")
+def notify_vendor_proximity_to_subscribers(
+    event: firestore_fn.Event[
+        firestore_fn.Change[firestore_fn.DocumentSnapshot | None]
+    ],
+) -> None:
+    """Notify buyers subscribed to a vendor when the vendor activates their radar.
+
+    Fires only on the False/None → True transition of is_active_radar so that
+    repeated document updates (location sync, token refresh, etc.) do not
+    generate spurious notifications.
+    """
+    before_snap = event.data.before
+    after_snap = event.data.after
+
+    before = before_snap.to_dict() if before_snap and before_snap.exists else {}
+    after = after_snap.to_dict() if after_snap and after_snap.exists else {}
+
+    # Guard: only when is_active_radar transitions to True
+    if after.get("is_active_radar") is not True:
+        return
+    if before.get("is_active_radar") is True:
+        return  # was already True — no transition
+
+    if after.get("role") != "VENDOR":
+        return
+
+    vendor_uid: str = event.params["uid"]
+    vendor_loc = after.get("last_location") or {}
+    vendor_lat = vendor_loc.get("lat")
+    vendor_lng = vendor_loc.get("lng")
+    if vendor_lat is None or vendor_lng is None:
+        return
+
+    db = firestore.client()
+
+    # Collect FCM tokens of subscribed buyers within _PROXIMITY_RADIUS_KM
+    tokens: list[str] = []
+    subs = (
+        db.collection("subscriptions")
+        .where("vendor_uid", "==", vendor_uid)
+        .where("active", "==", True)
+        .stream()
+    )
+    for sub in subs:
+        buyer_uid = (sub.to_dict() or {}).get("buyer_uid")
+        if not buyer_uid:
+            continue
+        buyer_doc = db.collection("users").document(buyer_uid).get()
+        if not buyer_doc.exists:
+            continue
+        buyer = buyer_doc.to_dict() or {}
+        token = buyer.get("fcm_token")
+        if not token:
+            continue
+        loc = buyer.get("last_location") or {}
+        buyer_lat = loc.get("lat")
+        buyer_lng = loc.get("lng")
+        if buyer_lat is None or buyer_lng is None:
+            continue
+        if _fan_haversine_km(vendor_lat, vendor_lng, buyer_lat, buyer_lng) <= _PROXIMITY_RADIUS_KM:
+            tokens.append(token)
+
+    _fan_send_multicast(tokens, data={
+        "type": "vendor_proximity_alert",
+        "vendor_uid": vendor_uid,
+        "vendor_lat": str(vendor_lat),
+        "vendor_lng": str(vendor_lng),
+    })

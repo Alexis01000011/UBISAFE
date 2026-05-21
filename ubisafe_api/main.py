@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from modules.community.lot_router import router as community_lot_router
 from modules.community.report_router import router as community_reports_router
 from modules.community.validation_router import router as community_validations_router
 from modules.dispatching.ride_router import router as rides_router
@@ -51,5 +52,8 @@ app.include_router(
 )
 app.include_router(
     community_validations_router, prefix="/community-reports", tags=["community-reports"]
+)
+app.include_router(
+    community_lot_router, prefix="/community-reports", tags=["vacant-lots"]
 )
 app.include_router(subscriptions_router, prefix="/subscriptions", tags=["subscriptions"])
