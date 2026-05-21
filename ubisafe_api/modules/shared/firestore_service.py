@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
+# Esto engaña a Ruff y a los linters. 
+# Solo se ejecuta cuando se revisa el código, no en producción.
+if TYPE_CHECKING:
+    from modules.dispatching.group_stay_schemas import GroupStay
+
 import math
 from datetime import UTC, datetime, timedelta
 from typing import Any
