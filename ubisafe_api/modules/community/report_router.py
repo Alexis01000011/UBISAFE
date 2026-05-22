@@ -12,7 +12,9 @@ from modules.shared.notification_service import NotificationService
 
 router = APIRouter()
 
-_PROXIMITY_RADIUS_KM = 1.0
+_PROXIMITY_RADIUS_KM_INFECTION = 0.1   # focos de infección: usuario está en el punto
+_PROXIMITY_RADIUS_KM_LOT = 1.0         # lote baldío: radio máximo de selección en mapa
+_NOTIFY_RADIUS_KM = 1.0                # radio de fan-out FCM (todos los tipos)
 _DUPLICATE_RADIUS_M = 50.0
 
 
@@ -29,6 +31,13 @@ async def create_community_report(
     # Haversine here is kept as a guard for future scenarios where location diverges.
 
     from modules.shared.firestore_service import _haversine_km  # noqa: PLC0415
+    from modules.community.schemas import ThreatType  # noqa: PLC0415
+
+    max_dist_km = (
+        _PROXIMITY_RADIUS_KM_LOT
+        if body.threat_type == ThreatType.lote_baldio
+        else _PROXIMITY_RADIUS_KM_INFECTION
+    )
 
     user_profile = await FirestoreService.get_user(current_user["uid"])
     if user_profile and user_profile.last_location:
@@ -38,7 +47,7 @@ async def create_community_report(
             body.location.lat,
             body.location.lng,
         )
-        if dist > _PROXIMITY_RADIUS_KM:
+        if dist > max_dist_km:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={
@@ -80,7 +89,7 @@ async def _notify_nearby(report: CommunityReport) -> None:
     logger = logging.getLogger(__name__)
     try:
         tokens = await FirestoreService.get_nearby_user_fcm_tokens(
-            report.location.lat, report.location.lng, _PROXIMITY_RADIUS_KM
+            report.location.lat, report.location.lng, _NOTIFY_RADIUS_KM
         )
         await NotificationService.send_community_report_nearby(
             tokens=tokens,

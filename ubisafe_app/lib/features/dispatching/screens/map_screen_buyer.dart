@@ -11,6 +11,7 @@ import '../../../core/design_system/colors.dart';
 import '../../community/models/community_report.dart';
 import '../../community/screens/community_form_bottom_sheet.dart';
 import '../../community/screens/lot_form_bottom_sheet.dart';
+import '../../community/screens/lot_location_picker_sheet.dart';
 import '../../community/services/community_report_module.dart';
 import '../../identity/profile/widgets/drawer_module.dart';
 import '../../presence/services/gps_service.dart';
@@ -827,18 +828,23 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer>
     );
   }
 
-  void _onLotFabPressed(dynamic position) {
+  Future<void> _onLotFabPressed(dynamic position) async {
     if (position == null) {
-      showModalBottomSheet<void>(
+      await showModalBottomSheet<void>(
         context: context,
         builder: (_) => const GpsRequiredEmptyState(),
       );
       return;
     }
-    LotFormBottomSheet.show(
+    final selectedLatLng = await LotLocationPickerSheet.show(
       context,
-      lat: position.latitude,
-      lng: position.longitude,
+      LatLng(position.latitude, position.longitude),
+    );
+    if (selectedLatLng == null || !mounted) return;
+    await LotFormBottomSheet.show(
+      context,
+      lat: selectedLatLng.latitude,
+      lng: selectedLatLng.longitude,
     );
   }
 

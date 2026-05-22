@@ -76,7 +76,7 @@ class _LotFormBottomSheetState extends ConsumerState<LotFormBottomSheet> {
 
       final msg = switch (errorCode) {
         'location_out_of_range' =>
-          'Debes estar en la zona para reportar este lote.',
+          'El lote está fuera del radio permitido (1 km desde tu posición).',
         'nearby_report_exists' =>
           'Ya existe un reporte activo en esta zona.',
         _ => code != null
