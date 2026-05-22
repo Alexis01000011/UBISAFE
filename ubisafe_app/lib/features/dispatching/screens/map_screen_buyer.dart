@@ -38,7 +38,8 @@ class MapScreenBuyer extends ConsumerStatefulWidget {
   ConsumerState<MapScreenBuyer> createState() => _MapScreenBuyerState();
 }
 
-class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
+class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer>
+    with WidgetsBindingObserver {
   _BuyerMapState _mapState = _BuyerMapState.idle;
   String? _activeStopId;
   String? _activeRideId;
@@ -49,6 +50,30 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
   bool _selectingRiskPoint = false;
   final Map<String, BitmapDescriptor> _markerIconCache = {};
   Position? _riskZoneAnchorPos;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // After a long background period the Firebase Auth token may have
+      // expired, causing the RTDB onValue stream to close with
+      // permission_denied. The VendorTracker auto-retries on error, but
+      // an explicit reconnect on resume ensures a fresh snapshot arrives
+      // without waiting for the next write event from a vendor.
+      ref.read(vendorTrackerInstanceProvider).reconnect();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -10,6 +10,11 @@ import '../models/vendor_marker.dart';
 import 'gps_service.dart';
 
 const double _kRadiusKm = 4.0;
+const Duration _kReconnectDelay = Duration(seconds: 5);
+// Vendors whose lastTimestamp is older than this are excluded from _emit()
+// regardless of their activo flag, guarding against zombie RTDB state when
+// the listener missed the node-deletion event.
+const int _kMaxVendorAgeMs = 5 * 60 * 1000; // 5 minutes
 
 /// Subscribes to /vendedores_activos in RTDB and emits filtered
 /// [VendorMarker] lists within [_kRadiusKm] of the buyer's position.
@@ -19,26 +24,24 @@ const double _kRadiusKm = 4.0;
 ///
 /// SDD §5.3.2.2
 class VendorTracker {
-  VendorTracker({DatabaseReference? rtdbRef}) {
-    final ref = rtdbRef ?? FirebaseDatabase.instance.ref('vendedores_activos');
-    _init(ref.onValue
-        .map((event) {
-          final v = event.snapshot.value;
-          return v is Map ? v : const <Object?, Object?>{};
-        })
-        .asBroadcastStream());
+  VendorTracker({DatabaseReference? rtdbRef})
+      : _rtdbRef = rtdbRef ?? FirebaseDatabase.instance.ref('vendedores_activos') {
+    _subscribe();
   }
 
   /// Test-friendly constructor: inject a raw map stream directly.
   /// Converts to broadcast so tests can attach multiple listeners (e.g. the
   /// provider + the test assertion) without a StateError.
-  VendorTracker.fromStream(Stream<Map> rawStream) {
+  VendorTracker.fromStream(Stream<Map> rawStream) : _rtdbRef = null {
     _init(rawStream.isBroadcast ? rawStream : rawStream.asBroadcastStream());
   }
 
+  /// Null only in the [fromStream] test constructor.
+  final DatabaseReference? _rtdbRef;
   final _controller = StreamController<List<VendorMarker>>.broadcast();
   final _offlineCtrl = StreamController<String>.broadcast();
   StreamSubscription<Map<dynamic, dynamic>>? _sub;
+  Timer? _reconnectTimer;
   Map<String, VendorMarker> _vendors = {};
   double? _buyerLat;
   double? _buyerLng;
@@ -49,9 +52,29 @@ class VendorTracker {
   /// Emits the UID of a vendor whose connection just dropped (activo → false).
   Stream<String> get vendorOfflineStream => _offlineCtrl.stream;
 
+  /// Creates a fresh RTDB subscription. Called on construction and after any
+  /// RTDB error that closes the underlying stream (e.g. permission_denied after
+  /// Firebase Auth token expiry). Not used by the [fromStream] test path.
+  void _subscribe() {
+    final ref = _rtdbRef;
+    if (ref == null) return;
+    _sub?.cancel();
+    _sub = null;
+    _init(
+      ref.onValue
+          .map((event) {
+            final v = event.snapshot.value;
+            return v is Map ? v : const <Object?, Object?>{};
+          })
+          .asBroadcastStream(),
+    );
+  }
+
   void _init(Stream<Map> stream) {
     _sub = stream.listen(
       (raw) {
+        _reconnectTimer?.cancel();
+        _reconnectTimer = null;
         final updated = <String, VendorMarker>{};
         for (final e in raw.entries) {
           try {
@@ -76,19 +99,25 @@ class VendorTracker {
         _emit();
       },
       onError: (Object err) {
-        // Typical cause: RTDB permission_denied (missing .read rule) or
-        // no connectivity. Logged in debug so the error is visible without
-        // crashing the stream.
+        // Typical cause: permission_denied after Firebase Auth token expiry.
+        // The underlying stream closes on error, so cancelOnError:false alone
+        // is not enough — _sub would stay alive but receive no more events
+        // (zombie state). Re-subscribe after a short delay so the next SDK
+        // reconnect cycle delivers a fresh snapshot.
         if (kDebugMode) debugPrint('VendorTracker RTDB error: $err');
         if (!_controller.isClosed) _controller.add([]);
+        _reconnectTimer?.cancel();
+        _reconnectTimer = Timer(_kReconnectDelay, () {
+          if (!_controller.isClosed) _subscribe();
+        });
       },
-      // cancelOnError: false so a transient RTDB error (network blip,
-      // permission_denied during reconnect) does not permanently kill the
-      // subscription. Firebase SDK auto-reconnects and the next onValue event
-      // will reach _init's listener without needing to recreate VendorTracker.
       cancelOnError: false,
     );
   }
+
+  /// Forces a clean RTDB re-subscription. Call when the app returns to the
+  /// foreground after a long background period (token may have expired).
+  void reconnect() => _subscribe();
 
   /// Call whenever the buyer's position changes to re-filter the marker list.
   void updateBuyerPosition(double lat, double lng) {
@@ -105,18 +134,27 @@ class VendorTracker {
       _controller.add(const []);
       return;
     }
+    final now = DateTime.now().millisecondsSinceEpoch;
     _controller.add(
       List.unmodifiable(
         _vendors.values.where(
-          (v) =>
-              v.activo &&
-              haversineKm(lat, lng, v.latitude, v.longitude) <= _kRadiusKm,
+          (v) {
+            if (!v.activo) return false;
+            // Guard against zombie RTDB state: if the listener missed the
+            // node-deletion event, the vendor's lastTimestamp will stop
+            // advancing. Treat vendors whose last write is older than
+            // _kMaxVendorAgeMs as offline so the stale marker disappears.
+            final ts = v.lastTimestamp;
+            if (ts != null && now - ts > _kMaxVendorAgeMs) return false;
+            return haversineKm(lat, lng, v.latitude, v.longitude) <= _kRadiusKm;
+          },
         ),
       ),
     );
   }
 
   void dispose() {
+    _reconnectTimer?.cancel();
     _sub?.cancel();
     if (!_controller.isClosed) _controller.close();
     if (!_offlineCtrl.isClosed) _offlineCtrl.close();
@@ -145,7 +183,7 @@ class VendorTracker {
 
 // ─── Providers ────────────────────────────────────────────────────────────────
 
-final _vendorTrackerInstanceProvider = Provider<VendorTracker>((ref) {
+final vendorTrackerInstanceProvider = Provider<VendorTracker>((ref) {
   final tracker = VendorTracker();
 
   // Seed with the current GPS position if already available.
@@ -179,11 +217,11 @@ final _vendorTrackerInstanceProvider = Provider<VendorTracker>((ref) {
 ///
 /// SDD §5.3.2.2 — vendorMarkersProvider
 final vendorMarkersProvider = StreamProvider<List<VendorMarker>>((ref) {
-  return ref.watch(_vendorTrackerInstanceProvider).vendorStream;
+  return ref.watch(vendorTrackerInstanceProvider).vendorStream;
 });
 
 /// Emits the UID of a vendor whose RTDB connection just dropped (activo → false).
 /// Consumed by MapScreenBuyer to show a "tracking paused" snackbar.
 final vendorOfflineEventProvider = StreamProvider.autoDispose<String>((ref) {
-  return ref.watch(_vendorTrackerInstanceProvider).vendorOfflineStream;
+  return ref.watch(vendorTrackerInstanceProvider).vendorOfflineStream;
 });
