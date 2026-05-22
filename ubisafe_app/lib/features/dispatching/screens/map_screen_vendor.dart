@@ -15,6 +15,7 @@ import '../../../core/providers/auth_providers.dart';
 import '../../identity/auth/auth_module.dart';
 import '../../community/models/community_report.dart';
 import '../../community/screens/community_form_bottom_sheet.dart';
+import '../../community/screens/lot_form_bottom_sheet.dart';
 import '../../community/services/community_report_module.dart';
 import '../../identity/profile/widgets/drawer_module.dart';
 import '../../presence/services/gps_service.dart';
@@ -411,6 +412,10 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
           setState(() => _speedDialOpen = false);
           _onCommunityFabPressed(positionAsync.valueOrNull);
         },
+        onLotReport: () {
+          setState(() => _speedDialOpen = false);
+          _onLotFabPressed(positionAsync.valueOrNull);
+        },
         onScheduleStay: () {
           setState(() => _speedDialOpen = false);
           context.push('/group-stays/schedule');
@@ -652,8 +657,6 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
       context: context,
       barrierDismissible: false,
       builder: (_) => _IncomingStopDialog(
-        buyerLat: double.tryParse(buyerLat) ?? 0,
-        buyerLng: double.tryParse(buyerLng) ?? 0,
         onAccept: () async {
           // B11: verificar GPS ANTES de cerrar el diálogo para que el
           // vendedor pueda reintentar si el GPS no está disponible aún.
@@ -1521,6 +1524,21 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     );
   }
 
+  void _onLotFabPressed(dynamic position) {
+    if (position == null) {
+      showModalBottomSheet<void>(
+        context: context,
+        builder: (_) => const GpsRequiredEmptyState(),
+      );
+      return;
+    }
+    LotFormBottomSheet.show(
+      context,
+      lat: position.latitude,
+      lng: position.longitude,
+    );
+  }
+
   Marker _groupStayToMarker(GroupStay stay, BuildContext context) {
     final snippet = stay.status == 'active' ? 'Activa' : 'Programada';
     return Marker(
@@ -1604,6 +1622,7 @@ class _VendorSpeedDial extends StatelessWidget {
     required this.onToggle,
     required this.onRiskZone,
     required this.onCommunityReport,
+    required this.onLotReport,
     required this.onScheduleStay,
   });
 
@@ -1611,6 +1630,7 @@ class _VendorSpeedDial extends StatelessWidget {
   final VoidCallback onToggle;
   final VoidCallback onRiskZone;
   final VoidCallback onCommunityReport;
+  final VoidCallback onLotReport;
   final VoidCallback onScheduleStay;
 
   @override
@@ -1625,6 +1645,13 @@ class _VendorSpeedDial extends StatelessWidget {
             label: 'Programar estancia',
             color: AppColors.secondary700,
             onTap: onScheduleStay,
+          ),
+          const SizedBox(height: 8),
+          _VendorMiniAction(
+            icon: Icons.home_work_outlined,
+            label: 'Lote baldío',
+            color: const Color(0xFF6D4C41),
+            onTap: onLotReport,
           ),
           const SizedBox(height: 8),
           _VendorMiniAction(
@@ -1900,14 +1927,10 @@ class _VisibilityBadge extends StatelessWidget {
 
 class _IncomingStopDialog extends StatelessWidget {
   const _IncomingStopDialog({
-    required this.buyerLat,
-    required this.buyerLng,
     required this.onAccept,
     required this.onReject,
   });
 
-  final double buyerLat;
-  final double buyerLng;
   final VoidCallback onAccept;
   final VoidCallback onReject;
 
@@ -1915,21 +1938,7 @@ class _IncomingStopDialog extends StatelessWidget {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Nueva solicitud de parada'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Un comprador cercano solicita que te detengas.'),
-          const SizedBox(height: 8),
-          Text(
-            'Ubicación: ${buyerLat.toStringAsFixed(4)}, ${buyerLng.toStringAsFixed(4)}',
-            style: const TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 13,
-            ),
-          ),
-        ],
-      ),
+      content: const Text('Un comprador cercano solicita que te detengas.'),
       actions: [
         OutlinedButton(
           style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger500),

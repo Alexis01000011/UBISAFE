@@ -10,6 +10,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../../../core/design_system/colors.dart';
 import '../../community/models/community_report.dart';
 import '../../community/screens/community_form_bottom_sheet.dart';
+import '../../community/screens/lot_form_bottom_sheet.dart';
 import '../../community/services/community_report_module.dart';
 import '../../identity/profile/widgets/drawer_module.dart';
 import '../../presence/services/gps_service.dart';
@@ -360,6 +361,10 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer>
         onCommunityReport: () {
           setState(() => _speedDialOpen = false);
           _onCommunityFabPressed(positionAsync.valueOrNull);
+        },
+        onLotReport: () {
+          setState(() => _speedDialOpen = false);
+          _onLotFabPressed(positionAsync.valueOrNull);
         },
       ),
       body: positionAsync.when(
@@ -822,6 +827,21 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer>
     );
   }
 
+  void _onLotFabPressed(dynamic position) {
+    if (position == null) {
+      showModalBottomSheet<void>(
+        context: context,
+        builder: (_) => const GpsRequiredEmptyState(),
+      );
+      return;
+    }
+    LotFormBottomSheet.show(
+      context,
+      lat: position.latitude,
+      lng: position.longitude,
+    );
+  }
+
   // Flujo 9.6.C: duplicates are hidden; canonical pin opens ReportDetailScreen.
   Marker _groupStayToMarker(GroupStay stay, BuildContext context) {
     final snippet = stay.status == 'active' ? 'Activa' : 'Programada';
@@ -906,12 +926,14 @@ class _SpeedDial extends StatelessWidget {
     required this.onToggle,
     required this.onRiskZone,
     required this.onCommunityReport,
+    required this.onLotReport,
   });
 
   final bool open;
   final VoidCallback onToggle;
   final VoidCallback onRiskZone;
   final VoidCallback onCommunityReport;
+  final VoidCallback onLotReport;
 
   @override
   Widget build(BuildContext context) {
@@ -920,6 +942,13 @@ class _SpeedDial extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         if (open) ...[
+          _MiniAction(
+            icon: Icons.home_work_outlined,
+            label: 'Lote baldío',
+            color: const Color(0xFF6D4C41),
+            onTap: onLotReport,
+          ),
+          const SizedBox(height: 8),
           _MiniAction(
             icon: Icons.coronavirus_outlined,
             label: 'Foco de infección',

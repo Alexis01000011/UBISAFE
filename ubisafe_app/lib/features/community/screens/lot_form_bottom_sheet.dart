@@ -6,10 +6,9 @@ import '../../../core/design_system/colors.dart';
 import '../../../core/design_system/typography.dart';
 import '../services/community_report_module.dart';
 
-/// CU-05 — Community report form (SDD2_FASE4B §9.6.A + §9.6.B).
-/// Precondition: GPS must be active before calling [show].
-class CommunityFormBottomSheet extends ConsumerStatefulWidget {
-  const CommunityFormBottomSheet({
+/// CU-07 — Vacant lot report form.
+class LotFormBottomSheet extends ConsumerStatefulWidget {
+  const LotFormBottomSheet({
     super.key,
     required this.currentLat,
     required this.currentLng,
@@ -26,45 +25,39 @@ class CommunityFormBottomSheet extends ConsumerStatefulWidget {
       showModalBottomSheet<void>(
         context: context,
         isScrollControlled: true,
-        // B28 — prevent the user from swiping away the sheet while a retry is
-        // in flight, which would leave a report created with no feedback.
         isDismissible: false,
         enableDrag: false,
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
-        builder: (_) =>
-            CommunityFormBottomSheet(currentLat: lat, currentLng: lng),
+        builder: (_) => LotFormBottomSheet(currentLat: lat, currentLng: lng),
       );
 
   @override
-  ConsumerState<CommunityFormBottomSheet> createState() =>
-      _CommunityFormBottomSheetState();
+  ConsumerState<LotFormBottomSheet> createState() =>
+      _LotFormBottomSheetState();
 }
 
-class _CommunityFormBottomSheetState
-    extends ConsumerState<CommunityFormBottomSheet> {
-  String? _threatType;
+class _LotFormBottomSheetState extends ConsumerState<LotFormBottomSheet> {
   bool _loading = false;
-
-  static const _threatOptions = [
-    ('animal_muerto', 'Animal muerto'),
-    ('zona_sucia', 'Zona sucia / Basura'),
-  ];
+  final _descriptionController = TextEditingController();
 
   @override
   void dispose() {
+    _descriptionController.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
-    if (_threatType == null) return;
     setState(() => _loading = true);
     try {
       await ref.read(communityReportModuleProvider).createReport(
-            threatType: _threatType!,
+            threatType: 'lote_baldio',
             lat: widget.currentLat,
             lng: widget.currentLng,
+            description: _descriptionController.text.trim().isNotEmpty
+                ? _descriptionController.text.trim()
+                : null,
           );
 
       await ref.read(activeCommunityReportsProvider.notifier).refresh();
@@ -83,7 +76,7 @@ class _CommunityFormBottomSheetState
 
       final msg = switch (errorCode) {
         'location_out_of_range' =>
-          'Debes estar en la zona para reportar este foco.',
+          'Debes estar en la zona para reportar este lote.',
         'nearby_report_exists' =>
           'Ya existe un reporte activo en esta zona.',
         _ => code != null
@@ -92,8 +85,6 @@ class _CommunityFormBottomSheetState
       };
 
       if (mounted) {
-        // Capture the messenger before pop so the SnackBar renders on the map
-        // screen (not under the SpeedDial which may still be expanded).
         final messenger = ScaffoldMessenger.of(context);
         if (errorCode == 'nearby_report_exists') Navigator.pop(context);
         messenger.showSnackBar(
@@ -134,31 +125,28 @@ class _CommunityFormBottomSheetState
           ),
           const SizedBox(height: 16),
           Text(
-            'Reportar foco de infección',
+            'Reportar lote baldío',
             style: AppTypography.heading1.copyWith(color: Colors.white),
           ),
           const Divider(height: 24),
           Text(
-            'Tipo de foco *',
+            'Descripción (opcional)',
             style: AppTypography.label.copyWith(color: AppColors.neutral600),
           ),
           const SizedBox(height: 6),
-          DropdownButtonFormField<String>(
-            initialValue: _threatType,
-            hint: const Text('Selecciona...'),
+          TextField(
+            controller: _descriptionController,
+            maxLength: 200,
+            maxLines: 2,
             decoration: InputDecoration(
+              hintText: 'Describe brevemente el problema...',
               border:
                   OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
               contentPadding:
                   const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             ),
-            items: _threatOptions
-                .map((o) => DropdownMenuItem(value: o.$1, child: Text(o.$2)))
-                .toList(),
-            onChanged: (v) => setState(() => _threatType = v),
           ),
           const SizedBox(height: 16),
-          // Location chip (readonly — GPS auto-captured)
           Row(
             children: [
               const Icon(Icons.location_on, size: 18),
@@ -170,7 +158,8 @@ class _CommunityFormBottomSheetState
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: AppColors.secondary50,
                   borderRadius: BorderRadius.circular(12),
@@ -185,9 +174,9 @@ class _CommunityFormBottomSheetState
           ),
           const SizedBox(height: 24),
           ElevatedButton(
-            onPressed: (_threatType == null || _loading) ? null : _submit,
+            onPressed: _loading ? null : _submit,
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF795548),
+              backgroundColor: const Color(0xFF6D4C41),
               foregroundColor: Colors.white,
               minimumSize: const Size.fromHeight(52),
               shape: RoundedRectangleBorder(
