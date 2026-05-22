@@ -138,6 +138,12 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
         rideEnabled: profile?.rideEnabled ?? false,
         product: profile?.product,
       );
+      // Restore radar flag so CF proximity trigger fires correctly on resume.
+      unawaited(
+        ref.read(apiClientProvider)
+            .patch<dynamic>('/auth/radar-status', data: {'is_active_radar': true})
+            .then<void>((_) {}, onError: (_) {}),
+      );
     }
   }
 

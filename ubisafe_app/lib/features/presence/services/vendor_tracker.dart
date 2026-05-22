@@ -56,6 +56,8 @@ class VendorTracker {
   /// RTDB error that closes the underlying stream (e.g. permission_denied after
   /// Firebase Auth token expiry). Not used by the [fromStream] test path.
   void _subscribe() {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
     final ref = _rtdbRef;
     if (ref == null) return;
     _sub?.cancel();
@@ -93,6 +95,12 @@ class VendorTracker {
           final prev = _vendors[entry.key];
           if (prev != null && prev.activo && !entry.value.activo) {
             if (!_offlineCtrl.isClosed) _offlineCtrl.add(entry.key);
+          }
+        }
+        // Detect vendors whose node was deleted from RTDB (onDisconnect.remove fired).
+        for (final key in _vendors.keys) {
+          if (!updated.containsKey(key) && (_vendors[key]?.activo ?? false)) {
+            if (!_offlineCtrl.isClosed) _offlineCtrl.add(key);
           }
         }
         _vendors = updated;
