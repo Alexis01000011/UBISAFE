@@ -695,6 +695,8 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
       context: context,
       barrierDismissible: false,
       builder: (_) => _IncomingStopDialog(
+        buyerLat: double.tryParse(buyerLat) ?? 0,
+        buyerLng: double.tryParse(buyerLng) ?? 0,
         onAccept: () async {
           // B11: verificar GPS ANTES de cerrar el diálogo para que el
           // vendedor pueda reintentar si el GPS no está disponible aún.
@@ -2017,18 +2019,58 @@ class _VisibilityBadge extends StatelessWidget {
 
 class _IncomingStopDialog extends StatelessWidget {
   const _IncomingStopDialog({
+    required this.buyerLat,
+    required this.buyerLng,
     required this.onAccept,
     required this.onReject,
   });
 
+  final double buyerLat;
+  final double buyerLng;
   final VoidCallback onAccept;
   final VoidCallback onReject;
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      contentPadding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
       title: const Text('Nueva solicitud de parada'),
-      content: const Text('Un comprador cercano solicita que te detengas.'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: SizedBox(
+              height: 160,
+              child: GoogleMap(
+                initialCameraPosition: CameraPosition(
+                  target: LatLng(buyerLat, buyerLng),
+                  zoom: 16,
+                ),
+                markers: {
+                  Marker(
+                    markerId: const MarkerId('buyer'),
+                    position: LatLng(buyerLat, buyerLng),
+                    icon: BitmapDescriptor.defaultMarkerWithHue(
+                        BitmapDescriptor.hueBlue),
+                  ),
+                },
+                scrollGesturesEnabled: false,
+                zoomGesturesEnabled: false,
+                rotateGesturesEnabled: false,
+                tiltGesturesEnabled: false,
+                myLocationEnabled: false,
+                myLocationButtonEnabled: false,
+                zoomControlsEnabled: false,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          const Text('Un comprador cercano solicita que te detengas.'),
+        ],
+      ),
       actions: [
         OutlinedButton(
           style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger500),
@@ -2119,9 +2161,78 @@ class _IncomingRideDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final midLat = (pickupLat + destinationLat) / 2;
+    final midLng = (pickupLng + destinationLng) / 2;
+
     return AlertDialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      contentPadding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
       title: const Text('Nueva solicitud de raite'),
-      content: const Text('Un pasajero cercano solicita un raite.'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: SizedBox(
+              height: 180,
+              child: GoogleMap(
+                initialCameraPosition: CameraPosition(
+                  target: LatLng(midLat, midLng),
+                  zoom: 13,
+                ),
+                markers: {
+                  Marker(
+                    markerId: const MarkerId('pickup'),
+                    position: LatLng(pickupLat, pickupLng),
+                    icon: BitmapDescriptor.defaultMarkerWithHue(
+                        BitmapDescriptor.hueCyan),
+                  ),
+                  Marker(
+                    markerId: const MarkerId('destination'),
+                    position: LatLng(destinationLat, destinationLng),
+                    icon: BitmapDescriptor.defaultMarkerWithHue(
+                        BitmapDescriptor.hueRed),
+                  ),
+                },
+                scrollGesturesEnabled: false,
+                zoomGesturesEnabled: false,
+                rotateGesturesEnabled: false,
+                tiltGesturesEnabled: false,
+                myLocationEnabled: false,
+                myLocationButtonEnabled: false,
+                zoomControlsEnabled: false,
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Container(
+                width: 10,
+                height: 10,
+                decoration: const BoxDecoration(
+                  color: Color(0xFF00BCD4),
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 6),
+              const Text('Recogida', style: TextStyle(fontSize: 12)),
+              const SizedBox(width: 20),
+              Container(
+                width: 10,
+                height: 10,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFF44336),
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 6),
+              const Text('Destino', style: TextStyle(fontSize: 12)),
+            ],
+          ),
+        ],
+      ),
       actions: [
         OutlinedButton(
           style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger500),

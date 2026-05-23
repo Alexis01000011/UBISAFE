@@ -1695,6 +1695,19 @@
 
 ---
 
+### C-170 · Mini-mapa en diálogos de solicitud de parada y raite (CU-01/CU-03) `2026-05-23`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-170 · Mini-mapa en `_IncomingStopDialog` y `_IncomingRideDialog` de `map_screen_vendor.dart` |
+| **Qué se corrigió (técnico)** | **`_IncomingStopDialog`**: añadidos parámetros `buyerLat`/`buyerLng` (double). El contenido pasa de `Text` a `Column` con un `ClipRRect + SizedBox(height:160) + GoogleMap` — cámara centrada en el comprador, zoom 16, marcador azul (`hueBlue`) en su posición, todos los gestos deshabilitados. El `AlertDialog` usa `insetPadding: EdgeInsets.symmetric(horizontal:16, vertical:24)` para ampliar el ancho del diálogo y `contentPadding: EdgeInsets.fromLTRB(16,12,16,8)`. La llamada en `_showIncomingDialog` ahora pasa `double.tryParse(buyerLat) ?? 0` y `double.tryParse(buyerLng) ?? 0`. **`_IncomingRideDialog`**: ya recibía `pickupLat/Lng` y `destinationLat/Lng` como doubles pero los ignoraba. El contenido ahora es un `GoogleMap` (h:180) centrado en el punto medio de recogida–destino con zoom 13, marcador cian (`hueCyan`) en recogida y rojo (`hueRed`) en destino, más una leyenda de dos puntos de colores con etiquetas "Recogida" / "Destino". |
+| **Qué se corrigió (simple)** | Los diálogos de "aceptar/rechazar" mostraban solo texto plano ("Un comprador cercano solicita que te detengas." / "Un pasajero cercano solicita un raite."), lo que obligaba al vendedor a aceptar a ciegas sin saber dónde está el comprador. Ahora puede ver exactamente la posición del comprador (parada) o la ruta recogida–destino (raite) antes de decidir. El patrón es idéntico al mini-mapa del `GroupStayDetailScreen`. |
+| **Clase / Método / Módulo** | `_IncomingStopDialog` · `_IncomingRideDialog` · `_showIncomingDialog()` → `map_screen_vendor.dart` |
+| **Justificación** | Las coordenadas del comprador (`buyer_lat`/`buyer_lng` en el FCM de parada) y las de recogida/destino (`pickup_lat/lng`, `destination_lat/lng` en el FCM de raite) ya viajaban en el payload FCM y estaban disponibles en el código — el widget simplemente nunca las renderizaba. Se aprovecha el patrón ya validado en CU-09 (`GroupStayDetailScreen`) sin añadir dependencias nuevas. |
+| **Problema que resolvía** | El vendedor no podía evaluar si la solicitud era razonable (distancia, zona, ruta) antes de comprometerse con Aceptar. |
+
+---
+
 ## Notas de contexto para diagnóstico
 
 - **Dispositivo de prueba:** Físico Android (MIUI/Xiaomi recomendado para reproducibilidad), depuración inalámbrica ADB. **No se usa emulador de Android Studio.**
