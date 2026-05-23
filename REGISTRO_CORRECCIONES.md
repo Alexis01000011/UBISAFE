@@ -1643,6 +1643,58 @@
 
 ---
 
+### C-166 · `lotResolvedProvider` no escuchado en mapas — pin no desaparecía al recibir FCM `lot_resolved` `2026-05-23`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-166 · `ref.listen(lotResolvedProvider)` + `_resolvedLotIds` en ambos mapas (P1 audit CU-07) |
+| **Qué se corrigió (técnico)** | Añadido `final Set<String> _resolvedLotIds = {}` al estado de `_MapScreenBuyerState` y `_MapScreenVendorState`. Añadido `ref.listen<Map<String, dynamic>?>(lotResolvedProvider, ...)` en el `build()` de cada mapa: extrae `data['report_id']` y lo agrega a `_resolvedLotIds` mediante `setState()`. El filtro de `communityMarkers` pasa de 4 condiciones a 5: añade `&& !_resolvedLotIds.contains(r.id)`. |
+| **Qué se corrigió (simple)** | El `notification_handler.dart` ya tenía `lotResolvedProvider` y `onLotResolved`, pero ningún mapa lo escuchaba. Cuando un lote baldío se resolvía, el `notification_handler` llamaba `refresh()` en `activeCommunityReportsProvider`, pero el pin amarillo no desaparecía hasta que el refetch completaba (100–500 ms de delay y posible parpadeo). Ahora al recibir el FCM `lot_resolved`, el pin se elimina del mapa de forma inmediata (0 ms) sin esperar la respuesta de la API. |
+| **Clase / Método / Módulo** | `_MapScreenBuyerState.build()` → `map_screen_buyer.dart` · `_MapScreenVendorState.build()` → `map_screen_vendor.dart` |
+| **Justificación** | El plan (§4.2.1) exige explícitamente `ref.listen(lotResolvedProvider)` en las pantallas del mapa para remover el marker. Sin esto el provider estaba "wired" en el handler pero desconectado de los widgets consumidores. |
+| **Problema que resolvía** | Al resolver un lote baldío desde otro dispositivo, el pin amarillo tardaba en desaparecer (o no desaparecía si el refetch fallaba) del mapa del observador. |
+
+---
+
+### C-167 · `_resolve()` sin optimistic update ni rollback (R-F9) `2026-05-23`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-167 · Optimistic update + rollback en `_resolve()` de `ReportDetailScreen` (P2 audit CU-07) |
+| **Qué se corrigió (técnico)** | En `_ReportDetailScreenState._resolve()`: antes de llamar a la API, se guarda `snapshot = _current!` y se actualiza optimistamente `_current` a una copia con `status: ReportStatus.resolved`. Si la llamada API falla (`DioException` o `Exception`), se revierte `setState(() => _current = snapshot)`. En éxito, se actualiza con la respuesta del servidor. |
+| **Qué se corrigió (simple)** | Al tocar "Marcar como resuelto", el botón mostraba spinner pero el UI no reflejaba el cambio hasta que llegaba la respuesta del servidor. Si había un error de red, el estado quedaba en `_resolving = true` sin volver al estado anterior. Ahora el UI cambia inmediatamente al estado "Resuelto" al tocar el botón, y revierte si falla. |
+| **Clase / Método / Módulo** | `_ReportDetailScreenState._resolve()` → `report_detail_screen.dart` |
+| **Justificación** | El plan checklist §4.1.4 exige R-F9 (optimistic update + rollback) explícitamente para `_support()` y `_resolve()`. Solo `_support()` lo implementaba; `_resolve()` carecía del snapshot y del `setState(() => _current = snapshot)` en los bloques `catch`. |
+| **Problema que resolvía** | La pantalla de detalle no reflejaba el cambio de estado de forma inmediata, lo que generaba la falsa impresión de que el botón no funcionó. |
+
+---
+
+### C-168 · Test faltante `test_resolve_sends_fcm` en CU-07 `2026-05-23`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-168 · `test_resolve_sends_fcm` en `test_lot_support.py` (P3 audit CU-07) |
+| **Qué se corrigió (técnico)** | Añadido `test_resolve_sends_fcm` a `tests/test_lot_support.py`. El test mockea `FirestoreService.get_community_report` (retorna lote con 3 supporters), `FirestoreService.resolve_community_report` (retorna lote resuelto) y `NotificationService.send_lot_resolved`. Llama `PATCH /community-reports/{id}/resolve`, hace `await asyncio.sleep(0)` para vaciar el `asyncio.ensure_future`, y aserta `mock_notify.assert_awaited_once_with(reporter_uid=REPORTER_UID, supporter_uids=[...], report_id=REPORT_ID, resolved_by_uid=SUPPORTER_3)`. |
+| **Qué se corrigió (simple)** | El test `test_resolve_marks_status_resolved` parchaba `send_lot_resolved` pero no verificaba que se llamó ni con qué argumentos. Un cambio en la firma de `send_lot_resolved` o en el `asyncio.ensure_future` del router habría pasado desapercibido. Ahora existe un test dedicado que valida el contrato completo de la notificación FCM al resolver un lote. |
+| **Clase / Método / Módulo** | `tests/test_lot_support.py` → suite sube de 8 a 9 tests, todos pasan |
+| **Justificación** | El plan §4.1.1 ítem 6 lista explícitamente `test_resolve_sends_fcm (mock NotificationService)`. El patrón `asyncio.sleep(0)` es el mismo usado en `test_vendor_cancel_notifies_attendees` (CU-09). |
+| **Problema que resolvía** | La garantía de que PATCH /resolve dispara FCM a reporter + supporters no tenía cobertura de test. |
+
+---
+
+### C-169 · Check de duplicado por radio 50 m bloqueaba lotes baldíos en ubicaciones distintas `2026-05-23`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-169 · Skip de `has_pending_report_within` para `lote_baldio` en `report_router.py` (P4 reportado por el usuario) |
+| **Qué se corrigió (técnico)** | En `create_community_report` de `report_router.py`, la llamada a `has_pending_report_within` se envolvió con `if body.threat_type != ThreatType.lote_baldio`. La condición compuesta queda: `if body.threat_type != ThreatType.lote_baldio and await FirestoreService.has_pending_report_within(...)`. |
+| **Qué se corrigió (simple)** | Si ya existía un lote baldío reportado, el backend bloqueaba cualquier nuevo reporte de lote baldío dentro de 50 m de la ubicación seleccionada. Esto impedía reportar dos lotes distintos en la misma manzana (pueden estar a 20–40 m uno del otro). El check de duplicado por 50 m tiene sentido para focos de infección (un mismo montón de basura o animal muerto no debe reportarse dos veces), pero no para lotes baldíos: dos terrenos abandonados adyacentes son entidades separadas. La validación de "¿es real?" la aporta el mecanismo de 3 apoyos, no la proximidad. |
+| **Clase / Método / Módulo** | `create_community_report()` → `modules/community/report_router.py` |
+| **Justificación** | El check de 50 m se basa en la premisa de que dos reportes cercanos del mismo tipo son del mismo incidente. Para `lote_baldio` esa premisa es falsa: dos propiedades colindantes son instancias diferentes. El check de `location_out_of_range` (1 km de GPS) sigue activo para ambos tipos. |
+| **Problema que resolvía** | El usuario no podía reportar un segundo lote baldío en ninguna ubicación dentro de 50 m del primero, lo que en áreas urbanas densas bloqueaba reportes legítimos de terrenos distintos. |
+
+---
+
 ## Notas de contexto para diagnóstico
 
 - **Dispositivo de prueba:** Físico Android (MIUI/Xiaomi recomendado para reproducibilidad), depuración inalámbrica ADB. **No se usa emulador de Android Studio.**

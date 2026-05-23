@@ -91,11 +91,37 @@ class _ReportDetailScreenState extends ConsumerState<ReportDetailScreen> {
   }
 
   Future<void> _resolve() async {
-    setState(() => _resolving = true);
+    final snapshot = _current!;
+    setState(() {
+      _resolving = true;
+      _current = CommunityReport(
+        id: snapshot.id,
+        reporterUid: snapshot.reporterUid,
+        threatType: snapshot.threatType,
+        latitude: snapshot.latitude,
+        longitude: snapshot.longitude,
+        radiusMeters: snapshot.radiusMeters,
+        status: ReportStatus.resolved,
+        validations: snapshot.validations,
+        confirmCount: snapshot.confirmCount,
+        dismissCount: snapshot.dismissCount,
+        isDuplicate: snapshot.isDuplicate,
+        canonicalReportId: snapshot.canonicalReportId,
+        createdAt: snapshot.createdAt,
+        updatedAt: snapshot.updatedAt,
+        expiresAt: snapshot.expiresAt,
+        description: snapshot.description,
+        supportCount: snapshot.supportCount,
+        supporters: snapshot.supporters,
+        pendingResolverUid: snapshot.pendingResolverUid,
+        resolvedAt: snapshot.resolvedAt,
+        resolvedByUid: snapshot.resolvedByUid,
+      );
+    });
     try {
       final updated = await ref
           .read(communityReportModuleProvider)
-          .resolveLot(_current!.id);
+          .resolveLot(snapshot.id);
       if (!mounted) return;
       setState(() => _current = updated);
       unawaited(ref.read(activeCommunityReportsProvider.notifier).refresh());
@@ -104,6 +130,7 @@ class _ReportDetailScreenState extends ConsumerState<ReportDetailScreen> {
       );
     } on DioException catch (e) {
       if (!mounted) return;
+      setState(() => _current = snapshot);
       final detail = (e.response?.data as Map?)?['detail'] as String?;
       final msg = switch (detail) {
         'not_pending_resolver' => 'Solo el tercer apoyo puede marcar como resuelto.',
@@ -114,6 +141,7 @@ class _ReportDetailScreenState extends ConsumerState<ReportDetailScreen> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     } on Exception catch (_) {
       if (!mounted) return;
+      setState(() => _current = snapshot);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Error de conexión. Intenta de nuevo.')),
       );

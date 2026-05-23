@@ -248,3 +248,49 @@ async def test_validation_endpoint_rejects_lote_baldio_422(mock_firebase, as_sup
             )
     assert res.status_code == 422
     assert res.json()["detail"] == "use_support_endpoint"
+
+
+@pytest.mark.asyncio
+async def test_resolve_sends_fcm(mock_firebase, as_supporter_3):
+    """PATCH /resolve fires send_lot_resolved with correct arguments (fire-and-forget)."""
+    import asyncio
+
+    from main import app
+
+    lot_ready = CommunityReport(
+        id=REPORT_ID,
+        reporter_uid=REPORTER_UID,
+        threat_type=ThreatType.lote_baldio,
+        location=GeoPoint(lat=20.6736, lng=-103.344),
+        status=ReportStatus.pending_validation,
+        supporters=[SUPPORTER_1, SUPPORTER_2, SUPPORTER_3],
+        support_count=3,
+        pending_resolver_uid=SUPPORTER_3,
+    )
+    resolved = CommunityReport(
+        id=REPORT_ID,
+        reporter_uid=REPORTER_UID,
+        threat_type=ThreatType.lote_baldio,
+        location=GeoPoint(lat=20.6736, lng=-103.344),
+        status=ReportStatus.resolved,
+        supporters=[SUPPORTER_1, SUPPORTER_2, SUPPORTER_3],
+        support_count=3,
+        pending_resolver_uid=SUPPORTER_3,
+        resolved_by_uid=SUPPORTER_3,
+    )
+    with (
+        patch(_FS_GET, new_callable=AsyncMock, return_value=lot_ready),
+        patch(_FS_RESOLVE, new_callable=AsyncMock, return_value=resolved),
+        patch(_NOTIFY_LOT, new_callable=AsyncMock) as mock_notify,
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            res = await client.patch(f"/community-reports/{REPORT_ID}/resolve", headers=_AUTH)
+        await asyncio.sleep(0)  # flush asyncio.ensure_future
+
+    assert res.status_code == 200
+    mock_notify.assert_awaited_once_with(
+        reporter_uid=REPORTER_UID,
+        supporter_uids=[SUPPORTER_1, SUPPORTER_2, SUPPORTER_3],
+        report_id=REPORT_ID,
+        resolved_by_uid=SUPPORTER_3,
+    )

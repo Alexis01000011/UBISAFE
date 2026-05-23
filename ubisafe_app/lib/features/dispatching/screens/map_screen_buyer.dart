@@ -53,6 +53,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer>
   bool _groupStaysLoaded = false;
   bool _speedDialOpen = false;
   bool _selectingRiskPoint = false;
+  final Set<String> _resolvedLotIds = {};
   final Map<String, BitmapDescriptor> _markerIconCache = {};
   Position? _riskZoneAnchorPos;
   BitmapDescriptor? _zoneTapIcon;
@@ -152,6 +153,14 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer>
           duration: Duration(seconds: 5),
         ),
       );
+    });
+
+    // Remove resolved lote_baldio marker immediately on FCM — no wait for API refetch (CU-07-B).
+    ref.listen<Map<String, dynamic>?>(lotResolvedProvider, (_, data) {
+      if (data == null) return;
+      final id = data['report_id'] as String?;
+      if (id == null) return;
+      setState(() => _resolvedLotIds.add(id));
     });
 
     // Show SnackBar with "Ver" when an rsvp_group_stay FCM arrives (CU-09-C).
@@ -476,13 +485,14 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer>
                   orElse: () => <Marker>{},
                 );
 
-          // Community report markers: skip duplicates (grouped under canonical pin)
+          // Community report markers: skip duplicates and locally-resolved lots.
           final communityMarkers = (communityReportsAsync.valueOrNull ?? [])
               .where((r) =>
                   !r.isDuplicate &&
                   r.status != ReportStatus.expired &&
                   r.status != ReportStatus.dismissed &&
-                  r.status != ReportStatus.resolved)
+                  r.status != ReportStatus.resolved &&
+                  !_resolvedLotIds.contains(r.id))
               .map((r) => _communityReportToMarker(r, context))
               .toSet();
 

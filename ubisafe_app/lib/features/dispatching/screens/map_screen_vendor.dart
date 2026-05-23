@@ -60,6 +60,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
   double? _rideDestLat;
   double? _rideDestLng;
   bool _selectingRiskPoint = false;
+  final Set<String> _resolvedLotIds = {};
   // 1 = going to pickup, 2 = ride in progress (passenger aboard)
   int _ridePhase = 0;
   Position? _riskZoneAnchorPos;
@@ -232,6 +233,14 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
           duration: const Duration(seconds: 5),
         ),
       );
+    });
+
+    // Remove resolved lote_baldio marker immediately on FCM — no wait for API refetch (CU-07-B).
+    ref.listen<Map<String, dynamic>?>(lotResolvedProvider, (_, data) {
+      if (data == null) return;
+      final id = data['report_id'] as String?;
+      if (id == null) return;
+      setState(() => _resolvedLotIds.add(id));
     });
 
     // Remove stay marker and notify vendor when one of their group stays is cancelled (CU-09-D).
@@ -513,7 +522,8 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
                   !r.isDuplicate &&
                   r.status != ReportStatus.expired &&
                   r.status != ReportStatus.dismissed &&
-                  r.status != ReportStatus.resolved)
+                  r.status != ReportStatus.resolved &&
+                  !_resolvedLotIds.contains(r.id))
               .map((r) => _communityReportToMarker(r, context))
               .toSet();
 
