@@ -22,7 +22,10 @@ class RiskZone(BaseModel):
     active: bool
     created_at: str  # Siempre presente — generado por el backend
     expires_at: str  # Siempre presente — created_at + 24h
-    expired_at: str | None = None  # Solo presente cuando la zona ya expiró
+    expired_at: str | None = None  # Solo presente cuando la zona expiró por TTL
+    dismissed_at: str | None = None  # Solo presente cuando la zona fue desmentida por la comunidad
+    dismiss_count: int = 0  # Número de votos de desmentido
+    dismissers: list[str] = []  # UIDs de usuarios que desmintieron
 
 
 class CreateRiskZoneBody(BaseModel):

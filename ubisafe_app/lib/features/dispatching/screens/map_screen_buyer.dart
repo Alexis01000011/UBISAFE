@@ -10,6 +10,8 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../../../core/design_system/colors.dart';
 import '../../community/models/community_report.dart';
 import '../../community/screens/community_form_bottom_sheet.dart';
+import '../../community/screens/lot_form_bottom_sheet.dart';
+import '../../community/screens/lot_location_picker_sheet.dart';
 import '../../community/services/community_report_module.dart';
 import '../../identity/profile/widgets/drawer_module.dart';
 import '../../presence/services/gps_service.dart';
@@ -19,13 +21,19 @@ import '../../safety/models/risk_zone.dart';
 import '../../safety/screens/risk_form_bottom_sheet.dart';
 import '../../safety/services/risk_zone_service.dart';
 import '../../shared/notifications/notification_handler.dart';
+import '../../shared/subscriptions/services/subscription_module.dart';
 import '../../shared/widgets/gps_required_empty_state.dart';
+import '../group_stays/models/group_stay.dart';
+import '../group_stays/services/group_stay_module.dart';
 import '../models/stop_request.dart';
 import '../services/ride_request_module.dart';
 import '../services/stop_request_module.dart';
 import '../widgets/destination_picker.dart';
 
 enum _BuyerMapState { idle, waiting, waitingRide }
+
+/// Resultado de la validación de zona de riesgo en el destino del raite.
+enum _ZoneCheckResult { blocked, proceedClear, proceedLow }
 
 /// Main map screen for buyers — vendor markers, stop-request flow (CU-01).
 class MapScreenBuyer extends ConsumerStatefulWidget {
@@ -35,16 +43,47 @@ class MapScreenBuyer extends ConsumerStatefulWidget {
   ConsumerState<MapScreenBuyer> createState() => _MapScreenBuyerState();
 }
 
-class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
+class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer>
+    with WidgetsBindingObserver {
   _BuyerMapState _mapState = _BuyerMapState.idle;
   String? _activeStopId;
   String? _activeRideId;
   String? _activeVendorUid;
   bool _communityReportsLoaded = false;
+  bool _groupStaysLoaded = false;
   bool _speedDialOpen = false;
   bool _selectingRiskPoint = false;
+  final Set<String> _resolvedLotIds = {};
   final Map<String, BitmapDescriptor> _markerIconCache = {};
   Position? _riskZoneAnchorPos;
+  BitmapDescriptor? _zoneTapIcon;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _buildZoneTapIcon().then((icon) {
+      if (mounted) setState(() => _zoneTapIcon = icon);
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // After a long background period the Firebase Auth token may have
+      // expired, causing the RTDB onValue stream to close with
+      // permission_denied. The VendorTracker auto-retries on error, but
+      // an explicit reconnect on resume ensures a fresh snapshot arrives
+      // without waiting for the next write event from a vendor.
+      ref.read(vendorTrackerInstanceProvider).reconnect();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -52,6 +91,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
     ref.watch(locationSyncProvider);
     final vendorsAsync = ref.watch(vendorMarkersProvider);
     final communityReportsAsync = ref.watch(activeCommunityReportsProvider);
+    final groupStaysAsync = ref.watch(activeGroupStaysProvider);
 
     // Re-subscribe the risk zones stream when the user moves >500 m from the
     // position that was captured when the stream was last built (frozen closure fix).
@@ -81,8 +121,11 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
       final reportLat = double.tryParse(alert['lat'] as String? ?? '');
       final reportLng = double.tryParse(alert['lng'] as String? ?? '');
       final threatType = alert['threat_type'] as String? ?? '';
-      final typeLabel =
-          threatType == 'animal_muerto' ? 'Animal muerto' : 'Zona sucia';
+      final typeLabel = switch (threatType) {
+        'animal_muerto' => 'Animal muerto',
+        'lote_baldio' => 'Lote baldío',
+        _ => 'Zona sucia',
+      };
 
       final position = ref.read(gpsServiceProvider).valueOrNull;
       String distanceLabel = '';
@@ -99,6 +142,62 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
           backgroundColor: const Color(0xFF795548),
           duration: const Duration(seconds: 5),
         ),
+      );
+    });
+
+    ref.listen<Map<String, dynamic>?>(vendorProximityAlertProvider, (_, alert) {
+      if (alert == null || !context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Un vendedor al que estás suscrito está cerca'),
+          duration: Duration(seconds: 5),
+        ),
+      );
+    });
+
+    // Remove resolved lote_baldio marker immediately on FCM — no wait for API refetch (CU-07-B).
+    ref.listen<Map<String, dynamic>?>(lotResolvedProvider, (_, data) {
+      if (data == null) return;
+      final id = data['report_id'] as String?;
+      if (id == null) return;
+      setState(() => _resolvedLotIds.add(id));
+    });
+
+    // Show SnackBar with "Ver" when an rsvp_group_stay FCM arrives (CU-09-C).
+    ref.listen<Map<String, dynamic>?>(rsvpGroupStayAlertProvider, (_, payload) {
+      if (payload == null || !context.mounted) return;
+      final stayId = payload['group_stay_id'] as String? ?? '';
+      final vendorName = payload['vendor_name'] as String? ?? 'Un vendedor';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Estancia grupal cerca — $vendorName'),
+          duration: const Duration(seconds: 8),
+          action: stayId.isEmpty
+              ? null
+              : SnackBarAction(
+                  label: 'Ver',
+                  onPressed: () => ref
+                      .read(groupStayModuleProvider)
+                      .getStay(stayId)
+                      .then((stay) {
+                    if (context.mounted) {
+                      context.push('/group-stays/detail', extra: stay);
+                    }
+                  }).catchError((_) {}),
+                ),
+        ),
+      );
+    });
+
+    // Remove stay marker and notify buyer when a group stay is cancelled (CU-09-D).
+    ref.listen<Map<String, dynamic>?>(groupStayCancelledProvider, (_, data) {
+      if (data == null || !context.mounted) return;
+      final reason = data['reason'] as String? ?? '';
+      final msg = reason == 'risk_zone_high'
+          ? 'Una estancia grupal fue cancelada por zona de riesgo alta.'
+          : 'Una estancia grupal fue cancelada por el vendedor.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg), duration: const Duration(seconds: 5)),
       );
     });
 
@@ -280,6 +379,10 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
           setState(() => _speedDialOpen = false);
           _onCommunityFabPressed(positionAsync.valueOrNull);
         },
+        onLotReport: () {
+          setState(() => _speedDialOpen = false);
+          _onLotFabPressed(positionAsync.valueOrNull);
+        },
       ),
       body: positionAsync.when(
         data: (position) {
@@ -332,6 +435,17 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
             });
           }
 
+          // Load active group stays once
+          if (!_groupStaysLoaded) {
+            _groupStaysLoaded = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              ref.read(activeGroupStaysProvider.notifier).load(
+                    position.latitude,
+                    position.longitude,
+                  );
+            });
+          }
+
           final zonesAsync = ref.watch(activeRiskZonesProvider);
           final circles = zonesAsync.maybeWhen(
             data: (zones) => zones
@@ -349,13 +463,42 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
             orElse: () => <Circle>{},
           );
 
-          // Community report markers: skip duplicates (grouped under canonical pin)
+          // Invisible markers superimposed on each zone circle for tap detection
+          // (Circle has no onTap — Option A from design doc).
+          final zoneMarkers = _zoneTapIcon == null
+              ? <Marker>{}
+              : zonesAsync.maybeWhen(
+                  data: (zones) => zones
+                      .map(
+                        (z) => Marker(
+                          markerId: MarkerId('zt_${z.id}'),
+                          position: LatLng(z.latitude, z.longitude),
+                          icon: _zoneTapIcon!,
+                          anchor: const Offset(0.5, 0.5),
+                          onTap: () => context.push(
+                            '/safety/risk-zones/detail',
+                            extra: z,
+                          ),
+                        ),
+                      )
+                      .toSet(),
+                  orElse: () => <Marker>{},
+                );
+
+          // Community report markers: skip duplicates and locally-resolved lots.
           final communityMarkers = (communityReportsAsync.valueOrNull ?? [])
               .where((r) =>
                   !r.isDuplicate &&
                   r.status != ReportStatus.expired &&
-                  r.status != ReportStatus.dismissed)
+                  r.status != ReportStatus.dismissed &&
+                  r.status != ReportStatus.resolved &&
+                  !_resolvedLotIds.contains(r.id))
               .map((r) => _communityReportToMarker(r, context))
+              .toSet();
+
+          // Group stay markers
+          final stayMarkers = (groupStaysAsync.valueOrNull ?? [])
+              .map((s) => _groupStayToMarker(s, context))
               .toSet();
 
           return Stack(
@@ -364,7 +507,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
                 initialCameraPosition: initialCamera,
                 myLocationEnabled: true,
                 myLocationButtonEnabled: true,
-                markers: markers.union(communityMarkers),
+                markers: markers.union(communityMarkers).union(stayMarkers).union(zoneMarkers),
                 circles: circles,
                 onTap: _onMapTap,
               ),
@@ -509,6 +652,17 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
     return BitmapDescriptor.bytes(bytes, imagePixelRatio: 2.0);
   }
 
+  // 1×1 transparent PNG — hit area for zone circle taps (Option A).
+  static Future<BitmapDescriptor> _buildZoneTapIcon() async {
+    final recorder = ui.PictureRecorder();
+    Canvas(recorder);
+    final img = await recorder.endRecording().toImage(1, 1);
+    final bytes = (await img.toByteData(format: ui.ImageByteFormat.png))!
+        .buffer
+        .asUint8List();
+    return BitmapDescriptor.bytes(bytes);
+  }
+
   Future<void> _onVendorTap(
     BuildContext context, {
     required String vendorUid,
@@ -611,6 +765,83 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
     }
   }
 
+  /// Evalúa si el [destination] cae dentro de una zona de riesgo activa.
+  ///
+  /// HIGH  → muestra SnackBar rojo y retorna [_ZoneCheckResult.blocked].
+  /// MEDIUM → muestra diálogo de confirmación; retorna [blocked] si el usuario
+  ///           cancela, [proceedClear] si decide continuar.
+  /// LOW   → retorna [proceedLow] sin mostrar nada (el caller muestra el aviso
+  ///          una vez que el raite es confirmado — respuesta 4-B del diseño).
+  /// Sin zona → retorna [proceedClear].
+  ///
+  /// Las zonas no se solapan por diseño, así que solo puede haber un match.
+  Future<_ZoneCheckResult> _checkDestinationRiskZone(
+    BuildContext context,
+    LatLng destination,
+  ) async {
+    final zones = await ref
+        .read(activeRiskZonesProvider.future)
+        .catchError((_) => <RiskZone>[]);
+
+    for (final z in zones) {
+      final dist = Geolocator.distanceBetween(
+        destination.latitude,
+        destination.longitude,
+        z.latitude,
+        z.longitude,
+      );
+      if (dist > z.radiusMeters) continue;
+
+      // Match encontrado — evaluar nivel
+      if (z.riskLevel == 'HIGH') {
+        if (!context.mounted) return _ZoneCheckResult.blocked;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No puedes seleccionar este destino: está dentro de una zona de riesgo ALTO.',
+            ),
+            backgroundColor: AppColors.danger500,
+          ),
+        );
+        return _ZoneCheckResult.blocked;
+      }
+
+      if (z.riskLevel == 'MEDIUM') {
+        if (!context.mounted) return _ZoneCheckResult.blocked;
+        final proceed = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => AlertDialog(
+            title: const Text('Destino en zona de riesgo MEDIO'),
+            content: const Text(
+              'El destino está dentro de una zona de riesgo MEDIO. '
+              '¿Deseas continuar de todas formas?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancelar'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Continuar'),
+              ),
+            ],
+          ),
+        );
+        return (proceed == true)
+            ? _ZoneCheckResult.proceedClear
+            : _ZoneCheckResult.blocked;
+      }
+
+      if (z.riskLevel == 'LOW') {
+        return _ZoneCheckResult.proceedLow;
+      }
+    }
+
+    return _ZoneCheckResult.proceedClear;
+  }
+
   Future<void> _requestRide(
     BuildContext context, {
     required String vendorUid,
@@ -623,6 +854,10 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
       LatLng(buyerLat, buyerLng),
     );
     if (destination == null || !context.mounted) return;
+
+    // Validar zona de riesgo en el destino antes de cambiar estado o crear el ride.
+    final zoneCheck = await _checkDestinationRiskZone(context, destination);
+    if (zoneCheck == _ZoneCheckResult.blocked || !context.mounted) return;
 
     setState(() => _mapState = _BuyerMapState.waitingRide);
     final messenger = ScaffoldMessenger.of(context);
@@ -649,6 +884,18 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
           );
         },
       );
+      // Aviso LOW: solo informativo, no bloquea. Se muestra una vez confirmado
+      // el raite (4-B) para que el comprador sepa antes de que el vendedor responda.
+      if (zoneCheck == _ZoneCheckResult.proceedLow) {
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Tu destino está en una zona de riesgo BAJO. Mantén precaución.',
+            ),
+            backgroundColor: Color(0xFF0277BD),
+          ),
+        );
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() => _mapState = _BuyerMapState.idle);
@@ -724,15 +971,58 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer> {
     );
   }
 
+  Future<void> _onLotFabPressed(dynamic position) async {
+    if (position == null) {
+      await showModalBottomSheet<void>(
+        context: context,
+        builder: (_) => const GpsRequiredEmptyState(),
+      );
+      return;
+    }
+    final selectedLatLng = await LotLocationPickerSheet.show(
+      context,
+      LatLng(position.latitude, position.longitude),
+    );
+    if (selectedLatLng == null || !mounted) return;
+    await LotFormBottomSheet.show(
+      context,
+      lat: selectedLatLng.latitude,
+      lng: selectedLatLng.longitude,
+    );
+  }
+
   // Flujo 9.6.C: duplicates are hidden; canonical pin opens ReportDetailScreen.
+  Marker _groupStayToMarker(GroupStay stay, BuildContext context) {
+    final isActive = stay.status == 'active';
+    final snippet = isActive ? 'Activa' : 'Programada';
+    // active → hueBlue (240°); scheduled → hueAzure (210°)
+    final hue = isActive
+        ? BitmapDescriptor.hueBlue
+        : BitmapDescriptor.hueAzure;
+    return Marker(
+      markerId: MarkerId('gs_${stay.id}'),
+      position: LatLng(stay.locationLat, stay.locationLng),
+      icon: BitmapDescriptor.defaultMarkerWithHue(hue),
+      infoWindow: InfoWindow(
+        title: 'Estancia grupal',
+        snippet: '$snippet · ${stay.attendeesCount} asistentes',
+        onTap: () => context.push('/group-stays/detail', extra: stay),
+      ),
+    );
+  }
+
   Marker _communityReportToMarker(
       CommunityReport report, BuildContext context) {
-    final hue = report.threatType == ThreatType.animalMuerto
-        ? BitmapDescriptor.hueRose // closest to black in Maps SDK hues
-        : BitmapDescriptor.hueOrange; // café approximation
-    final label = report.threatType == ThreatType.animalMuerto
-        ? 'Animal muerto'
-        : 'Zona sucia';
+    final hue = switch (report.threatType) {
+      ThreatType.animalMuerto => BitmapDescriptor.hueRose,
+      ThreatType.zonaSucia => BitmapDescriptor.hueOrange,
+      ThreatType.loteBaldio => BitmapDescriptor.hueYellow,
+    };
+    final label = switch (report.threatType) {
+      ThreatType.animalMuerto => 'Animal muerto',
+      ThreatType.zonaSucia => 'Zona sucia',
+      ThreatType.loteBaldio => 'Lote baldío',
+    };
     final statusLabel = report.status == ReportStatus.confirmed
         ? ' · Validado'
         : ' · Pendiente';
@@ -790,12 +1080,14 @@ class _SpeedDial extends StatelessWidget {
     required this.onToggle,
     required this.onRiskZone,
     required this.onCommunityReport,
+    required this.onLotReport,
   });
 
   final bool open;
   final VoidCallback onToggle;
   final VoidCallback onRiskZone;
   final VoidCallback onCommunityReport;
+  final VoidCallback onLotReport;
 
   @override
   Widget build(BuildContext context) {
@@ -804,6 +1096,13 @@ class _SpeedDial extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         if (open) ...[
+          _MiniAction(
+            icon: Icons.home_work_outlined,
+            label: 'Lote baldío',
+            color: const Color(0xFF6D4C41),
+            onTap: onLotReport,
+          ),
+          const SizedBox(height: 8),
           _MiniAction(
             icon: Icons.coronavirus_outlined,
             label: 'Foco de infección',
@@ -947,12 +1246,100 @@ class _WaitingOverlay extends StatelessWidget {
   }
 }
 
-class _VendorBottomSheet extends StatelessWidget {
-  const _VendorBottomSheet(
-      {required this.vendorUid, required this.rideEnabled});
+class _VendorBottomSheet extends ConsumerStatefulWidget {
+  const _VendorBottomSheet({
+    required this.vendorUid,
+    required this.rideEnabled,
+  });
 
   final String vendorUid;
   final bool rideEnabled;
+
+  @override
+  ConsumerState<_VendorBottomSheet> createState() => _VendorBottomSheetState();
+}
+
+class _VendorBottomSheetState extends ConsumerState<_VendorBottomSheet> {
+  bool _subscriptionLoading = true;
+  bool? _isSubscribed;
+  String? _subscriptionId;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSubscriptionState();
+  }
+
+  Future<void> _loadSubscriptionState() async {
+    try {
+      final subs = await ref.read(subscriptionModuleProvider).listActive();
+      final match =
+          subs.where((s) => s.vendorUid == widget.vendorUid).firstOrNull;
+      if (!mounted) return;
+      setState(() {
+        _isSubscribed = match != null;
+        _subscriptionId = match?.id;
+        _subscriptionLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _subscriptionLoading = false);
+    }
+  }
+
+  Future<void> _toggleSubscription() async {
+    final prev = _isSubscribed;
+    final prevId = _subscriptionId;
+    if (prev == null) return;
+
+    // Soft warning before subscribing
+    if (!prev) {
+      try {
+        final subs = await ref.read(subscriptionModuleProvider).listActive();
+        if (subs.length >= 10) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Tienes muchas suscripciones — podrías recibir muchas notificaciones.',
+              ),
+            ),
+          );
+        }
+      } catch (_) {}
+    }
+
+    // Optimistic update (R-F9)
+    if (!mounted) return;
+    setState(() {
+      _isSubscribed = !prev;
+      if (prev) _subscriptionId = null;
+    });
+
+    try {
+      if (prev) {
+        await ref.read(subscriptionModuleProvider).unsubscribe(prevId!);
+      } else {
+        final sub = await ref
+            .read(subscriptionModuleProvider)
+            .subscribe(widget.vendorUid);
+        if (!mounted) return;
+        setState(() => _subscriptionId = sub.id);
+      }
+    } catch (_) {
+      // Rollback on error
+      if (!mounted) return;
+      setState(() {
+        _isSubscribed = prev;
+        _subscriptionId = prevId;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Error al actualizar suscripción. Intenta de nuevo.'),
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -993,7 +1380,7 @@ class _VendorBottomSheet extends StatelessWidget {
             label: const Text('Solicitar Parada'),
             onPressed: () => Navigator.of(context).pop('stop'),
           ),
-          if (rideEnabled) ...[
+          if (widget.rideEnabled) ...[
             const SizedBox(height: 10),
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
@@ -1006,6 +1393,29 @@ class _VendorBottomSheet extends StatelessWidget {
               onPressed: () => Navigator.of(context).pop('ride'),
             ),
           ],
+          const SizedBox(height: 10),
+          if (_subscriptionLoading)
+            const Center(
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            )
+          else
+            OutlinedButton.icon(
+              icon: Icon(
+                _isSubscribed == true
+                    ? Icons.bookmark_remove
+                    : Icons.bookmark_add,
+              ),
+              label: Text(
+                _isSubscribed == true
+                    ? 'Cancelar suscripción'
+                    : 'Suscribirme',
+              ),
+              onPressed: _toggleSubscription,
+            ),
           const SizedBox(height: 8),
           TextButton(
             onPressed: () => Navigator.of(context).pop(null),

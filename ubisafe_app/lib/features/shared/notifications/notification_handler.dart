@@ -5,8 +5,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_client.dart';
 import '../../community/services/community_report_module.dart';
+import '../../dispatching/group_stays/services/group_stay_module.dart';
 import '../../dispatching/models/stop_request.dart';
 import '../../safety/services/risk_zone_service.dart';
+import 'local_notification_service.dart';
 
 /// Background message handler — must be a top-level function.
 @pragma('vm:entry-point')
@@ -45,6 +47,26 @@ final routeZoneWarningProvider =
 final communityReportAlertProvider =
     StateProvider<Map<String, dynamic>?>((ref) => null);
 
+/// Carries the FCM payload of a vendor_proximity_alert event so map screens
+/// can show a SnackBar when a subscribed vendor activates their radar.
+final vendorProximityAlertProvider =
+    StateProvider<Map<String, dynamic>?>((ref) => null);
+
+/// Carries the FCM payload of a lot_resolved event so map screens can remove
+/// the resolved lote_baldio marker without waiting for the next poll.
+final lotResolvedProvider =
+    StateProvider<Map<String, dynamic>?>((ref) => null);
+
+/// Carries the FCM payload of a group_stay_cancelled event so the detail
+/// screen can pop itself when the stay the buyer is viewing gets cancelled.
+final groupStayCancelledProvider =
+    StateProvider<Map<String, dynamic>?>((ref) => null);
+
+/// Carries the FCM payload of a rsvp_group_stay event so the buyer map screen
+/// can show a SnackBar with a "Ver" action that navigates to the stay detail.
+final rsvpGroupStayAlertProvider =
+    StateProvider<Map<String, dynamic>?>((ref) => null);
+
 class RideEvent {
   const RideEvent(this.rideId, this.type);
   final String rideId;
@@ -74,6 +96,10 @@ class NotificationHandler {
     required void Function(Map<String, dynamic>?) setIncomingRide,
     required void Function(RideEvent?) setRideEvent,
     required void Function(Map<String, dynamic>?) onRouteZoneWarning,
+    required void Function(Map<String, dynamic>) onVendorProximityAlert,
+    required void Function(Map<String, dynamic>) onLotResolved,
+    required void Function(Map<String, dynamic>) onGroupStayCancelled,
+    required void Function(Map<String, dynamic>) onRsvpGroupStay,
   })  : _setIncomingStop = setIncomingStop,
         _setStopEvent = setStopEvent,
         _invalidateRiskZones = invalidateRiskZones,
@@ -81,7 +107,11 @@ class NotificationHandler {
         _onReportStatusChanged = onReportStatusChanged,
         _setIncomingRide = setIncomingRide,
         _setRideEvent = setRideEvent,
-        _onRouteZoneWarning = onRouteZoneWarning;
+        _onRouteZoneWarning = onRouteZoneWarning,
+        _onVendorProximityAlert = onVendorProximityAlert,
+        _onLotResolved = onLotResolved,
+        _onGroupStayCancelled = onGroupStayCancelled,
+        _onRsvpGroupStay = onRsvpGroupStay;
 
   final FirebaseMessaging _messaging;
   final Dio _dio;
@@ -93,6 +123,10 @@ class NotificationHandler {
   final void Function(Map<String, dynamic>?) _setIncomingRide;
   final void Function(RideEvent?) _setRideEvent;
   final void Function(Map<String, dynamic>?) _onRouteZoneWarning;
+  final void Function(Map<String, dynamic>) _onVendorProximityAlert;
+  final void Function(Map<String, dynamic>) _onLotResolved;
+  final void Function(Map<String, dynamic>) _onGroupStayCancelled;
+  final void Function(Map<String, dynamic>) _onRsvpGroupStay;
   bool _initialized = false;
 
   /// Must be called once before runApp() — cannot be in init() because
@@ -196,6 +230,9 @@ class NotificationHandler {
       case 'risk_zone_expired':
         _invalidateRiskZones();
 
+      case 'risk_zone_dismissed':
+        _invalidateRiskZones();
+
       case 'community_report_nearby':
         _onCommunityReportNearby(Map<String, dynamic>.from(data));
 
@@ -251,6 +288,18 @@ class NotificationHandler {
       case 'route_zone_warning':
         _onRouteZoneWarning(Map<String, dynamic>.from(data));
 
+      case 'vendor_proximity_alert':
+        _onVendorProximityAlert(Map<String, dynamic>.from(data));
+
+      case 'lot_resolved':
+        _onLotResolved(Map<String, dynamic>.from(data));
+
+      case 'group_stay_cancelled':
+        _onGroupStayCancelled(Map<String, dynamic>.from(data));
+
+      case 'rsvp_group_stay':
+        _onRsvpGroupStay(Map<String, dynamic>.from(data));
+
       default:
         debugPrint('FCM unhandled type [$type]');
     }
@@ -282,5 +331,19 @@ final notificationHandlerProvider = Provider<NotificationHandler>((ref) {
     setRideEvent: (event) => ref.read(rideEventProvider.notifier).state = event,
     onRouteZoneWarning: (data) =>
         ref.read(routeZoneWarningProvider.notifier).state = data,
+    onVendorProximityAlert: (data) =>
+        ref.read(vendorProximityAlertProvider.notifier).state = data,
+    onLotResolved: (data) {
+      ref.read(activeCommunityReportsProvider.notifier).refresh();
+      ref.read(lotResolvedProvider.notifier).state = data;
+    },
+    onGroupStayCancelled: (data) {
+      ref.read(groupStayCancelledProvider.notifier).state = data;
+      ref.read(activeGroupStaysProvider.notifier).reload();
+    },
+    onRsvpGroupStay: (data) {
+      ref.read(rsvpGroupStayAlertProvider.notifier).state = data;
+      LocalNotificationService.showRsvpGroupStayNotification(data);
+    },
   );
 });

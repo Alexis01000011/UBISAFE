@@ -15,6 +15,9 @@ class RiskZone {
     required this.createdAt,
     required this.expiresAt,
     this.expiredAt,
+    this.dismissedAt,
+    this.dismissCount = 0,
+    this.dismissers = const [],
   });
 
   final String id;
@@ -31,6 +34,9 @@ class RiskZone {
   final DateTime createdAt;
   final DateTime expiresAt;
   final DateTime? expiredAt;
+  final DateTime? dismissedAt;
+  final int dismissCount;
+  final List<String> dismissers;
 
   factory RiskZone.fromJson(Map<String, dynamic> json) {
     final loc = json['location'] as Map<String, dynamic>;
@@ -48,6 +54,11 @@ class RiskZone {
       expiredAt: json['expired_at'] != null
           ? DateTime.parse(json['expired_at'] as String)
           : null,
+      dismissedAt: json['dismissed_at'] != null
+          ? DateTime.parse(json['dismissed_at'] as String)
+          : null,
+      dismissCount: (json['dismiss_count'] as num?)?.toInt() ?? 0,
+      dismissers: (json['dismissers'] as List?)?.cast<String>() ?? const [],
     );
   }
 
@@ -74,6 +85,9 @@ class RiskZone {
       createdAt: parseDate(data['created_at']),
       expiresAt: parseDate(data['expires_at']),
       expiredAt: data['expired_at'] != null ? parseDate(data['expired_at']) : null,
+      dismissedAt: data['dismissed_at'] != null ? parseDate(data['dismissed_at']) : null,
+      dismissCount: (data['dismiss_count'] as num?)?.toInt() ?? 0,
+      dismissers: (data['dismissers'] as List?)?.cast<String>() ?? const [],
     );
   }
 }

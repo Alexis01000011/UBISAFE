@@ -39,3 +39,7 @@ class UpdateRideEnabledRequest(BaseModel):
 class UpdateLocationBody(BaseModel):
     lat: float
     lng: float
+
+
+class UpdateRadarStatusRequest(BaseModel):
+    is_active_radar: bool

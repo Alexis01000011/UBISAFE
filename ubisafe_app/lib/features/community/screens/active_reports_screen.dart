@@ -105,14 +105,17 @@ class _ActiveReportsScreenState extends ConsumerState<ActiveReportsScreen> {
             separatorBuilder: (_, __) => const SizedBox(height: 8),
             itemBuilder: (context, index) {
               final r = reports[index];
-              final label = r.threatType == ThreatType.animalMuerto
-                  ? 'Animal muerto'
-                  : 'Zona sucia';
+              final label = switch (r.threatType) {
+                ThreatType.animalMuerto => 'Animal muerto',
+                ThreatType.zonaSucia => 'Zona sucia',
+                ThreatType.loteBaldio => 'Lote baldío',
+              };
               final statusLabel = switch (r.status) {
                 ReportStatus.pendingValidation => 'Pendiente',
                 ReportStatus.confirmed => 'Validado',
                 ReportStatus.dismissed => 'Descartado',
                 ReportStatus.expired => 'Expirado',
+                ReportStatus.resolved => 'Resuelto',
               };
               return ListTile(
                 tileColor: AppColors.surface,

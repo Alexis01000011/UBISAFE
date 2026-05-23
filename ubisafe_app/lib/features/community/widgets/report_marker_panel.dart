@@ -17,14 +17,17 @@ class ReportMarkerPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final typeLabel = report.threatType == ThreatType.animalMuerto
-        ? 'Animal muerto'
-        : 'Zona sucia';
+    final typeLabel = switch (report.threatType) {
+      ThreatType.animalMuerto => 'Animal muerto',
+      ThreatType.zonaSucia => 'Zona sucia',
+      ThreatType.loteBaldio => 'Lote baldío',
+    };
     final statusLabel = switch (report.status) {
       ReportStatus.pendingValidation => 'Pendiente',
       ReportStatus.confirmed => 'Validado',
       ReportStatus.dismissed => 'Descartado',
       ReportStatus.expired => 'Expirado',
+      ReportStatus.resolved => 'Resuelto',
     };
     final iconColor = report.threatType == ThreatType.animalMuerto
         ? AppColors.neutral900

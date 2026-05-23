@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:ubisafe_app/features/dispatching/group_stays/services/group_stay_module.dart';
 import 'package:ubisafe_app/features/dispatching/screens/map_screen_buyer.dart';
 import 'package:ubisafe_app/features/dispatching/services/stop_request_module.dart';
 import 'package:ubisafe_app/features/presence/services/gps_service.dart';
@@ -15,6 +16,8 @@ import 'package:ubisafe_app/features/shared/widgets/gps_required_empty_state.dar
 class _MockDio extends Mock implements Dio {}
 
 class _MockFirebaseFirestore extends Mock implements FirebaseFirestore {}
+
+class _MockGroupStayModule extends Mock implements GroupStayModule {}
 
 Widget _buildApp({
   required Widget home,
@@ -61,6 +64,7 @@ void main() {
           (ref) => CommunityReportModule(mockDio),
         ),
         locationSyncProvider.overrideWith((ref) => null),
+        groupStayModuleProvider.overrideWith((ref) => _MockGroupStayModule()),
       ];
 
   group('MapScreenBuyer — GPS guard', () {
@@ -95,6 +99,7 @@ void main() {
               (ref) => CommunityReportModule(mockDio),
             ),
             locationSyncProvider.overrideWith((ref) => null),
+            groupStayModuleProvider.overrideWith((ref) => _MockGroupStayModule()),
           ],
           child: const MaterialApp(home: MapScreenBuyer()),
         ),

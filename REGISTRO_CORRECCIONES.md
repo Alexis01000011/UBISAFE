@@ -3,7 +3,7 @@
 **Proyecto:** Los Borbotones · TSP · ITESM  
 **Rama activa:** `Rama-Miguel`  
 **Dispositivo de prueba:** Físico Android (depuración inalámbrica ADB, NO emulador de computadora)  
-**Última actualización:** 2026-05-18 (C-123)
+**Última actualización:** 2026-05-22 (C-161)
 
 ---
 
@@ -1565,6 +1565,19 @@
 
 ---
 
+### C-161 · Tests Flutter fallaban por `FirebaseException` al construir `MapScreenBuyer` y `MapScreenVendor` `2026-05-22`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-161 · `groupStayModuleProvider` no mockeado en tests de pantallas del mapa |
+| **Qué se corrigió (técnico)** | En `map_screen_buyer_test.dart` y `map_screen_vendor_test.dart`: se añadió `import` de `group_stay_module.dart`, clase `_MockGroupStayModule extends Mock implements GroupStayModule`, y override `groupStayModuleProvider.overrideWith((ref) => _MockGroupStayModule())` en todas las listas de overrides (función helper + `ProviderScope` inline del primer test de cada archivo). |
+| **Qué se corrigió (simple)** | Los tests de las pantallas del mapa lanzaban `FirebaseException: [core/no-app] No Firebase App '[DEFAULT]'` al construirse, porque `activeGroupStaysProvider` (usado en el `build()` de ambas pantallas) intentaba acceder a `FirebaseAuth.instance` a través de la cadena `groupStayModuleProvider → apiClientProvider → JwtInterceptor`. Al no tener Firebase inicializado en el entorno de test, la suite entera fallaba. El override de `groupStayModuleProvider` con un mock corta esa cadena. |
+| **Clase / Método / Módulo** | `overrides()` y `ProviderScope` inline en `map_screen_buyer_test.dart` · `_buildVendorScreen()` y `ProviderScope` inline en `map_screen_vendor_test.dart` (`ubisafe_app/test/features/dispatching/screens/`) |
+| **Justificación** | `activeCommunityReportsProvider` ya estaba mockeado vía `communityReportModuleProvider`, pero `activeGroupStaysProvider` seguía la misma ruta (`groupStayModuleProvider → apiClientProvider → JwtInterceptor`) y no tenía override. El fallo no era un test de negocio sino de infraestructura de test: la cadena de dependencias Riverpod llegaba hasta Firebase antes de que ningún widget fuera relevante. |
+| **Problema que resolvía** | `MapScreenBuyer — GPS guard shows GpsRequiredEmptyState` fallaba con `FlutterError.onError had unexpected additional errors` (encubriendo el `FirebaseException` subyacente). `MapScreenVendor — estado inicial muestra CircularProgressIndicator` fallaba directamente con `FirebaseException`. Resultado: 2 tests fallidos en la suite Flutter (93 tests totales). |
+
+---
+
 ### C-123 · Diálogo de raite entrante no se descartaba al expirar la solicitud (60 s) `2026-05-18`
 
 | Campo | Detalle |
@@ -1575,6 +1588,136 @@
 | **Clase / Método / Módulo** | `_MapScreenVendorState` → `ref.listen<RideEvent?>` en `map_screen_vendor.dart` (`ubisafe_app/lib/features/dispatching/screens/map_screen_vendor.dart`) |
 | **Justificación** | El evento `RideEventType.expired` ya llegaba correctamente desde `notification_handler.dart` al `rideEventProvider`, y el guard `if (_activeRideId == null && event.rideId != _pendingDialogRideId) return` ya permitía el paso del evento cuando el diálogo estaba abierto. Faltaba únicamente el handler que actuara sobre él, análogo al ya existente para `cancelledByBuyer`. |
 | **Problema que resolvía** | El vendedor conservaba el diálogo de aceptar/rechazar después de que la solicitud expiraba. Aceptar la solicitud expirada producía un error 409 sin feedback claro al vendedor. |
+
+---
+
+### C-162 · `ScheduleGroupStayScreen` usaba posición GPS como ubicación fija sin selector de mapa + coordenadas crudas visibles `2026-05-23`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-162 · `GroupStayLocationPickerSheet` + eliminación de coordenadas crudas en CU-09 |
+| **Qué se corrigió (técnico)** | (1) Creado `group_stay_location_picker_sheet.dart`: bottom sheet 75% de pantalla con `GoogleMap` embebido, pin central fijo `Icons.storefront_outlined` (color `secondary700`), callback `onCameraMove` captura el `target` como ubicación seleccionada. Sin restricción de radio (a diferencia del `LotLocationPickerSheet` que limita a 1 km). Retorna `LatLng?`. (2) `ScheduleGroupStayScreen` reescrito: campo `LatLng? _selectedLocation`, método `_pickLocation()` que abre el picker con la posición GPS como centro inicial, card visual con estado "no seleccionado" / "seleccionado ✓", botón "Programar estancia" deshabilitado si `_selectedLocation == null`. `_submit()` usa `_selectedLocation` en lugar de la posición GPS en tiempo real. (3) `GroupStayDetailScreen`: el `_InfoRow` de Ubicación (que mostraba lat/lng crudas) se reemplazó por un `GoogleMap` no interactivo de 150 px de alto con un marker cyan en la posición de la estancia. |
+| **Qué se corrigió (simple)** | La pantalla "Programar estancia" asignaba automáticamente la posición GPS actual como ubicación sin darle al vendedor ninguna forma de elegir un punto diferente. El vendedor solo veía coordenadas numéricas. Ahora al tocar la card de ubicación se abre un mapa donde puede mover el pin a cualquier punto; el botón de programar no se habilita hasta que confirme. En la pantalla de detalle, las coordenadas crudas fueron reemplazadas por un mini-mapa que muestra exactamente dónde está la estancia. |
+| **Clase / Método / Módulo** | `ScheduleGroupStayScreen._submit()` + nuevo `GroupStayLocationPickerSheet` → `ubisafe_app/lib/features/dispatching/group_stays/screens/` · `GroupStayDetailScreen` info card → `group_stay_detail_screen.dart` |
+| **Justificación** | El plan §5.1.2 item 8 especifica explícitamente "Mapa con pin draggable o tap-to-set para `location`". El patrón de picker (bottom sheet con mapa + pin central fijo) ya existe para lotes baldíos (`LotLocationPickerSheet`) y se replicó aquí sin la restricción de radio ya que las estancias no tienen límite de distancia. El mini-mapa en el detalle sigue la especificación §5.2.2 ("punto en mini-mapa"). |
+| **Problema que resolvía** | El vendedor no podía elegir el punto de su estancia — siempre se programaba donde estaba parado físicamente en ese momento. Tampoco había retroalimentación visual de dónde quedaría la estancia antes de confirmar. |
+
+---
+
+### C-163 · `ref.invalidate(activeGroupStaysProvider)` reseteaba a lista vacía sin recargar + estancia nueva no aparecía en mapa `2026-05-23`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-163 · `_GroupStaysNotifier.reload()` para P2 y P3 de CU-09 |
+| **Qué se corrigió (técnico)** | (1) `_GroupStaysNotifier` en `group_stay_module.dart`: añadidos campos `double? _lastLat` y `double? _lastLng` que se almacenan en cada llamada a `load(lat, lng)`. Nuevo método `Future<void> reload()` que llama `load(_lastLat!, _lastLng!)` si los valores están disponibles (no-op seguro si `load` nunca fue llamado). (2) `notificationHandlerProvider` en `notification_handler.dart`: el callback `onGroupStayCancelled` cambió de `ref.invalidate(activeGroupStaysProvider)` a `ref.read(activeGroupStaysProvider.notifier).reload()`. (3) `ScheduleGroupStayScreen._submit()`: tras crear la estancia exitosamente, se dispara `unawaited(ref.read(activeGroupStaysProvider.notifier).reload())` antes del `context.pop()`. |
+| **Qué se corrigió (simple)** | (P2) Cuando llegaba un FCM `group_stay_cancelled`, el código llamaba `ref.invalidate(activeGroupStaysProvider)`. Esto descartaba el `StateNotifier` y lo recreaba con su estado inicial `AsyncData([])` (lista vacía), pero nunca llamaba `.load()`. Los mapas quedaban con cero marcadores de estancia en lugar de la lista actualizada sin la estancia cancelada. (P3) Al crear una estancia exitosamente y regresar al mapa, la estancia nueva no aparecía como pin porque el flag `_groupStaysLoaded = true` evitaba que el mapa disparara un nuevo `.load()`. Ahora ambos casos llaman `reload()` que usa las últimas coordenadas conocidas para hacer una recarga real. |
+| **Clase / Método / Módulo** | `_GroupStaysNotifier` + `groupStayModuleProvider` → `group_stay_module.dart` · `notificationHandlerProvider.onGroupStayCancelled` → `notification_handler.dart` · `ScheduleGroupStayScreen._submit()` → `schedule_group_stay_screen.dart` |
+| **Justificación** | `ref.invalidate()` destruye y recrea el notifier desde cero — el estado inicial es `AsyncData([])`, no el resultado de un fetch. Para un `StateNotifier` que depende de parámetros externos (lat/lng) que no están en el provider graph, el patrón correcto es almacenar esos parámetros en el notifier y exponer un método `reload()`. Este patrón evita duplicar la lógica de fetching y mantiene la única fuente de verdad de coordenadas en el propio notifier. |
+| **Problema que resolvía** | Los marcadores de estancias grupales desaparecían del mapa al recibir FCM `group_stay_cancelled` (lista se reseteaba a vacía). Las estancias recién creadas no aparecían en el mapa hasta que el usuario reiniciaba la app. |
+
+---
+
+### C-164 · Marcadores de estancia grupal usaban el mismo color (`hueCyan`) para los estados `scheduled` y `active` `2026-05-23`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-164 · `hueAzure` (scheduled) vs `hueBlue` (active) en `_groupStayToMarker` |
+| **Qué se corrigió (técnico)** | En `_groupStayToMarker` de `map_screen_buyer.dart` y `map_screen_vendor.dart`: la llamada `BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueCyan)` se reemplazó por una expresión condicional: `stay.status == 'active' ? BitmapDescriptor.hueBlue : BitmapDescriptor.hueAzure`. |
+| **Qué se corrigió (simple)** | Todos los marcadores de estancias grupales aparecían del mismo color (cian) en el mapa, sin distinción entre una estancia programada (futura) y una activa (en curso). El plan especifica colores diferentes para cada estado. Ahora los marcadores `scheduled` son azul claro (azure, 210°) y los `active` son azul intenso (blue, 240°). |
+| **Clase / Método / Módulo** | `_MapScreenBuyerState._groupStayToMarker()` → `map_screen_buyer.dart` · `_MapScreenVendorState._groupStayToMarker()` → `map_screen_vendor.dart` |
+| **Justificación** | El SDD3 Fase 5'' especifica `#5C6BC0` para scheduled y `#3F51B5` para active. Ambos tonos tienen el mismo hue HSV (~231°), imposible de diferenciar con `defaultMarkerWithHue`. `hueAzure` (210°) y `hueBlue` (240°) son los valores predefinidos de Google Maps Flutter más cercanos a esa familia de azules y se distinguen claramente a escala de mapa. |
+| **Problema que resolvía** | El usuario no podía distinguir visualmente en el mapa si una estancia era futura o estaba ocurriendo en ese momento. |
+
+---
+
+### C-165 · Tests faltantes de CU-09: idempotencia de asistencia, conteo de args y FCM en cancelación `2026-05-23`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-165 · Tres tests nuevos en `test_group_stays.py` (P5 del audit CU-09) |
+| **Qué se corrigió (técnico)** | Añadidos tres tests a `tests/test_group_stays.py`: (1) `test_confirm_attendance_calls_firestore_with_correct_args`: verifica que `POST /group-stays/{id}/attendances` llama `FirestoreService.confirm_attendance(stay_id, buyer_uid)` con los argumentos exactos usando `assert_awaited_once_with`. (2) `test_double_confirm_is_idempotent`: llama el endpoint de asistencia dos veces consecutivas en el mismo `AsyncClient` y verifica que ambas retornan 204 (la idempotencia real la garantiza la capa FS, pero el endpoint no debe fallar en el segundo intento). (3) `test_vendor_cancel_notifies_attendees`: mockea `get_confirmed_attendance_uids` para retornar `[BUYER_UID]`, mockea `NotificationService.send_group_stay_cancelled`, llama `PATCH /cancel` y tras `await asyncio.sleep(0)` (para vaciar el `asyncio.ensure_future` del router) verifica que el mock de FCM fue llamado con `([BUYER_UID], STAY_ID, "vendor_cancelled")`. |
+| **Qué se corrigió (simple)** | El plan §5.2.1 item 5 especificaba tres tests que no estaban implementados: que el endpoint de asistencia pasa los argumentos correctos a Firestore, que llamarlo dos veces no falla, y que cancelar una estancia con asistentes efectivamente dispara la notificación FCM. Sin estos tests, un refactor del router o del servicio podría romper silenciosamente estas garantías. |
+| **Clase / Método / Módulo** | `tests/test_group_stays.py` → `ubisafe_api/tests/test_group_stays.py` (suite sube de 9 a 12 tests, todos pasan) |
+| **Justificación** | `asyncio.sleep(0)` en el test de cancelación es el patrón estándar para vaciar tareas pendientes creadas con `asyncio.ensure_future` dentro del mismo loop del test. El mock de `NotificationService.send_group_stay_cancelled` se parchea por su path completo de módulo (`modules.shared.notification_service.NotificationService...`) para asegurar que el parche intercepta exactamente la llamada que hace el router. |
+| **Problema que resolvía** | Los tres casos de negocio (argumentos correctos en asistencia, idempotencia, FCM en cancelación) no tenían cobertura de test. Un cambio inadvertido en la firma de `confirm_attendance` o en la lógica de notificación de cancelación habría pasado desapercibido en CI. |
+
+---
+
+### C-166 · `lotResolvedProvider` no escuchado en mapas — pin no desaparecía al recibir FCM `lot_resolved` `2026-05-23`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-166 · `ref.listen(lotResolvedProvider)` + `_resolvedLotIds` en ambos mapas (P1 audit CU-07) |
+| **Qué se corrigió (técnico)** | Añadido `final Set<String> _resolvedLotIds = {}` al estado de `_MapScreenBuyerState` y `_MapScreenVendorState`. Añadido `ref.listen<Map<String, dynamic>?>(lotResolvedProvider, ...)` en el `build()` de cada mapa: extrae `data['report_id']` y lo agrega a `_resolvedLotIds` mediante `setState()`. El filtro de `communityMarkers` pasa de 4 condiciones a 5: añade `&& !_resolvedLotIds.contains(r.id)`. |
+| **Qué se corrigió (simple)** | El `notification_handler.dart` ya tenía `lotResolvedProvider` y `onLotResolved`, pero ningún mapa lo escuchaba. Cuando un lote baldío se resolvía, el `notification_handler` llamaba `refresh()` en `activeCommunityReportsProvider`, pero el pin amarillo no desaparecía hasta que el refetch completaba (100–500 ms de delay y posible parpadeo). Ahora al recibir el FCM `lot_resolved`, el pin se elimina del mapa de forma inmediata (0 ms) sin esperar la respuesta de la API. |
+| **Clase / Método / Módulo** | `_MapScreenBuyerState.build()` → `map_screen_buyer.dart` · `_MapScreenVendorState.build()` → `map_screen_vendor.dart` |
+| **Justificación** | El plan (§4.2.1) exige explícitamente `ref.listen(lotResolvedProvider)` en las pantallas del mapa para remover el marker. Sin esto el provider estaba "wired" en el handler pero desconectado de los widgets consumidores. |
+| **Problema que resolvía** | Al resolver un lote baldío desde otro dispositivo, el pin amarillo tardaba en desaparecer (o no desaparecía si el refetch fallaba) del mapa del observador. |
+
+---
+
+### C-167 · `_resolve()` sin optimistic update ni rollback (R-F9) `2026-05-23`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-167 · Optimistic update + rollback en `_resolve()` de `ReportDetailScreen` (P2 audit CU-07) |
+| **Qué se corrigió (técnico)** | En `_ReportDetailScreenState._resolve()`: antes de llamar a la API, se guarda `snapshot = _current!` y se actualiza optimistamente `_current` a una copia con `status: ReportStatus.resolved`. Si la llamada API falla (`DioException` o `Exception`), se revierte `setState(() => _current = snapshot)`. En éxito, se actualiza con la respuesta del servidor. |
+| **Qué se corrigió (simple)** | Al tocar "Marcar como resuelto", el botón mostraba spinner pero el UI no reflejaba el cambio hasta que llegaba la respuesta del servidor. Si había un error de red, el estado quedaba en `_resolving = true` sin volver al estado anterior. Ahora el UI cambia inmediatamente al estado "Resuelto" al tocar el botón, y revierte si falla. |
+| **Clase / Método / Módulo** | `_ReportDetailScreenState._resolve()` → `report_detail_screen.dart` |
+| **Justificación** | El plan checklist §4.1.4 exige R-F9 (optimistic update + rollback) explícitamente para `_support()` y `_resolve()`. Solo `_support()` lo implementaba; `_resolve()` carecía del snapshot y del `setState(() => _current = snapshot)` en los bloques `catch`. |
+| **Problema que resolvía** | La pantalla de detalle no reflejaba el cambio de estado de forma inmediata, lo que generaba la falsa impresión de que el botón no funcionó. |
+
+---
+
+### C-168 · Test faltante `test_resolve_sends_fcm` en CU-07 `2026-05-23`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-168 · `test_resolve_sends_fcm` en `test_lot_support.py` (P3 audit CU-07) |
+| **Qué se corrigió (técnico)** | Añadido `test_resolve_sends_fcm` a `tests/test_lot_support.py`. El test mockea `FirestoreService.get_community_report` (retorna lote con 3 supporters), `FirestoreService.resolve_community_report` (retorna lote resuelto) y `NotificationService.send_lot_resolved`. Llama `PATCH /community-reports/{id}/resolve`, hace `await asyncio.sleep(0)` para vaciar el `asyncio.ensure_future`, y aserta `mock_notify.assert_awaited_once_with(reporter_uid=REPORTER_UID, supporter_uids=[...], report_id=REPORT_ID, resolved_by_uid=SUPPORTER_3)`. |
+| **Qué se corrigió (simple)** | El test `test_resolve_marks_status_resolved` parchaba `send_lot_resolved` pero no verificaba que se llamó ni con qué argumentos. Un cambio en la firma de `send_lot_resolved` o en el `asyncio.ensure_future` del router habría pasado desapercibido. Ahora existe un test dedicado que valida el contrato completo de la notificación FCM al resolver un lote. |
+| **Clase / Método / Módulo** | `tests/test_lot_support.py` → suite sube de 8 a 9 tests, todos pasan |
+| **Justificación** | El plan §4.1.1 ítem 6 lista explícitamente `test_resolve_sends_fcm (mock NotificationService)`. El patrón `asyncio.sleep(0)` es el mismo usado en `test_vendor_cancel_notifies_attendees` (CU-09). |
+| **Problema que resolvía** | La garantía de que PATCH /resolve dispara FCM a reporter + supporters no tenía cobertura de test. |
+
+---
+
+### C-169 · Check de duplicado por radio 50 m bloqueaba lotes baldíos en ubicaciones distintas `2026-05-23`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-169 · Skip de `has_pending_report_within` para `lote_baldio` en `report_router.py` (P4 reportado por el usuario) |
+| **Qué se corrigió (técnico)** | En `create_community_report` de `report_router.py`, la llamada a `has_pending_report_within` se envolvió con `if body.threat_type != ThreatType.lote_baldio`. La condición compuesta queda: `if body.threat_type != ThreatType.lote_baldio and await FirestoreService.has_pending_report_within(...)`. |
+| **Qué se corrigió (simple)** | Si ya existía un lote baldío reportado, el backend bloqueaba cualquier nuevo reporte de lote baldío dentro de 50 m de la ubicación seleccionada. Esto impedía reportar dos lotes distintos en la misma manzana (pueden estar a 20–40 m uno del otro). El check de duplicado por 50 m tiene sentido para focos de infección (un mismo montón de basura o animal muerto no debe reportarse dos veces), pero no para lotes baldíos: dos terrenos abandonados adyacentes son entidades separadas. La validación de "¿es real?" la aporta el mecanismo de 3 apoyos, no la proximidad. |
+| **Clase / Método / Módulo** | `create_community_report()` → `modules/community/report_router.py` |
+| **Justificación** | El check de 50 m se basa en la premisa de que dos reportes cercanos del mismo tipo son del mismo incidente. Para `lote_baldio` esa premisa es falsa: dos propiedades colindantes son instancias diferentes. El check de `location_out_of_range` (1 km de GPS) sigue activo para ambos tipos. |
+| **Problema que resolvía** | El usuario no podía reportar un segundo lote baldío en ninguna ubicación dentro de 50 m del primero, lo que en áreas urbanas densas bloqueaba reportes legítimos de terrenos distintos. |
+
+---
+
+### C-170 · Mini-mapa en diálogos de solicitud de parada y raite (CU-01/CU-03) `2026-05-23`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-170 · Mini-mapa en `_IncomingStopDialog` y `_IncomingRideDialog` de `map_screen_vendor.dart` |
+| **Qué se corrigió (técnico)** | **`_IncomingStopDialog`**: añadidos parámetros `buyerLat`/`buyerLng` (double). El contenido pasa de `Text` a `Column` con un `ClipRRect + SizedBox(height:160) + GoogleMap` — cámara centrada en el comprador, zoom 16, marcador azul (`hueBlue`) en su posición, todos los gestos deshabilitados. El `AlertDialog` usa `insetPadding: EdgeInsets.symmetric(horizontal:16, vertical:24)` para ampliar el ancho del diálogo y `contentPadding: EdgeInsets.fromLTRB(16,12,16,8)`. La llamada en `_showIncomingDialog` ahora pasa `double.tryParse(buyerLat) ?? 0` y `double.tryParse(buyerLng) ?? 0`. **`_IncomingRideDialog`**: ya recibía `pickupLat/Lng` y `destinationLat/Lng` como doubles pero los ignoraba. El contenido ahora es un `GoogleMap` (h:180) centrado en el punto medio de recogida–destino con zoom 13, marcador cian (`hueCyan`) en recogida y rojo (`hueRed`) en destino, más una leyenda de dos puntos de colores con etiquetas "Recogida" / "Destino". |
+| **Qué se corrigió (simple)** | Los diálogos de "aceptar/rechazar" mostraban solo texto plano ("Un comprador cercano solicita que te detengas." / "Un pasajero cercano solicita un raite."), lo que obligaba al vendedor a aceptar a ciegas sin saber dónde está el comprador. Ahora puede ver exactamente la posición del comprador (parada) o la ruta recogida–destino (raite) antes de decidir. El patrón es idéntico al mini-mapa del `GroupStayDetailScreen`. |
+| **Clase / Método / Módulo** | `_IncomingStopDialog` · `_IncomingRideDialog` · `_showIncomingDialog()` → `map_screen_vendor.dart` |
+| **Justificación** | Las coordenadas del comprador (`buyer_lat`/`buyer_lng` en el FCM de parada) y las de recogida/destino (`pickup_lat/lng`, `destination_lat/lng` en el FCM de raite) ya viajaban en el payload FCM y estaban disponibles en el código — el widget simplemente nunca las renderizaba. Se aprovecha el patrón ya validado en CU-09 (`GroupStayDetailScreen`) sin añadir dependencias nuevas. |
+| **Problema que resolvía** | El vendedor no podía evaluar si la solicitud era razonable (distancia, zona, ruta) antes de comprometerse con Aceptar. |
+
+---
+
+### C-171 · Zonas de riesgo en los tres mini-mapas de previsualización `2026-05-23`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-171 · `circles: riskCircles` en `GroupStayDetailScreen`, `_IncomingStopDialog` y `_IncomingRideDialog` |
+| **Qué se corrigió (técnico)** | **`group_stay_detail_screen.dart`**: importado `risk_zone_service.dart`. En `build()` se añade `ref.watch(activeRiskZonesProvider).maybeWhen(data: ..., orElse: () => <Circle>{})` para construir `riskCircles`. El `GoogleMap` del mini-mapa recibe `circles: riskCircles`. Añadidos `_riskFillColor` y `_riskStrokeColor` como funciones privadas de archivo (mismo patrón que los mapas principales). **`map_screen_vendor.dart` — `_IncomingStopDialog`**: añadido parámetro `final List<RiskZone> zones`. En el `GoogleMap` se añade `circles: zones.map((z) => Circle(...)).toSet()`. En `_showIncomingDialog` se pasa `zones: ref.read(activeRiskZonesProvider).valueOrNull ?? []`. **`map_screen_vendor.dart` — `_IncomingRideDialog`**: misma adición de parámetro `zones` y `circles`. En `_showIncomingRideDialog` se pasa igualmente. |
+| **Qué se corrigió (simple)** | Los tres mini-mapas de previsualización (detalle de estancia grupal, diálogo de solicitud de parada, diálogo de solicitud de raite) mostraban solo marcadores de posición sin contexto de seguridad. Ahora superponen las zonas de riesgo activas con los mismos colores del mapa principal (rojo=HIGH, naranja=MEDIUM, azul=LOW), permitiendo al vendedor evaluar el contexto de riesgo antes de aceptar una solicitud, y al usuario ver si su estancia está en una zona problemática. |
+| **Clase / Método / Módulo** | `_GroupStayDetailScreenState.build()` → `group_stay_detail_screen.dart` · `_IncomingStopDialog.build()` + `_showIncomingDialog()` → `map_screen_vendor.dart` · `_IncomingRideDialog.build()` + `_showIncomingRideDialog()` → `map_screen_vendor.dart` |
+| **Justificación** | Costo nulo: `activeRiskZonesProvider` ya está warm mientras el mapa principal está montado. El provider es un `StreamProvider` compartido — leer `.valueOrNull` es sincrónico, sin nuevas llamadas a Firestore. Los `Circle` overlays se renderizan en el hilo nativo del SDK de Maps. Los diálogos siguen siendo `StatelessWidget`; se evitó convertirlos a `ConsumerWidget` pasando las zonas como parámetro desde el llamador que ya tiene `ref`. |
+| **Problema que resolvía** | El vendedor no podía ver si la ubicación del comprador o la ruta recogida–destino pasaba por zonas de riesgo al momento de decidir aceptar/rechazar. El usuario tampoco veía el contexto de riesgo al abrir el detalle de su estancia programada. |
 
 ---
 

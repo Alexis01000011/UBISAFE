@@ -282,6 +282,56 @@ class NotificationService:
         )
 
     @staticmethod
+    async def send_lot_resolved(
+        reporter_uid: str,
+        supporter_uids: list[str],
+        report_id: str,
+        resolved_by_uid: str,
+    ) -> None:
+        data = {
+            "type": "lot_resolved",
+            "report_id": report_id,
+            "resolved_by_uid": resolved_by_uid,
+        }
+        recipients = list({reporter_uid} | set(supporter_uids))
+        for uid in recipients:
+            await NotificationService.send_to_user(
+                uid=uid,
+                title="Lote baldío resuelto",
+                body="Un lote baldío que seguías fue marcado como resuelto.",
+                data=data,
+            )
+
+    @staticmethod
+    async def send_group_stay_cancelled(
+        attendee_uids: list[str],
+        stay_id: str,
+        reason: str,
+    ) -> None:
+        data = {
+            "type": "group_stay_cancelled",
+            "group_stay_id": stay_id,
+            "reason": reason,
+        }
+        for uid in attendee_uids:
+            await NotificationService.send_to_user(
+                uid=uid,
+                title="Estancia grupal cancelada",
+                body="Una estancia grupal que confirmaste fue cancelada.",
+                data=data,
+            )
+
+    @staticmethod
+    async def send_risk_zone_dismissed(reporter_uid: str, zone_id: str) -> None:
+        """Notifica al reportante que su zona fue desmentida por la comunidad."""
+        await NotificationService.send_to_user(
+            uid=reporter_uid,
+            title="Tu zona de riesgo fue desmentida",
+            body="La comunidad indicó que esta zona ya no representa un riesgo.",
+            data={"type": "risk_zone_dismissed", "risk_zone_id": zone_id},
+        )
+
+    @staticmethod
     async def notify_risk_zone_alert(
         fcm_tokens: list[str],
         data: dict,

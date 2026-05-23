@@ -52,6 +52,11 @@ class _CommunityFormBottomSheetState
     ('zona_sucia', 'Zona sucia / Basura'),
   ];
 
+  @override
+  void dispose() {
+    super.dispose();
+  }
+
   Future<void> _submit() async {
     if (_threatType == null) return;
     setState(() => _loading = true);
@@ -130,7 +135,7 @@ class _CommunityFormBottomSheetState
           const SizedBox(height: 16),
           Text(
             'Reportar foco de infección',
-            style: AppTypography.heading1.copyWith(color: AppColors.neutral900),
+            style: AppTypography.heading1.copyWith(color: Colors.white),
           ),
           const Divider(height: 24),
           Text(
@@ -160,8 +165,7 @@ class _CommunityFormBottomSheetState
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
-                  'Lat ${widget.currentLat.toStringAsFixed(4)}, '
-                  'Lng ${widget.currentLng.toStringAsFixed(4)}',
+                  'Ubicación actual',
                   style: AppTypography.body2,
                 ),
               ),

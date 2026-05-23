@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -9,11 +10,14 @@ import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+import '../../../core/api/api_client.dart';
 import '../../../core/design_system/colors.dart';
 import '../../../core/providers/auth_providers.dart';
 import '../../identity/auth/auth_module.dart';
 import '../../community/models/community_report.dart';
 import '../../community/screens/community_form_bottom_sheet.dart';
+import '../../community/screens/lot_form_bottom_sheet.dart';
+import '../../community/screens/lot_location_picker_sheet.dart';
 import '../../community/services/community_report_module.dart';
 import '../../identity/profile/widgets/drawer_module.dart';
 import '../../presence/services/gps_service.dart';
@@ -22,6 +26,8 @@ import '../../safety/screens/risk_form_bottom_sheet.dart';
 import '../../safety/services/risk_zone_service.dart';
 import '../../shared/notifications/notification_handler.dart';
 import '../../shared/widgets/gps_required_empty_state.dart';
+import '../group_stays/models/group_stay.dart';
+import '../group_stays/services/group_stay_module.dart';
 import '../models/ride.dart';
 import '../models/stop_request.dart';
 import '../services/ride_request_module.dart';
@@ -40,6 +46,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
   bool _isVisible = false;
   bool _isNavigating = false;
   bool _communityReportsLoaded = false;
+  bool _groupStaysLoaded = false;
   bool _speedDialOpen = false;
   String _mapsApiKey = '';
   String? _activeStopId;
@@ -53,9 +60,11 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
   double? _rideDestLat;
   double? _rideDestLng;
   bool _selectingRiskPoint = false;
+  final Set<String> _resolvedLotIds = {};
   // 1 = going to pickup, 2 = ride in progress (passenger aboard)
   int _ridePhase = 0;
   Position? _riskZoneAnchorPos;
+  BitmapDescriptor? _zoneTapIcon;
   List<LatLng> _routePolyline = [];
 
   StreamSubscription<Ride?>? _rideSub;
@@ -65,6 +74,9 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _initMapsKey();
+    _buildZoneTapIcon().then((icon) {
+      if (mounted) setState(() => _zoneTapIcon = icon);
+    });
   }
 
   @override
@@ -120,6 +132,12 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
       }
       // Remove RTDB node so buyers see vendor as offline.
       gps.stopTransmission(uid);
+      // Reset radar flag so CF fires correctly on next activation (B1-fix).
+      unawaited(
+        ref.read(apiClientProvider)
+            .patch<dynamic>('/auth/radar-status', data: {'is_active_radar': false})
+            .then<void>((_) {}, onError: (_) {}),
+      );
     } else if (state == AppLifecycleState.resumed) {
       // App returned to foreground — re-start transmission.
       final profile = ref.read(userProfileProvider).valueOrNull;
@@ -127,6 +145,12 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
         uid,
         rideEnabled: profile?.rideEnabled ?? false,
         product: profile?.product,
+      );
+      // Restore radar flag so CF proximity trigger fires correctly on resume.
+      unawaited(
+        ref.read(apiClientProvider)
+            .patch<dynamic>('/auth/radar-status', data: {'is_active_radar': true})
+            .then<void>((_) {}, onError: (_) {}),
       );
     }
   }
@@ -182,6 +206,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     });
 
     final communityReportsAsync = ref.watch(activeCommunityReportsProvider);
+    final groupStaysAsync = ref.watch(activeGroupStaysProvider);
 
     // Show visible SnackBar when a new community report is created within 1 km.
     ref.listen<Map<String, dynamic>?>(communityReportAlertProvider, (_, alert) {
@@ -207,6 +232,26 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
           backgroundColor: const Color(0xFF795548),
           duration: const Duration(seconds: 5),
         ),
+      );
+    });
+
+    // Remove resolved lote_baldio marker immediately on FCM — no wait for API refetch (CU-07-B).
+    ref.listen<Map<String, dynamic>?>(lotResolvedProvider, (_, data) {
+      if (data == null) return;
+      final id = data['report_id'] as String?;
+      if (id == null) return;
+      setState(() => _resolvedLotIds.add(id));
+    });
+
+    // Remove stay marker and notify vendor when one of their group stays is cancelled (CU-09-D).
+    ref.listen<Map<String, dynamic>?>(groupStayCancelledProvider, (_, data) {
+      if (data == null || !context.mounted) return;
+      final reason = data['reason'] as String? ?? '';
+      final msg = reason == 'risk_zone_high'
+          ? 'Una estancia grupal fue cancelada por zona de riesgo alta.'
+          : 'Una estancia grupal fue cancelada.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg), duration: const Duration(seconds: 5)),
       );
     });
 
@@ -382,6 +427,14 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
           setState(() => _speedDialOpen = false);
           _onCommunityFabPressed(positionAsync.valueOrNull);
         },
+        onLotReport: () {
+          setState(() => _speedDialOpen = false);
+          _onLotFabPressed(positionAsync.valueOrNull);
+        },
+        onScheduleStay: () {
+          setState(() => _speedDialOpen = false);
+          context.push('/group-stays/schedule');
+        },
       ),
       body: positionAsync.when(
         data: (position) {
@@ -414,6 +467,17 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
             });
           }
 
+          // Load active group stays once
+          if (!_groupStaysLoaded) {
+            _groupStaysLoaded = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              ref.read(activeGroupStaysProvider.notifier).load(
+                    position.latitude,
+                    position.longitude,
+                  );
+            });
+          }
+
           final zonesAsync = ref.watch(activeRiskZonesProvider);
           final circles = zonesAsync.maybeWhen(
             data: (zones) => zones
@@ -431,12 +495,41 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
             orElse: () => <Circle>{},
           );
 
+          // Invisible markers superimposed on each zone circle for tap detection
+          // (Circle has no onTap — Option A from design doc).
+          final zoneMarkers = _zoneTapIcon == null
+              ? <Marker>{}
+              : zonesAsync.maybeWhen(
+                  data: (zones) => zones
+                      .map(
+                        (z) => Marker(
+                          markerId: MarkerId('zt_${z.id}'),
+                          position: LatLng(z.latitude, z.longitude),
+                          icon: _zoneTapIcon!,
+                          anchor: const Offset(0.5, 0.5),
+                          onTap: () => context.push(
+                            '/safety/risk-zones/detail',
+                            extra: z,
+                          ),
+                        ),
+                      )
+                      .toSet(),
+                  orElse: () => <Marker>{},
+                );
+
           final communityMarkers = (communityReportsAsync.valueOrNull ?? [])
               .where((r) =>
                   !r.isDuplicate &&
                   r.status != ReportStatus.expired &&
-                  r.status != ReportStatus.dismissed)
+                  r.status != ReportStatus.dismissed &&
+                  r.status != ReportStatus.resolved &&
+                  !_resolvedLotIds.contains(r.id))
               .map((r) => _communityReportToMarker(r, context))
+              .toSet();
+
+          // Group stay markers
+          final stayMarkers = (groupStaysAsync.valueOrNull ?? [])
+              .map((s) => _groupStayToMarker(s, context))
               .toSet();
 
           return Stack(
@@ -447,7 +540,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
                 myLocationButtonEnabled: true,
                 polylines: polylines,
                 circles: circles,
-                markers: communityMarkers,
+                markers: communityMarkers.union(stayMarkers).union(zoneMarkers),
                 onTap: _onMapTap,
               ),
               // Visibility toggle button
@@ -538,6 +631,12 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     if (_isVisible) {
       await ref.read(gpsServiceInstanceProvider).stopTransmission(uid);
       if (mounted) setState(() => _isVisible = false);
+      // Fire-and-forget: update is_active_radar in Firestore for CF trigger (CU-08-C)
+      unawaited(
+        ref.read(apiClientProvider)
+            .patch<dynamic>('/auth/radar-status', data: {'is_active_radar': false})
+            .then<void>((_) {}, onError: (_) {}),
+      );
     } else {
       final confirmed = await showDialog<bool>(
         context: context,
@@ -569,6 +668,12 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
         product: product,
       );
       if (mounted) setState(() => _isVisible = true);
+      // Fire-and-forget: update is_active_radar in Firestore for CF trigger (CU-08-C)
+      unawaited(
+        ref.read(apiClientProvider)
+            .patch<dynamic>('/auth/radar-status', data: {'is_active_radar': true})
+            .then<void>((_) {}, onError: (_) {}),
+      );
     }
   }
 
@@ -592,6 +697,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
       builder: (_) => _IncomingStopDialog(
         buyerLat: double.tryParse(buyerLat) ?? 0,
         buyerLng: double.tryParse(buyerLng) ?? 0,
+        zones: ref.read(activeRiskZonesProvider).valueOrNull ?? [],
         onAccept: () async {
           // B11: verificar GPS ANTES de cerrar el diálogo para que el
           // vendedor pueda reintentar si el GPS no está disponible aún.
@@ -941,6 +1047,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
         pickupLng: double.tryParse(pickupLng) ?? 0,
         destinationLat: double.tryParse(destinationLat) ?? 0,
         destinationLng: double.tryParse(destinationLng) ?? 0,
+        zones: ref.read(activeRiskZonesProvider).valueOrNull ?? [],
         onAccept: () async {
           // B23: verificar GPS ANTES de cerrar el diálogo para que el
           // vendedor pueda reintentar si el GPS no está disponible aún.
@@ -1269,6 +1376,39 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
   Future<void> _completeRide(BuildContext context) async {
     final rideId = _activeRideId;
     if (rideId == null) return;
+
+    // Validar que el vendedor esté a ≤ 50 m del destino antes de completar.
+    // Patrón idéntico a _confirmDelivery (C-57, umbral 15 m para paradas).
+    final position = ref.read(gpsServiceProvider).valueOrNull;
+    if (position == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('GPS no disponible. Actívalo para confirmar la llegada.'),
+        ),
+      );
+      return;
+    }
+    if (_rideDestLat == null || _rideDestLng == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Error: coordenadas del destino no disponibles.')),
+      );
+      return;
+    }
+    final distToDestM = _distanceMeters(
+      position.latitude, position.longitude, _rideDestLat!, _rideDestLng!,
+    );
+    if (distToDestM > 50) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Debes estar a menos de 50 m del destino para completar. '
+            'Distancia actual: ${distToDestM.toStringAsFixed(0)} m.',
+          ),
+        ),
+      );
+      return;
+    }
+
     try {
       await ref
           .read(rideRequestModuleProvider)
@@ -1347,13 +1487,12 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
             _buyerLng = null;
           });
         }
-        unawaited(
-          ref
-              .read(stopRequestModuleProvider)
-              .abandonStopRequest(stopId)
-              .timeout(const Duration(seconds: 3))
-              .catchError((_) {}),
-        );
+        // Await before signOut so the JWT is still valid when the PATCH fires.
+        await ref
+            .read(stopRequestModuleProvider)
+            .abandonStopRequest(stopId)
+            .timeout(const Duration(seconds: 3))
+            .catchError((_) {});
       }
       if (rideId != null) {
         await _rideSub?.cancel();
@@ -1370,13 +1509,12 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
             _rideDestLng = null;
           });
         }
-        unawaited(
-          ref
-              .read(rideRequestModuleProvider)
-              .abandonRide(rideId)
-              .timeout(const Duration(seconds: 3))
-              .catchError((_) {}),
-        );
+        // Await before signOut so the JWT is still valid when the PATCH fires.
+        await ref
+            .read(rideRequestModuleProvider)
+            .abandonRide(rideId)
+            .timeout(const Duration(seconds: 3))
+            .catchError((_) {});
       }
     }
 
@@ -1385,6 +1523,12 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     final uid = gps.activeUid;
     if (uid != null) await gps.stopTransmission(uid);
     if (mounted) setState(() => _isVisible = false);
+    // Reset radar flag before sign-out so CF fires correctly on next session (B1-fix).
+    unawaited(
+      ref.read(apiClientProvider)
+          .patch<dynamic>('/auth/radar-status', data: {'is_active_radar': false})
+          .then<void>((_) {}, onError: (_) {}),
+    );
     await ref.read(authModuleProvider).signOut();
   }
 
@@ -1453,14 +1597,57 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     );
   }
 
+  Future<void> _onLotFabPressed(dynamic position) async {
+    if (position == null) {
+      await showModalBottomSheet<void>(
+        context: context,
+        builder: (_) => const GpsRequiredEmptyState(),
+      );
+      return;
+    }
+    final selectedLatLng = await LotLocationPickerSheet.show(
+      context,
+      LatLng(position.latitude, position.longitude),
+    );
+    if (selectedLatLng == null || !mounted) return;
+    await LotFormBottomSheet.show(
+      context,
+      lat: selectedLatLng.latitude,
+      lng: selectedLatLng.longitude,
+    );
+  }
+
+  Marker _groupStayToMarker(GroupStay stay, BuildContext context) {
+    final isActive = stay.status == 'active';
+    final snippet = isActive ? 'Activa' : 'Programada';
+    // active → hueBlue (240°); scheduled → hueAzure (210°)
+    final hue = isActive
+        ? BitmapDescriptor.hueBlue
+        : BitmapDescriptor.hueAzure;
+    return Marker(
+      markerId: MarkerId('gs_${stay.id}'),
+      position: LatLng(stay.locationLat, stay.locationLng),
+      icon: BitmapDescriptor.defaultMarkerWithHue(hue),
+      infoWindow: InfoWindow(
+        title: 'Estancia grupal',
+        snippet: '$snippet · ${stay.attendeesCount} asistentes',
+        onTap: () => context.push('/group-stays/detail', extra: stay),
+      ),
+    );
+  }
+
   Marker _communityReportToMarker(
       CommunityReport report, BuildContext context) {
-    final hue = report.threatType == ThreatType.animalMuerto
-        ? BitmapDescriptor.hueRose
-        : BitmapDescriptor.hueOrange;
-    final label = report.threatType == ThreatType.animalMuerto
-        ? 'Animal muerto'
-        : 'Zona sucia';
+    final hue = switch (report.threatType) {
+      ThreatType.animalMuerto => BitmapDescriptor.hueRose,
+      ThreatType.zonaSucia => BitmapDescriptor.hueOrange,
+      ThreatType.loteBaldio => BitmapDescriptor.hueYellow,
+    };
+    final label = switch (report.threatType) {
+      ThreatType.animalMuerto => 'Animal muerto',
+      ThreatType.zonaSucia => 'Zona sucia',
+      ThreatType.loteBaldio => 'Lote baldío',
+    };
     final statusLabel = report.status == ReportStatus.confirmed
         ? ' · Validado'
         : ' · Pendiente';
@@ -1518,12 +1705,16 @@ class _VendorSpeedDial extends StatelessWidget {
     required this.onToggle,
     required this.onRiskZone,
     required this.onCommunityReport,
+    required this.onLotReport,
+    required this.onScheduleStay,
   });
 
   final bool open;
   final VoidCallback onToggle;
   final VoidCallback onRiskZone;
   final VoidCallback onCommunityReport;
+  final VoidCallback onLotReport;
+  final VoidCallback onScheduleStay;
 
   @override
   Widget build(BuildContext context) {
@@ -1532,6 +1723,20 @@ class _VendorSpeedDial extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         if (open) ...[
+          _VendorMiniAction(
+            icon: Icons.event_available_outlined,
+            label: 'Programar estancia',
+            color: AppColors.secondary700,
+            onTap: onScheduleStay,
+          ),
+          const SizedBox(height: 8),
+          _VendorMiniAction(
+            icon: Icons.home_work_outlined,
+            label: 'Lote baldío',
+            color: const Color(0xFF6D4C41),
+            onTap: onLotReport,
+          ),
+          const SizedBox(height: 8),
           _VendorMiniAction(
             icon: Icons.coronavirus_outlined,
             label: 'Foco de infección',
@@ -1620,6 +1825,17 @@ Color _riskStrokeColor(String level) => switch (level) {
       'MEDIUM' => const Color(0xFFF57C00),
       _ => const Color(0xFF0277BD),
     };
+
+// 1×1 transparent PNG — hit area for zone circle taps (Option A).
+Future<BitmapDescriptor> _buildZoneTapIcon() async {
+  final recorder = ui.PictureRecorder();
+  Canvas(recorder);
+  final img = await recorder.endRecording().toImage(1, 1);
+  final bytes = (await img.toByteData(format: ui.ImageByteFormat.png))!
+      .buffer
+      .asUint8List();
+  return BitmapDescriptor.bytes(bytes);
+}
 
 /// Returns perpendicular-offset waypoint strings to route around HIGH zones.
 /// Only zones whose circle intersects the origin→destination segment are
@@ -1807,32 +2023,66 @@ class _IncomingStopDialog extends StatelessWidget {
   const _IncomingStopDialog({
     required this.buyerLat,
     required this.buyerLng,
+    required this.zones,
     required this.onAccept,
     required this.onReject,
   });
 
   final double buyerLat;
   final double buyerLng;
+  final List<RiskZone> zones;
   final VoidCallback onAccept;
   final VoidCallback onReject;
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      contentPadding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
       title: const Text('Nueva solicitud de parada'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text('Un comprador cercano solicita que te detengas.'),
-          const SizedBox(height: 8),
-          Text(
-            'Ubicación: ${buyerLat.toStringAsFixed(4)}, ${buyerLng.toStringAsFixed(4)}',
-            style: const TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 13,
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: SizedBox(
+              height: 160,
+              child: GoogleMap(
+                initialCameraPosition: CameraPosition(
+                  target: LatLng(buyerLat, buyerLng),
+                  zoom: 16,
+                ),
+                markers: {
+                  Marker(
+                    markerId: const MarkerId('buyer'),
+                    position: LatLng(buyerLat, buyerLng),
+                    icon: BitmapDescriptor.defaultMarkerWithHue(
+                        BitmapDescriptor.hueBlue),
+                  ),
+                },
+                circles: zones
+                    .map((z) => Circle(
+                          circleId: CircleId(z.id),
+                          center: LatLng(z.latitude, z.longitude),
+                          radius: z.radiusMeters.toDouble(),
+                          fillColor: _riskFillColor(z.riskLevel),
+                          strokeColor: _riskStrokeColor(z.riskLevel),
+                          strokeWidth: 2,
+                        ))
+                    .toSet(),
+                scrollGesturesEnabled: false,
+                zoomGesturesEnabled: false,
+                rotateGesturesEnabled: false,
+                tiltGesturesEnabled: false,
+                myLocationEnabled: false,
+                myLocationButtonEnabled: false,
+                zoomControlsEnabled: false,
+              ),
             ),
           ),
+          const SizedBox(height: 12),
+          const Text('Un comprador cercano solicita que te detengas.'),
         ],
       ),
       actions: [
@@ -1912,6 +2162,7 @@ class _IncomingRideDialog extends StatelessWidget {
     required this.pickupLng,
     required this.destinationLat,
     required this.destinationLng,
+    required this.zones,
     required this.onAccept,
     required this.onReject,
   });
@@ -1920,28 +2171,91 @@ class _IncomingRideDialog extends StatelessWidget {
   final double pickupLng;
   final double destinationLat;
   final double destinationLng;
+  final List<RiskZone> zones;
   final VoidCallback onAccept;
   final VoidCallback onReject;
 
   @override
   Widget build(BuildContext context) {
+    final midLat = (pickupLat + destinationLat) / 2;
+    final midLng = (pickupLng + destinationLng) / 2;
+
     return AlertDialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      contentPadding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
       title: const Text('Nueva solicitud de raite'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text('Un pasajero quiere un raite a:'),
-          const SizedBox(height: 8),
-          Text(
-            'Recogida: ${pickupLat.toStringAsFixed(4)}, ${pickupLng.toStringAsFixed(4)}',
-            style:
-                const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: SizedBox(
+              height: 180,
+              child: GoogleMap(
+                initialCameraPosition: CameraPosition(
+                  target: LatLng(midLat, midLng),
+                  zoom: 13,
+                ),
+                markers: {
+                  Marker(
+                    markerId: const MarkerId('pickup'),
+                    position: LatLng(pickupLat, pickupLng),
+                    icon: BitmapDescriptor.defaultMarkerWithHue(
+                        BitmapDescriptor.hueCyan),
+                  ),
+                  Marker(
+                    markerId: const MarkerId('destination'),
+                    position: LatLng(destinationLat, destinationLng),
+                    icon: BitmapDescriptor.defaultMarkerWithHue(
+                        BitmapDescriptor.hueRed),
+                  ),
+                },
+                circles: zones
+                    .map((z) => Circle(
+                          circleId: CircleId(z.id),
+                          center: LatLng(z.latitude, z.longitude),
+                          radius: z.radiusMeters.toDouble(),
+                          fillColor: _riskFillColor(z.riskLevel),
+                          strokeColor: _riskStrokeColor(z.riskLevel),
+                          strokeWidth: 2,
+                        ))
+                    .toSet(),
+                scrollGesturesEnabled: false,
+                zoomGesturesEnabled: false,
+                rotateGesturesEnabled: false,
+                tiltGesturesEnabled: false,
+                myLocationEnabled: false,
+                myLocationButtonEnabled: false,
+                zoomControlsEnabled: false,
+              ),
+            ),
           ),
-          Text(
-            'Destino: ${destinationLat.toStringAsFixed(4)}, ${destinationLng.toStringAsFixed(4)}',
-            style:
-                const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Container(
+                width: 10,
+                height: 10,
+                decoration: const BoxDecoration(
+                  color: Color(0xFF00BCD4),
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 6),
+              const Text('Recogida', style: TextStyle(fontSize: 12)),
+              const SizedBox(width: 20),
+              Container(
+                width: 10,
+                height: 10,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFF44336),
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 6),
+              const Text('Destino', style: TextStyle(fontSize: 12)),
+            ],
           ),
         ],
       ),

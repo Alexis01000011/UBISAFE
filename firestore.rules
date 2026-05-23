@@ -65,5 +65,38 @@ service cloud.firestore {
       allow write: if false;  // solo Admin SDK (FastAPI)
     }
 
+    // ─── COLECCIÓN: subscriptions [iter. 3 — CU-08] ──────────────────────
+    // Escritura pasa por FastAPI (Admin SDK), excepto que el cliente puede
+    // crear y actualizar sus propias suscripciones.
+    match /subscriptions/{subscriptionId} {
+      allow read: if isAuthenticated()
+                  && (resource.data.buyer_uid == request.auth.uid
+                      || resource.data.vendor_uid == request.auth.uid);
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated()
+                    && resource.data.buyer_uid == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // ─── COLECCIÓN: group_stays [iter. 3 — CU-09] ────────────────────────
+    // Toda escritura (crear, cancelar, expirar) pasa por FastAPI o CF
+    // con Admin SDK. El cliente solo lee para mostrar pins en mapa.
+    match /group_stays/{stayId} {
+      allow read: if isAuthenticated();
+      allow write: if false;  // solo Admin SDK (FastAPI / Cloud Functions)
+    }
+
+    // ─── SUB-COLECCIÓN: attendances [iter. 3 — CU-09] ────────────────────
+    // El buyer puede crear su propia asistencia (attendanceId == uid del buyer).
+    // El vendor dueño de la estancia puede leer todas las asistencias.
+    match /group_stays/{stayId}/attendances/{attendanceId} {
+      allow read: if isAuthenticated()
+                  && (attendanceId == request.auth.uid
+                      || get(/databases/$(database)/documents/group_stays/$(stayId)).data.vendor_uid == request.auth.uid);
+      allow create: if isAuthenticated() && attendanceId == request.auth.uid;
+      allow update: if false;
+      allow delete: if false;
+    }
+
   }
 }

@@ -1,15 +1,23 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
+# Condicional breve para burlar a Ruff y a los linters. 
+# Solo se ejecuta cuando se revisa el código, no en producción.
+if TYPE_CHECKING:
+    from modules.dispatching.group_stay_schemas import GroupStay
+
 import math
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from google.cloud.firestore import SERVER_TIMESTAMP
+from google.cloud.firestore import Increment, SERVER_TIMESTAMP
 
 from modules.community.schemas import (
     CommunityReport,
     CreateCommunityReportBody,
     ReportStatus,
+    ThreatType,
     Validation,
     ValidationVerdict,
 )
@@ -18,8 +26,10 @@ from modules.dispatching.schemas import CreateStopRequestBody, StopRequest
 from modules.identity.schemas import SyncProfileRequest, UserProfile
 from modules.safety.schemas import CreateRiskZoneBody, RiskZone
 from modules.shared.firebase_admin_init import FirebaseAdminInit
+from modules.shared.subscription_schemas import Subscription
 
 _RISK_ZONE_TTL_HOURS = 24
+_RISK_ZONE_DISMISS_THRESHOLD = 3
 _COMMUNITY_REPORT_TTL_HOURS = 24
 _EARTH_RADIUS_KM = 6371.0
 
@@ -202,7 +212,7 @@ class FirestoreService:
     @classmethod
     def _doc_to_risk_zone(cls, doc: Any) -> RiskZone:
         raw = doc.to_dict() or {}
-        for field in ("created_at", "expires_at", "expired_at"):
+        for field in ("created_at", "expires_at", "expired_at", "dismissed_at"):
             val = raw.get(field)
             if val is None:
                 continue
@@ -210,6 +220,9 @@ class FirestoreService:
                 raw[field] = val.isoformat()
             elif hasattr(val, "timestamp"):
                 raw[field] = datetime.fromtimestamp(val.timestamp(), tz=UTC).isoformat()
+        # Fallbacks para zonas legacy que no tienen los campos de desmentido
+        raw.setdefault("dismiss_count", 0)
+        raw.setdefault("dismissers", [])
         return RiskZone(id=doc.id, **raw)
 
     @classmethod
@@ -265,6 +278,9 @@ class FirestoreService:
         data["created_at"] = SERVER_TIMESTAMP
         data["expires_at"] = expires_at
         data["expired_at"] = None
+        data["dismissed_at"] = None
+        data["dismiss_count"] = 0
+        data["dismissers"] = []
         _, ref = cls._db().collection("risk_zones").add(data)
         doc = ref.get()
         return cls._doc_to_risk_zone(doc)
@@ -283,6 +299,41 @@ class FirestoreService:
         )
         doc = ref.get()
         return cls._doc_to_risk_zone(doc)
+
+    @classmethod
+    async def dismiss_risk_zone(cls, zone_id: str, voter_uid: str) -> RiskZone:
+        """Registra un voto de desmentido. Con ≥3 votos desactiva la zona (CU-03)."""
+        from google.cloud.firestore import transactional as fs_transactional  # noqa: PLC0415
+
+        db = cls._db()
+        ref = db.collection("risk_zones").document(zone_id)
+
+        @fs_transactional
+        def _txn(transaction):
+            doc = ref.get(transaction=transaction)
+            data = doc.to_dict() or {}
+
+            if not data.get("active", False):
+                raise VoteConflictError("zone_already_inactive")
+            if voter_uid in (data.get("dismissers") or []):
+                raise VoteConflictError("already_voted")
+
+            dismissers = list(data.get("dismissers") or [])
+            dismissers.append(voter_uid)
+            dismiss_count = len(dismissers)
+
+            update: dict[str, Any] = {
+                "dismissers": dismissers,
+                "dismiss_count": dismiss_count,
+            }
+            if dismiss_count >= _RISK_ZONE_DISMISS_THRESHOLD:
+                update["active"] = False
+                update["dismissed_at"] = SERVER_TIMESTAMP
+
+            transaction.update(ref, update)
+
+        _txn(db.transaction())
+        return cls._doc_to_risk_zone(ref.get())
 
     @classmethod
     async def query_active_risk_zones_bbox(
@@ -358,8 +409,10 @@ class FirestoreService:
                 )
             )
         raw["validations"] = [v.model_dump() for v in validations]
-        for field in ("created_at", "updated_at", "expires_at"):
+        for field in ("created_at", "updated_at", "expires_at", "resolved_at"):
             val = raw.get(field)
+            if val is None:
+                continue
             if hasattr(val, "isoformat"):
                 raw[field] = val.isoformat()
             elif hasattr(val, "timestamp"):
@@ -388,6 +441,13 @@ class FirestoreService:
             "updated_at": SERVER_TIMESTAMP,
             "expires_at": expires_at,
         }
+        if body.threat_type == ThreatType.lote:
+            data["description"] = body.description
+            data["support_count"] = 0
+            data["supporters"] = []
+            data["pending_resolver_uid"] = None
+            data["resolved_at"] = None
+            data["resolved_by_uid"] = None
         _, ref = cls._db().collection("community_reports").add(data)
         doc = ref.get()
         return cls._doc_to_community_report(doc)
@@ -511,6 +571,51 @@ class FirestoreService:
             transaction.update(ref, update)
 
         _txn(db.transaction())
+        return cls._doc_to_community_report(ref.get())
+
+    @classmethod
+    async def support_community_report(cls, report_id: str, uid: str) -> CommunityReport:
+        """Atomically append a supporter UID and set pending_resolver_uid at the 3rd support."""
+        from google.cloud.firestore import transactional as fs_transactional  # noqa: PLC0415
+
+        db = cls._db()
+        ref = db.collection("community_reports").document(report_id)
+
+        @fs_transactional
+        def _txn(transaction):
+            doc = ref.get(transaction=transaction)
+            data = doc.to_dict() or {}
+
+            if data.get("status") != ReportStatus.pending_validation.value:
+                raise VoteConflictError(f"report_status_is_{data.get('status', 'unknown')}")
+            if uid in (data.get("supporters") or []):
+                raise VoteConflictError("already_supported")
+
+            supporters = list(data.get("supporters") or [])
+            supporters.append(uid)
+            support_count = len(supporters)
+            update: dict[str, Any] = {
+                "supporters": supporters,
+                "support_count": support_count,
+                "updated_at": SERVER_TIMESTAMP,
+            }
+            if support_count >= 3 and data.get("pending_resolver_uid") is None:
+                update["pending_resolver_uid"] = uid
+            transaction.update(ref, update)
+
+        _txn(db.transaction())
+        return cls._doc_to_community_report(ref.get())
+
+    @classmethod
+    async def resolve_community_report(cls, report_id: str, uid: str) -> CommunityReport:
+        """Mark a lote_baldio report as resolved."""
+        ref = cls._db().collection("community_reports").document(report_id)
+        ref.update({
+            "status": ReportStatus.resolved.value,
+            "resolved_at": SERVER_TIMESTAMP,
+            "resolved_by_uid": uid,
+            "updated_at": SERVER_TIMESTAMP,
+        })
         return cls._doc_to_community_report(ref.get())
 
     # ------------------------------------------------------------------ rides
@@ -697,3 +802,278 @@ class FirestoreService:
             },
             merge=True,
         )
+
+    @classmethod
+    async def update_radar_status(cls, uid: str, is_active_radar: bool) -> None:
+        cls._db().collection("users").document(uid).set(
+            {"is_active_radar": is_active_radar, "updated_at": SERVER_TIMESTAMP},
+            merge=True,
+        )
+
+    # -------------------------------------------------- subscriptions
+    @classmethod
+    def _doc_to_subscription(cls, doc: Any) -> Subscription:
+        raw = doc.to_dict() or {}
+        for field in ("created_at", "cancelled_at"):
+            val = raw.get(field)
+            if val is None:
+                continue
+            if hasattr(val, "isoformat"):
+                raw[field] = val.isoformat()
+            elif hasattr(val, "timestamp"):
+                raw[field] = datetime.fromtimestamp(val.timestamp(), tz=UTC).isoformat()
+        return Subscription(id=doc.id, **raw)
+
+    @classmethod
+    async def get_subscription(cls, subscription_id: str) -> Subscription | None:
+        doc = cls._db().collection("subscriptions").document(subscription_id).get()
+        if not doc.exists:
+            return None
+        return cls._doc_to_subscription(doc)
+
+    @classmethod
+    async def create_subscription(cls, buyer_uid: str, vendor_uid: str) -> Subscription:
+        doc_id = f"{buyer_uid}_{vendor_uid}"
+        ref = cls._db().collection("subscriptions").document(doc_id)
+        doc = ref.get()
+        if doc.exists:
+            ref.update({"active": True, "cancelled_at": None, "cancellation_reason": None})
+        else:
+            ref.set(
+                {
+                    "buyer_uid": buyer_uid,
+                    "vendor_uid": vendor_uid,
+                    "active": True,
+                    "created_at": SERVER_TIMESTAMP,
+                    "cancelled_at": None,
+                    "cancellation_reason": None,
+                }
+            )
+        doc = ref.get()
+        return cls._doc_to_subscription(doc)
+
+    @classmethod
+    async def list_active_subscriptions(cls, buyer_uid: str) -> list[Subscription]:
+        docs = (
+            cls._db()
+            .collection("subscriptions")
+            .where("buyer_uid", "==", buyer_uid)
+            .where("active", "==", True)
+            .stream()
+        )
+        return [cls._doc_to_subscription(d) for d in docs]
+
+    @classmethod
+    async def cancel_subscription(cls, subscription_id: str, reason: str) -> None:
+        cls._db().collection("subscriptions").document(subscription_id).update(
+            {
+                "active": False,
+                "cancelled_at": SERVER_TIMESTAMP,
+                "cancellation_reason": reason,
+            }
+        )
+
+    # -------------------------------------------------- group_stays
+    @classmethod
+    def _doc_to_group_stay(cls, doc: Any) -> "GroupStay":
+        from modules.dispatching.group_stay_schemas import GroupStay  # noqa: PLC0415
+
+        raw = doc.to_dict() or {}
+        for field in ("start_at", "end_at", "created_at", "updated_at"):
+            val = raw.get(field)
+            if val is None:
+                continue
+            if hasattr(val, "isoformat"):
+                raw[field] = val.isoformat()
+            elif hasattr(val, "timestamp"):
+                raw[field] = datetime.fromtimestamp(val.timestamp(), tz=UTC).isoformat()
+        loc = raw.get("location", {})
+        if hasattr(loc, "latitude"):
+            raw["location"] = {"lat": loc.latitude, "lng": loc.longitude}
+        return GroupStay(id=doc.id, **raw)
+
+    @classmethod
+    async def get_active_risk_zones_near(
+        cls, lat: float, lng: float, radius_m: float = 200
+    ) -> list[Any]:
+        """Return active risk zones whose center is within radius_m of (lat, lng)."""
+        return await cls.get_active_risk_zones(lat, lng, radius_m / 1000.0)
+
+    @classmethod
+    async def vendor_has_overlapping_stay(
+        cls,
+        vendor_uid: str,
+        new_start: "datetime",
+        new_end: "datetime",
+    ) -> bool:
+        """True if the vendor has a scheduled/active stay that overlaps [new_start, new_end).
+
+        Firestore cannot do compound range queries on multiple fields, so we
+        fetch all scheduled/active stays for the vendor and filter in Python.
+        Stays whose end_at is already in the past are skipped (R-B7 — ghost guard).
+        """
+        now = datetime.now(tz=UTC)
+        docs = (
+            cls._db()
+            .collection("group_stays")
+            .where("vendor_uid", "==", vendor_uid)
+            .where("status", "in", ["scheduled", "active"])
+            .stream()
+        )
+        for d in docs:
+            raw = d.to_dict() or {}
+
+            # Parse end_at to check for ghosts (R-B7)
+            raw_end = raw.get("end_at")
+            if raw_end is None:
+                continue
+            if hasattr(raw_end, "timestamp"):
+                end_dt = datetime.fromtimestamp(raw_end.timestamp(), tz=UTC)
+            else:
+                try:
+                    end_dt = datetime.fromisoformat(str(raw_end))
+                    if end_dt.tzinfo is None:
+                        end_dt = end_dt.replace(tzinfo=UTC)
+                except ValueError:
+                    continue
+            if end_dt <= now:
+                continue  # expired stay not yet cleaned up by CF — skip
+
+            raw_start = raw.get("start_at")
+            if raw_start is None:
+                continue
+            if hasattr(raw_start, "timestamp"):
+                start_dt = datetime.fromtimestamp(raw_start.timestamp(), tz=UTC)
+            else:
+                try:
+                    start_dt = datetime.fromisoformat(str(raw_start))
+                    if start_dt.tzinfo is None:
+                        start_dt = start_dt.replace(tzinfo=UTC)
+                except ValueError:
+                    continue
+
+            # Overlap: existing [start_dt, end_dt) ∩ new [new_start, new_end)
+            if start_dt < new_end and end_dt > new_start:
+                return True
+        return False
+
+    @classmethod
+    async def create_group_stay(
+        cls,
+        vendor_uid: str,
+        body: Any,
+        risk_level_at_creation: str | None,
+    ) -> "GroupStay":
+        """Persist a new group stay document and return the deserialized model."""
+        start_iso = body.start_at.isoformat()
+        end_at = body.start_at + timedelta(minutes=body.duration_minutes)
+        end_iso = end_at.isoformat()
+        data: dict[str, Any] = {
+            "vendor_uid": vendor_uid,
+            "location": body.location.model_dump(),
+            "start_at": start_iso,
+            "start_at_iso": start_iso,  # plain string for FCM data (Sesión 8)
+            "end_at": end_iso,
+            "duration_minutes": body.duration_minutes,
+            "status": "scheduled",
+            "attendees_count": 0,
+            "risk_level_at_creation": risk_level_at_creation,
+            "cancellation_reason": None,
+            "created_at": SERVER_TIMESTAMP,
+            "updated_at": SERVER_TIMESTAMP,
+        }
+        _, ref = cls._db().collection("group_stays").add(data)
+        doc = ref.get()
+        return cls._doc_to_group_stay(doc)
+
+    @classmethod
+    async def list_active_group_stays(
+        cls,
+        lat: float,
+        lng: float,
+        radius_km: float = 1.0,
+    ) -> list["GroupStay"]:
+        """Return scheduled/active stays near (lat, lng) within radius_km.
+
+        Firestore cannot filter by geo-radius, so we fetch all scheduled/active
+        stays and filter in Python with Haversine. Ghosts (R-B7) are skipped.
+        """
+        docs = (
+            cls._db()
+            .collection("group_stays")
+            .where("status", "in", ["scheduled", "active"])
+            .stream()
+        )
+        now = datetime.now(tz=UTC)
+        stays: list[Any] = []
+        for d in docs:
+            raw = d.to_dict() or {}
+            raw_end = raw.get("end_at")
+            if raw_end is None:
+                continue
+            if hasattr(raw_end, "timestamp"):
+                end_dt = datetime.fromtimestamp(raw_end.timestamp(), tz=UTC)
+            else:
+                try:
+                    end_dt = datetime.fromisoformat(str(raw_end))
+                    if end_dt.tzinfo is None:
+                        end_dt = end_dt.replace(tzinfo=UTC)
+                except ValueError:
+                    continue
+            if end_dt <= now:
+                continue  # R-B7 ghost guard
+            loc = raw.get("location", {})
+            if hasattr(loc, "latitude"):
+                slat, slng = loc.latitude, loc.longitude
+            else:
+                slat = float(loc.get("lat") or 0.0)
+                slng = float(loc.get("lng") or 0.0)
+            if _haversine_km(lat, lng, slat, slng) <= radius_km:
+                stays.append(cls._doc_to_group_stay(d))
+        return stays
+
+    @classmethod
+    async def get_group_stay(cls, stay_id: str) -> "GroupStay | None":
+        doc = cls._db().collection("group_stays").document(stay_id).get()
+        if not doc.exists:
+            return None
+        return cls._doc_to_group_stay(doc)
+
+    @classmethod
+    async def get_confirmed_attendance_uids(cls, stay_id: str) -> list[str]:
+        """Return all buyer UIDs that confirmed attendance for stay_id."""
+        docs = (
+            cls._db()
+            .collection("group_stays")
+            .document(stay_id)
+            .collection("attendances")
+            .stream()
+        )
+        return [d.id for d in docs]
+
+    @classmethod
+    async def cancel_group_stay(cls, stay_id: str, reason: str) -> "GroupStay":
+        ref = cls._db().collection("group_stays").document(stay_id)
+        ref.update(
+            {
+                "status": "cancelled",
+                "cancellation_reason": reason,
+                "updated_at": SERVER_TIMESTAMP,
+            }
+        )
+        return cls._doc_to_group_stay(ref.get())
+
+    @classmethod
+    async def confirm_attendance(cls, stay_id: str, buyer_uid: str) -> None:
+        """Record buyer attendance in the attendances sub-collection.
+
+        Uses a read-before-write to avoid double-counting. If the document
+        already exists (buyer already confirmed), this is a no-op.
+        """
+        stay_ref = cls._db().collection("group_stays").document(stay_id)
+        att_ref = stay_ref.collection("attendances").document(buyer_uid)
+        if not att_ref.get().exists:
+            att_ref.set({"confirmed_at": SERVER_TIMESTAMP})
+            stay_ref.update(
+                {"attendees_count": Increment(1), "updated_at": SERVER_TIMESTAMP}
+            )

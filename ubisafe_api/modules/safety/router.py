@@ -101,26 +101,3 @@ async def create_risk_zone(
 
     return zone
 
-
-@router.delete("/{zone_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def expire_risk_zone(
-    zone_id: str,
-    current_user: dict = Depends(get_current_user),
-):
-    zone = await FirestoreService.get_risk_zone(zone_id)
-    if zone is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Zone not found",
-        )
-    if zone.reporter_uid != current_user["uid"]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the reporter can expire this zone",
-        )
-    if not zone.active:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Risk zone is already expired",
-        )
-    await FirestoreService.expire_risk_zone(zone_id)

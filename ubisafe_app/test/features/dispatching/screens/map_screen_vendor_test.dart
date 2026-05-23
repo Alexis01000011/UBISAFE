@@ -16,6 +16,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:ubisafe_app/core/providers/auth_providers.dart';
 import 'package:ubisafe_app/features/community/models/community_report.dart';
 import 'package:ubisafe_app/features/community/services/community_report_module.dart';
+import 'package:ubisafe_app/features/dispatching/group_stays/services/group_stay_module.dart';
 import 'package:ubisafe_app/features/dispatching/screens/map_screen_vendor.dart';
 import 'package:ubisafe_app/features/identity/auth/auth_module.dart';
 import 'package:ubisafe_app/features/presence/services/gps_service.dart';
@@ -30,6 +31,8 @@ class _MockFirebaseUser extends Mock implements User {
   @override
   String get uid => 'vendor-test';
 }
+
+class _MockGroupStayModule extends Mock implements GroupStayModule {}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -75,6 +78,7 @@ Widget _buildVendorScreen({
       // En tests de diálogo entrante se actualiza este provider después del primer pump.
       incomingStopRequestProvider.overrideWith((ref) => null),
       activeRiskZonesProvider.overrideWith((ref) => Stream.value(<RiskZone>[])),
+      groupStayModuleProvider.overrideWith((ref) => _MockGroupStayModule()),
     ],
     child: const MaterialApp(
       home: MapScreenVendor(),
@@ -106,6 +110,7 @@ void main() {
             incomingStopRequestProvider.overrideWith((ref) => null),
             activeRiskZonesProvider.overrideWith(
                 (ref) => Stream.value(<RiskZone>[])),
+            groupStayModuleProvider.overrideWith((ref) => _MockGroupStayModule()),
           ],
           child: const MaterialApp(home: MapScreenVendor()),
         ),

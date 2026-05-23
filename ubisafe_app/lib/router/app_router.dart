@@ -7,6 +7,9 @@ import 'package:go_router/go_router.dart';
 import '../features/community/models/community_report.dart';
 import '../features/community/screens/active_reports_screen.dart';
 import '../features/community/screens/report_detail_screen.dart';
+import '../features/dispatching/group_stays/models/group_stay.dart';
+import '../features/dispatching/group_stays/screens/group_stay_detail_screen.dart';
+import '../features/dispatching/group_stays/screens/schedule_group_stay_screen.dart';
 import '../features/dispatching/screens/map_screen_buyer.dart';
 import '../features/dispatching/screens/map_screen_vendor.dart';
 import '../features/dispatching/screens/tracking_screen.dart';
@@ -17,6 +20,9 @@ import '../features/identity/auth/screens/splash_screen.dart';
 import '../features/identity/auth/screens/welcome_screen.dart';
 import '../features/identity/profile/screens/history_screen.dart';
 import '../features/identity/profile/screens/profile_screen.dart';
+import '../features/safety/models/risk_zone.dart';
+import '../features/safety/screens/risk_zone_detail_screen.dart';
+import '../features/shared/subscriptions/screens/subscriptions_screen.dart';
 
 /// Auth-guard paths — allowed without a session.
 const _authPaths = {
@@ -83,6 +89,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       // ── Drawer ─────────────────────────────────────────────────────────
       GoRoute(path: '/profile', builder: (_, __) => const ProfileScreen()),
       GoRoute(path: '/history', builder: (_, __) => const HistoryScreen()),
+      GoRoute(
+        path: '/subscriptions',
+        builder: (_, __) => const SubscriptionsScreen(),
+      ),
 
       // ── Dispatching ────────────────────────────────────────────────────
       GoRoute(path: '/home/buyer', builder: (_, __) => const MapScreenBuyer()),
@@ -94,6 +104,31 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           final rideId = state.uri.queryParameters['ride_id'];
           final stopId = state.uri.queryParameters['stop_id'];
           return TrackingScreen(rideId: rideId, stopRequestId: stopId);
+        },
+      ),
+
+      // ── Group Stays [iter.3 CU-09] ────────────────────────────────────────
+      GoRoute(
+        path: '/group-stays/schedule',
+        builder: (_, __) => const ScheduleGroupStayScreen(),
+      ),
+      GoRoute(
+        path: '/group-stays/detail',
+        builder: (_, state) {
+          // B31-style guard: state.extra is lost on process death.
+          final extra = state.extra;
+          if (extra is! GroupStay) return const MapScreenBuyer();
+          return GroupStayDetailScreen(stay: extra);
+        },
+      ),
+
+      // ── Safety [CU-03] ────────────────────────────────────────────────
+      GoRoute(
+        path: '/safety/risk-zones/detail',
+        builder: (_, state) {
+          final extra = state.extra;
+          if (extra is! RiskZone) return const MapScreenBuyer();
+          return RiskZoneDetailScreen(zone: extra);
         },
       ),
 

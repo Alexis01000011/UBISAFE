@@ -24,16 +24,21 @@ class CommunityReportModule {
     required String threatType,
     required double lat,
     required double lng,
+    String? description,
   }) async {
     Object? lastError;
     for (var attempt = 0; attempt <= _retryDelays.length; attempt++) {
       try {
+        final body = <String, dynamic>{
+          'threat_type': threatType,
+          'location': {'lat': lat, 'lng': lng},
+        };
+        if (description != null && description.isNotEmpty) {
+          body['description'] = description;
+        }
         final res = await _dio.post<Map<String, dynamic>>(
           '/community-reports',
-          data: {
-            'threat_type': threatType,
-            'location': {'lat': lat, 'lng': lng},
-          },
+          data: body,
         );
         return CommunityReport.fromJson(res.data!);
       } on DioException catch (e) {
@@ -49,6 +54,22 @@ class CommunityReportModule {
       }
     }
     throw lastError!;
+  }
+
+  /// POST /community-reports/{id}/support — adds current user as supporter.
+  Future<CommunityReport> supportReport(String reportId) async {
+    final res = await _dio.post<Map<String, dynamic>>(
+      '/community-reports/$reportId/support',
+    );
+    return CommunityReport.fromJson(res.data!);
+  }
+
+  /// PATCH /community-reports/{id}/resolve — marks lote_baldio as resolved.
+  Future<CommunityReport> resolveLot(String reportId) async {
+    final res = await _dio.patch<Map<String, dynamic>>(
+      '/community-reports/$reportId/resolve',
+    );
+    return CommunityReport.fromJson(res.data!);
   }
 
   /// GET /community-reports — fetches pending_validation + confirmed in bbox.

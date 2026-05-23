@@ -5,7 +5,7 @@ import asyncio
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from dependencies import get_current_user
-from modules.community.schemas import CommunityReport, VoteBody
+from modules.community.schemas import CommunityReport, ThreatType, VoteBody
 from modules.shared.firestore_service import FirestoreService, VoteConflictError
 from modules.shared.notification_service import NotificationService
 
@@ -31,6 +31,12 @@ async def validate_report(
     report = await FirestoreService.get_community_report(report_id)
     if report is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="report_not_found")
+
+    if report.threat_type == ThreatType.lote:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="use_support_endpoint",
+        )
 
     if report.reporter_uid == voter_uid:
         raise HTTPException(

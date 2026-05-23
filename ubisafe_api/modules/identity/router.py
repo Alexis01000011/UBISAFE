@@ -5,6 +5,7 @@ from modules.identity.schemas import (
     DeviceTokenRequest,
     SyncProfileRequest,
     UpdateLocationBody,
+    UpdateRadarStatusRequest,
     UpdateRideEnabledRequest,
     UserProfile,
 )
@@ -71,3 +72,18 @@ async def update_location(
     current_user: dict = Depends(get_current_user),
 ):
     await FirestoreService.update_user_location(current_user["uid"], body.lat, body.lng)
+
+
+@router.patch("/radar-status", status_code=status.HTTP_204_NO_CONTENT)
+async def update_radar_status(
+    body: UpdateRadarStatusRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    uid = current_user["uid"]
+    profile = await FirestoreService.get_user(uid)
+    if not profile or profile.role != "VENDOR":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only VENDOR users can update radar status.",
+        )
+    await FirestoreService.update_radar_status(uid, body.is_active_radar)
