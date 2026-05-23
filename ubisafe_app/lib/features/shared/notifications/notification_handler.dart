@@ -230,6 +230,9 @@ class NotificationHandler {
       case 'risk_zone_expired':
         _invalidateRiskZones();
 
+      case 'risk_zone_dismissed':
+        _invalidateRiskZones();
+
       case 'community_report_nearby':
         _onCommunityReportNearby(Map<String, dynamic>.from(data));
 

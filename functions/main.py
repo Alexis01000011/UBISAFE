@@ -178,10 +178,16 @@ def on_risk_zone_write(
         return
 
     zone_id: str = event.params["zone_id"]
+    # Distingue desmentido por la comunidad (dismissed_at presente) vs expiración por TTL
+    fcm_type = (
+        "risk_zone_dismissed"
+        if (after is not None and after.get("dismissed_at") is not None)
+        else "risk_zone_expired"
+    )
     messaging.send_each_for_multicast(
         messaging.MulticastMessage(
             tokens=tokens,
-            data={"type": "risk_zone_expired", "risk_zone_id": zone_id},
+            data={"type": fcm_type, "risk_zone_id": zone_id},
             android=messaging.AndroidConfig(priority="high"),
         )
     )

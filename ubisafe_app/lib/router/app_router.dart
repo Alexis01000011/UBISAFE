@@ -20,6 +20,8 @@ import '../features/identity/auth/screens/splash_screen.dart';
 import '../features/identity/auth/screens/welcome_screen.dart';
 import '../features/identity/profile/screens/history_screen.dart';
 import '../features/identity/profile/screens/profile_screen.dart';
+import '../features/safety/models/risk_zone.dart';
+import '../features/safety/screens/risk_zone_detail_screen.dart';
 import '../features/shared/subscriptions/screens/subscriptions_screen.dart';
 
 /// Auth-guard paths — allowed without a session.
@@ -117,6 +119,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           final extra = state.extra;
           if (extra is! GroupStay) return const MapScreenBuyer();
           return GroupStayDetailScreen(stay: extra);
+        },
+      ),
+
+      // ── Safety [CU-03] ────────────────────────────────────────────────
+      GoRoute(
+        path: '/safety/risk-zones/detail',
+        builder: (_, state) {
+          final extra = state.extra;
+          if (extra is! RiskZone) return const MapScreenBuyer();
+          return RiskZoneDetailScreen(zone: extra);
         },
       ),
 

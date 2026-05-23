@@ -205,53 +205,117 @@ async def test_list_zones_empty(mock_firebase, as_reporter):
     assert res.json() == []
 
 
-# ── DELETE /risk-zones/{id} ───────────────────────────────────────────────────
+# ── DELETE /risk-zones/{id} — endpoint eliminado (CU-03) ─────────────────────
 
 
 @pytest.mark.asyncio
-async def test_expire_zone_by_reporter_returns_204(mock_firebase, as_reporter):
+async def test_delete_endpoint_removed(mock_firebase, as_reporter):
+    """DELETE /risk-zones/{id} fue eliminado; solo Firebase Console puede borrar zonas."""
     from main import app
 
-    with (
-        patch(_GET_ZONE, new_callable=AsyncMock, return_value=_HIGH_ZONE),
-        patch(_EXPIRE_ZONE, new_callable=AsyncMock),
-    ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            res = await client.delete(f"/risk-zones/{ZONE_ID}", headers=_AUTH)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.delete(f"/risk-zones/{ZONE_ID}", headers=_AUTH)
 
-    assert res.status_code == 204
+    assert res.status_code in (404, 405)
+
+
+# ── POST /risk-zones/{id}/dismiss ─────────────────────────────────────────────
+
+_DR = "modules.safety.dismiss_router"
+_DISMISS_GET_ZONE = f"{_DR}.FirestoreService.get_risk_zone"
+_DISMISS_ZONE = f"{_DR}.FirestoreService.dismiss_risk_zone"
+_NOTIFY_DISMISSED = f"{_DR}.NotificationService.send_risk_zone_dismissed"
 
 
 @pytest.mark.asyncio
-async def test_expire_zone_by_non_reporter_returns_403(mock_firebase, as_other):
+async def test_dismiss_reporter_cannot_vote_403(mock_firebase, as_reporter):
     from main import app
 
-    with patch(_GET_ZONE, new_callable=AsyncMock, return_value=_HIGH_ZONE):
+    with patch(_DISMISS_GET_ZONE, new_callable=AsyncMock, return_value=_HIGH_ZONE):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            res = await client.delete(f"/risk-zones/{ZONE_ID}", headers=_AUTH)
+            res = await client.post(f"/risk-zones/{ZONE_ID}/dismiss", headers=_AUTH)
 
     assert res.status_code == 403
+    assert res.json()["detail"]["error"] == "reporter_cannot_dismiss"
 
 
 @pytest.mark.asyncio
-async def test_expire_zone_not_found_returns_404(mock_firebase, as_reporter):
+async def test_dismiss_zone_not_found_404(mock_firebase, as_other):
     from main import app
 
-    with patch(_GET_ZONE, new_callable=AsyncMock, return_value=None):
+    with patch(_DISMISS_GET_ZONE, new_callable=AsyncMock, return_value=None):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            res = await client.delete(f"/risk-zones/{ZONE_ID}", headers=_AUTH)
+            res = await client.post(f"/risk-zones/{ZONE_ID}/dismiss", headers=_AUTH)
 
     assert res.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_expire_zone_already_expired_returns_409(mock_firebase, as_reporter):
+async def test_dismiss_inactive_zone_409(mock_firebase, as_other):
     from main import app
 
     inactive_zone = _HIGH_ZONE.model_copy(update={"active": False})
-    with patch(_GET_ZONE, new_callable=AsyncMock, return_value=inactive_zone):
+    with patch(_DISMISS_GET_ZONE, new_callable=AsyncMock, return_value=inactive_zone):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            res = await client.delete(f"/risk-zones/{ZONE_ID}", headers=_AUTH)
+            res = await client.post(f"/risk-zones/{ZONE_ID}/dismiss", headers=_AUTH)
 
     assert res.status_code == 409
-    assert "already expired" in res.json()["detail"]
+    assert res.json()["detail"]["error"] == "zone_already_inactive"
+
+
+@pytest.mark.asyncio
+async def test_dismiss_already_voted_409(mock_firebase, as_other):
+    from main import app
+    from modules.shared.firestore_service import VoteConflictError
+
+    with (
+        patch(_DISMISS_GET_ZONE, new_callable=AsyncMock, return_value=_HIGH_ZONE),
+        patch(_DISMISS_ZONE, new_callable=AsyncMock, side_effect=VoteConflictError("already_voted")),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            res = await client.post(f"/risk-zones/{ZONE_ID}/dismiss", headers=_AUTH)
+
+    assert res.status_code == 409
+    assert res.json()["detail"]["error"] == "already_voted"
+
+
+@pytest.mark.asyncio
+async def test_dismiss_success_returns_zone(mock_firebase, as_other):
+    from main import app
+
+    voted_zone = _HIGH_ZONE.model_copy(update={"dismiss_count": 1, "dismissers": [OTHER_UID]})
+    with (
+        patch(_DISMISS_GET_ZONE, new_callable=AsyncMock, return_value=_HIGH_ZONE),
+        patch(_DISMISS_ZONE, new_callable=AsyncMock, return_value=voted_zone),
+        patch(_NOTIFY_DISMISSED, new_callable=AsyncMock),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            res = await client.post(f"/risk-zones/{ZONE_ID}/dismiss", headers=_AUTH)
+
+    assert res.status_code == 200
+    data = res.json()
+    assert data["dismiss_count"] == 1
+    assert OTHER_UID in data["dismissers"]
+    assert data["active"] is True  # aún activa (solo 1 voto)
+
+
+@pytest.mark.asyncio
+async def test_dismiss_third_vote_deactivates_zone(mock_firebase, as_other):
+    from main import app
+
+    dismissed_zone = _HIGH_ZONE.model_copy(
+        update={"active": False, "dismiss_count": 3, "dismissers": ["u1", "u2", OTHER_UID]}
+    )
+    with (
+        patch(_DISMISS_GET_ZONE, new_callable=AsyncMock, return_value=_HIGH_ZONE),
+        patch(_DISMISS_ZONE, new_callable=AsyncMock, return_value=dismissed_zone),
+        patch(_NOTIFY_DISMISSED, new_callable=AsyncMock) as mock_notify,
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            res = await client.post(f"/risk-zones/{ZONE_ID}/dismiss", headers=_AUTH)
+
+    assert res.status_code == 200
+    data = res.json()
+    assert data["active"] is False
+    assert data["dismiss_count"] == 3
+    mock_notify.assert_awaited_once_with(reporter_uid=REPORTER_UID, zone_id=ZONE_ID)

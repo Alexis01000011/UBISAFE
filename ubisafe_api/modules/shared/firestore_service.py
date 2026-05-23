@@ -29,6 +29,7 @@ from modules.shared.firebase_admin_init import FirebaseAdminInit
 from modules.shared.subscription_schemas import Subscription
 
 _RISK_ZONE_TTL_HOURS = 24
+_RISK_ZONE_DISMISS_THRESHOLD = 3
 _COMMUNITY_REPORT_TTL_HOURS = 24
 _EARTH_RADIUS_KM = 6371.0
 
@@ -211,7 +212,7 @@ class FirestoreService:
     @classmethod
     def _doc_to_risk_zone(cls, doc: Any) -> RiskZone:
         raw = doc.to_dict() or {}
-        for field in ("created_at", "expires_at", "expired_at"):
+        for field in ("created_at", "expires_at", "expired_at", "dismissed_at"):
             val = raw.get(field)
             if val is None:
                 continue
@@ -219,6 +220,9 @@ class FirestoreService:
                 raw[field] = val.isoformat()
             elif hasattr(val, "timestamp"):
                 raw[field] = datetime.fromtimestamp(val.timestamp(), tz=UTC).isoformat()
+        # Fallbacks para zonas legacy que no tienen los campos de desmentido
+        raw.setdefault("dismiss_count", 0)
+        raw.setdefault("dismissers", [])
         return RiskZone(id=doc.id, **raw)
 
     @classmethod
@@ -274,6 +278,9 @@ class FirestoreService:
         data["created_at"] = SERVER_TIMESTAMP
         data["expires_at"] = expires_at
         data["expired_at"] = None
+        data["dismissed_at"] = None
+        data["dismiss_count"] = 0
+        data["dismissers"] = []
         _, ref = cls._db().collection("risk_zones").add(data)
         doc = ref.get()
         return cls._doc_to_risk_zone(doc)
@@ -292,6 +299,41 @@ class FirestoreService:
         )
         doc = ref.get()
         return cls._doc_to_risk_zone(doc)
+
+    @classmethod
+    async def dismiss_risk_zone(cls, zone_id: str, voter_uid: str) -> RiskZone:
+        """Registra un voto de desmentido. Con ≥3 votos desactiva la zona (CU-03)."""
+        from google.cloud.firestore import transactional as fs_transactional  # noqa: PLC0415
+
+        db = cls._db()
+        ref = db.collection("risk_zones").document(zone_id)
+
+        @fs_transactional
+        def _txn(transaction):
+            doc = ref.get(transaction=transaction)
+            data = doc.to_dict() or {}
+
+            if not data.get("active", False):
+                raise VoteConflictError("zone_already_inactive")
+            if voter_uid in (data.get("dismissers") or []):
+                raise VoteConflictError("already_voted")
+
+            dismissers = list(data.get("dismissers") or [])
+            dismissers.append(voter_uid)
+            dismiss_count = len(dismissers)
+
+            update: dict[str, Any] = {
+                "dismissers": dismissers,
+                "dismiss_count": dismiss_count,
+            }
+            if dismiss_count >= _RISK_ZONE_DISMISS_THRESHOLD:
+                update["active"] = False
+                update["dismissed_at"] = SERVER_TIMESTAMP
+
+            transaction.update(ref, update)
+
+        _txn(db.transaction())
+        return cls._doc_to_risk_zone(ref.get())
 
     @classmethod
     async def query_active_risk_zones_bbox(

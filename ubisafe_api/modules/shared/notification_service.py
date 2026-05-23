@@ -322,6 +322,16 @@ class NotificationService:
             )
 
     @staticmethod
+    async def send_risk_zone_dismissed(reporter_uid: str, zone_id: str) -> None:
+        """Notifica al reportante que su zona fue desmentida por la comunidad."""
+        await NotificationService.send_to_user(
+            uid=reporter_uid,
+            title="Tu zona de riesgo fue desmentida",
+            body="La comunidad indicó que esta zona ya no representa un riesgo.",
+            data={"type": "risk_zone_dismissed", "risk_zone_id": zone_id},
+        )
+
+    @staticmethod
     async def notify_risk_zone_alert(
         fcm_tokens: list[str],
         data: dict,

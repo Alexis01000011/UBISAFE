@@ -194,6 +194,32 @@ void main() {
       expect(invalidated, isTrue);
     });
 
+    test('risk_zone_expired calls invalidateRiskZones', () {
+      var invalidated = false;
+      final handler =
+          makeHandler(onInvalidateRiskZones: () => invalidated = true);
+
+      handler.handleMessageForTest({
+        'type': 'risk_zone_expired',
+        'risk_zone_id': 'rz-expired-01',
+      });
+
+      expect(invalidated, isTrue);
+    });
+
+    test('risk_zone_dismissed calls invalidateRiskZones (CU-03)', () {
+      var invalidated = false;
+      final handler =
+          makeHandler(onInvalidateRiskZones: () => invalidated = true);
+
+      handler.handleMessageForTest({
+        'type': 'risk_zone_dismissed',
+        'risk_zone_id': 'rz-dismissed-01',
+      });
+
+      expect(invalidated, isTrue);
+    });
+
     test('lot_resolved calls onLotResolved with data', () {
       Map<String, dynamic>? received;
       final handler = makeHandler(onLotResolved: (d) => received = d);

@@ -125,4 +125,74 @@ void main() {
       expect(zone.expiredAt, isA<DateTime>());
     });
   });
+
+  // ── Campos de desmentido CU-03 ────────────────────────────────────────────
+
+  group('RiskZone.fromJson — campos dismiss (CU-03)', () {
+    test('dismiss_count y dismissers se parsean cuando están presentes', () {
+      final json = _jsonFixture()
+        ..['dismiss_count'] = 2
+        ..['dismissers'] = ['uid-a', 'uid-b']
+        ..['dismissed_at'] = null;
+      final zone = RiskZone.fromJson(json);
+      expect(zone.dismissCount, 2);
+      expect(zone.dismissers, ['uid-a', 'uid-b']);
+      expect(zone.dismissedAt, isNull);
+    });
+
+    test('dismissed_at presente se parsea como DateTime', () {
+      final json = _jsonFixture()
+        ..['dismiss_count'] = 3
+        ..['dismissers'] = ['u1', 'u2', 'u3']
+        ..['dismissed_at'] = '2025-05-02T12:00:00.000Z'
+        ..['active'] = false;
+      final zone = RiskZone.fromJson(json);
+      expect(zone.dismissedAt, isA<DateTime>());
+      expect(zone.active, isFalse);
+    });
+
+    test('zona legacy sin campos dismiss toma valores por defecto', () {
+      // Los campos dismiss_count, dismissers y dismissed_at no existen en
+      // documentos creados antes de la Sesión A — el modelo debe usar defaults.
+      final json = _jsonFixture(); // no contiene dismiss_count ni dismissers
+      final zone = RiskZone.fromJson(json);
+      expect(zone.dismissCount, 0);
+      expect(zone.dismissers, isEmpty);
+      expect(zone.dismissedAt, isNull);
+    });
+  });
+
+  group('RiskZone.fromFirestore — campos dismiss (CU-03)', () {
+    test('zona legacy sin campos dismiss toma valores por defecto', () {
+      // _firestoreFixture() no incluye los campos de desmentido.
+      final zone = RiskZone.fromFirestore('zone-legacy', _firestoreFixture());
+      expect(zone.dismissCount, 0);
+      expect(zone.dismissers, isEmpty);
+      expect(zone.dismissedAt, isNull);
+    });
+
+    test('dismissers como lista de strings se parsea correctamente', () {
+      final data = _firestoreFixture()
+        ..['dismiss_count'] = 1
+        ..['dismissers'] = ['uid-voter']
+        ..['dismissed_at'] = null;
+      final zone = RiskZone.fromFirestore('zone-dismiss-1', data);
+      expect(zone.dismissCount, 1);
+      expect(zone.dismissers, contains('uid-voter'));
+    });
+
+    test('dismissed_at como Timestamp nativo se convierte a DateTime', () {
+      final data = _firestoreFixture()
+        ..['dismiss_count'] = 3
+        ..['dismissers'] = ['u1', 'u2', 'u3']
+        ..['dismissed_at'] =
+            Timestamp.fromDate(DateTime.utc(2025, 5, 2, 14, 30))
+        ..['active'] = false;
+      final zone = RiskZone.fromFirestore('zone-dismissed', data);
+      expect(zone.dismissedAt, isA<DateTime>());
+      // Verificar minutos (timezone-independent) en lugar de horas
+      expect(zone.dismissedAt!.minute, 30);
+      expect(zone.active, isFalse);
+    });
+  });
 }

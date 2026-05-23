@@ -13,6 +13,7 @@ from modules.dispatching.group_stay_router import router as group_stays_router
 from modules.dispatching.ride_router import router as rides_router
 from modules.dispatching.router import router as stops_router
 from modules.identity.router import router as auth_router
+from modules.safety.dismiss_router import router as risk_zones_dismiss_router
 from modules.safety.router import router as risk_zones_router
 from modules.shared.firebase_admin_init import FirebaseAdminInit
 from modules.shared.subscription_router import router as subscriptions_router
@@ -48,6 +49,7 @@ app.include_router(auth_router, prefix="/auth", tags=["auth"])
 app.include_router(stops_router, prefix="/stops", tags=["stops"])
 app.include_router(rides_router, prefix="/rides", tags=["rides"])
 app.include_router(risk_zones_router, prefix="/risk-zones", tags=["risk-zones"])
+app.include_router(risk_zones_dismiss_router, prefix="/risk-zones", tags=["risk-zones"])
 app.include_router(
     community_reports_router, prefix="/community-reports", tags=["community-reports"]
 )

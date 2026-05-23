@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -62,6 +63,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
   // 1 = going to pickup, 2 = ride in progress (passenger aboard)
   int _ridePhase = 0;
   Position? _riskZoneAnchorPos;
+  BitmapDescriptor? _zoneTapIcon;
   List<LatLng> _routePolyline = [];
 
   StreamSubscription<Ride?>? _rideSub;
@@ -71,6 +73,9 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _initMapsKey();
+    _buildZoneTapIcon().then((icon) {
+      if (mounted) setState(() => _zoneTapIcon = icon);
+    });
   }
 
   @override
@@ -481,6 +486,28 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
             orElse: () => <Circle>{},
           );
 
+          // Invisible markers superimposed on each zone circle for tap detection
+          // (Circle has no onTap — Option A from design doc).
+          final zoneMarkers = _zoneTapIcon == null
+              ? <Marker>{}
+              : zonesAsync.maybeWhen(
+                  data: (zones) => zones
+                      .map(
+                        (z) => Marker(
+                          markerId: MarkerId('zt_${z.id}'),
+                          position: LatLng(z.latitude, z.longitude),
+                          icon: _zoneTapIcon!,
+                          anchor: const Offset(0.5, 0.5),
+                          onTap: () => context.push(
+                            '/safety/risk-zones/detail',
+                            extra: z,
+                          ),
+                        ),
+                      )
+                      .toSet(),
+                  orElse: () => <Marker>{},
+                );
+
           final communityMarkers = (communityReportsAsync.valueOrNull ?? [])
               .where((r) =>
                   !r.isDuplicate &&
@@ -503,7 +530,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
                 myLocationButtonEnabled: true,
                 polylines: polylines,
                 circles: circles,
-                markers: communityMarkers.union(stayMarkers),
+                markers: communityMarkers.union(stayMarkers).union(zoneMarkers),
                 onTap: _onMapTap,
               ),
               // Visibility toggle button
@@ -1748,6 +1775,17 @@ Color _riskStrokeColor(String level) => switch (level) {
       'MEDIUM' => const Color(0xFFF57C00),
       _ => const Color(0xFF0277BD),
     };
+
+// 1×1 transparent PNG — hit area for zone circle taps (Option A).
+Future<BitmapDescriptor> _buildZoneTapIcon() async {
+  final recorder = ui.PictureRecorder();
+  Canvas(recorder);
+  final img = await recorder.endRecording().toImage(1, 1);
+  final bytes = (await img.toByteData(format: ui.ImageByteFormat.png))!
+      .buffer
+      .asUint8List();
+  return BitmapDescriptor.bytes(bytes);
+}
 
 /// Returns perpendicular-offset waypoint strings to route around HIGH zones.
 /// Only zones whose circle intersects the origin→destination segment are

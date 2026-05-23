@@ -52,11 +52,15 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer>
   bool _selectingRiskPoint = false;
   final Map<String, BitmapDescriptor> _markerIconCache = {};
   Position? _riskZoneAnchorPos;
+  BitmapDescriptor? _zoneTapIcon;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _buildZoneTapIcon().then((icon) {
+      if (mounted) setState(() => _zoneTapIcon = icon);
+    });
   }
 
   @override
@@ -447,6 +451,28 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer>
             orElse: () => <Circle>{},
           );
 
+          // Invisible markers superimposed on each zone circle for tap detection
+          // (Circle has no onTap — Option A from design doc).
+          final zoneMarkers = _zoneTapIcon == null
+              ? <Marker>{}
+              : zonesAsync.maybeWhen(
+                  data: (zones) => zones
+                      .map(
+                        (z) => Marker(
+                          markerId: MarkerId('zt_${z.id}'),
+                          position: LatLng(z.latitude, z.longitude),
+                          icon: _zoneTapIcon!,
+                          anchor: const Offset(0.5, 0.5),
+                          onTap: () => context.push(
+                            '/safety/risk-zones/detail',
+                            extra: z,
+                          ),
+                        ),
+                      )
+                      .toSet(),
+                  orElse: () => <Marker>{},
+                );
+
           // Community report markers: skip duplicates (grouped under canonical pin)
           final communityMarkers = (communityReportsAsync.valueOrNull ?? [])
               .where((r) =>
@@ -468,7 +494,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer>
                 initialCameraPosition: initialCamera,
                 myLocationEnabled: true,
                 myLocationButtonEnabled: true,
-                markers: markers.union(communityMarkers).union(stayMarkers),
+                markers: markers.union(communityMarkers).union(stayMarkers).union(zoneMarkers),
                 circles: circles,
                 onTap: _onMapTap,
               ),
@@ -611,6 +637,17 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer>
             .buffer
             .asUint8List();
     return BitmapDescriptor.bytes(bytes, imagePixelRatio: 2.0);
+  }
+
+  // 1×1 transparent PNG — hit area for zone circle taps (Option A).
+  static Future<BitmapDescriptor> _buildZoneTapIcon() async {
+    final recorder = ui.PictureRecorder();
+    Canvas(recorder);
+    final img = await recorder.endRecording().toImage(1, 1);
+    final bytes = (await img.toByteData(format: ui.ImageByteFormat.png))!
+        .buffer
+        .asUint8List();
+    return BitmapDescriptor.bytes(bytes);
   }
 
   Future<void> _onVendorTap(
