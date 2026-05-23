@@ -35,7 +35,7 @@ async def create_community_report(
 
     max_dist_km = (
         _PROXIMITY_RADIUS_KM_LOT
-        if body.threat_type == ThreatType.lote_baldio
+        if body.threat_type == ThreatType.lote
         else _PROXIMITY_RADIUS_KM_INFECTION
     )
 
@@ -59,7 +59,7 @@ async def create_community_report(
     # Lote baldío skips the proximity duplicate check: two distinct vacant lots
     # can legitimately be within 50 m of each other in a dense urban block.
     # Support mechanism (3 apoyos) handles deduplication instead.
-    if body.threat_type != ThreatType.lote_baldio and await FirestoreService.has_pending_report_within(
+    if body.threat_type != ThreatType.lote and await FirestoreService.has_pending_report_within(
         body.location.lat, body.location.lng, _DUPLICATE_RADIUS_M, body.threat_type.value
     ):
         raise HTTPException(

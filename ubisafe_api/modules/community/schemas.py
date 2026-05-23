@@ -10,7 +10,7 @@ from modules.safety.schemas import GeoPoint
 class ThreatType(StrEnum):
     animal_muerto = "animal_muerto"
     zona_sucia = "zona_sucia"
-    lote_baldio = "lote_baldio"
+    lote = "lote"
 
 
 class ReportStatus(StrEnum):
@@ -18,7 +18,7 @@ class ReportStatus(StrEnum):
     confirmed = "confirmed"
     dismissed = "dismissed"
     expired = "expired"
-    resolved = "resolved"  # only for lote_baldio
+    resolved = "resolved"  # only for lote
 
 
 class ValidationVerdict(StrEnum):
