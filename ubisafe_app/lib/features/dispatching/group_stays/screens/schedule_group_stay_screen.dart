@@ -1,11 +1,15 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../../core/design_system/colors.dart';
 import '../../../presence/services/gps_service.dart';
 import '../services/group_stay_module.dart';
+import 'group_stay_location_picker_sheet.dart';
 
 /// CU-09-A — Vendor schedules a new group stay.
 /// Launched from MapScreenVendor SpeedDial → /group-stays/schedule.
@@ -22,8 +26,30 @@ class _ScheduleGroupStayScreenState
   DateTime? _selectedStart;
   int _durationMinutes = 60;
   bool _loading = false;
+  LatLng? _selectedLocation;
 
-  static const _durations = [15, 30, 45, 60, 90, 120, 180, 240, 300, 360, 420, 480];
+  static const _durations = [
+    15, 30, 45, 60, 90, 120, 180, 240, 300, 360, 420, 480
+  ];
+
+  Future<void> _pickLocation() async {
+    final position = ref.read(gpsServiceProvider).valueOrNull;
+    if (position == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('GPS no disponible. Espera un momento e intenta de nuevo.')),
+      );
+      return;
+    }
+
+    final picked = await GroupStayLocationPickerSheet.show(
+      context,
+      LatLng(position.latitude, position.longitude),
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _selectedLocation = picked);
+  }
 
   Future<void> _pickStartDateTime() async {
     final now = DateTime.now();
@@ -50,6 +76,14 @@ class _ScheduleGroupStayScreenState
   }
 
   Future<void> _submit() async {
+    final location = _selectedLocation;
+    if (location == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selecciona el punto de tu estancia')),
+      );
+      return;
+    }
+
     final start = _selectedStart;
     if (start == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -68,20 +102,12 @@ class _ScheduleGroupStayScreenState
       return;
     }
 
-    final position = ref.read(gpsServiceProvider).valueOrNull;
-    if (position == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('GPS no disponible. Intenta de nuevo.')),
-      );
-      return;
-    }
-
     setState(() => _loading = true);
     try {
       final module = ref.read(groupStayModuleProvider);
       final response = await module.createStay(
-        lat: position.latitude,
-        lng: position.longitude,
+        lat: location.latitude,
+        lng: location.longitude,
         startAt: start,
         durationMinutes: _durationMinutes,
       );
@@ -117,7 +143,6 @@ class _ScheduleGroupStayScreenState
         );
         if (!mounted) return;
         if (confirm == false) {
-          // User chose to cancel — call cancel endpoint best-effort
           try {
             await module.cancelStay(response.stay.id);
           } catch (_) {}
@@ -129,6 +154,9 @@ class _ScheduleGroupStayScreenState
           return;
         }
       }
+
+      // P3: reload stays so the new pin appears on the map immediately (fire-and-forget)
+      unawaited(ref.read(activeGroupStaysProvider.notifier).reload());
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -196,7 +224,7 @@ class _ScheduleGroupStayScreenState
 
   @override
   Widget build(BuildContext context) {
-    final position = ref.watch(gpsServiceProvider).valueOrNull;
+    final locationSelected = _selectedLocation != null;
 
     return Scaffold(
       appBar: AppBar(
@@ -209,27 +237,61 @@ class _ScheduleGroupStayScreenState
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Location info
-            Card(
-              child: Padding(
+            // Location picker card
+            InkWell(
+              onTap: _loading ? null : _pickLocation,
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
                 padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: locationSelected
+                      ? AppColors.secondary700.withValues(alpha: 0.08)
+                      : AppColors.neutral100,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: locationSelected
+                        ? AppColors.secondary700
+                        : AppColors.border,
+                  ),
+                ),
                 child: Row(
                   children: [
-                    const Icon(Icons.location_on, color: AppColors.secondary700),
+                    Icon(
+                      locationSelected
+                          ? Icons.storefront
+                          : Icons.storefront_outlined,
+                      color: locationSelected
+                          ? AppColors.secondary700
+                          : AppColors.textSecondary,
+                    ),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: position == null
-                          ? const Text(
-                              'Obteniendo ubicación…',
-                              style: TextStyle(color: AppColors.textSecondary),
-                            )
-                          : Text(
-                              'Lat: ${position.latitude.toStringAsFixed(5)}\n'
-                              'Lng: ${position.longitude.toStringAsFixed(5)}',
-                              style: const TextStyle(
-                                  color: AppColors.textSecondary),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Punto de la estancia',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              color: locationSelected
+                                  ? AppColors.secondary700
+                                  : AppColors.textSecondary,
                             ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            locationSelected
+                                ? 'Ubicación seleccionada — toca para cambiar'
+                                : 'Toca para elegir en el mapa',
+                            style: const TextStyle(
+                                fontSize: 13, color: AppColors.textSecondary),
+                          ),
+                        ],
+                      ),
                     ),
+                    if (locationSelected)
+                      const Icon(Icons.check_circle,
+                          color: AppColors.secondary700),
                   ],
                 ),
               ),
@@ -284,7 +346,7 @@ class _ScheduleGroupStayScreenState
             const Spacer(),
 
             FilledButton(
-              onPressed: _loading || position == null ? null : _submit,
+              onPressed: (_loading || !locationSelected) ? null : _submit,
               style: FilledButton.styleFrom(
                 backgroundColor: AppColors.secondary700,
                 padding: const EdgeInsets.symmetric(vertical: 16),

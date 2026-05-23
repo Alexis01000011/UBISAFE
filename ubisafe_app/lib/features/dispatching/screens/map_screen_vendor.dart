@@ -1604,11 +1604,16 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
   }
 
   Marker _groupStayToMarker(GroupStay stay, BuildContext context) {
-    final snippet = stay.status == 'active' ? 'Activa' : 'Programada';
+    final isActive = stay.status == 'active';
+    final snippet = isActive ? 'Activa' : 'Programada';
+    // active → hueBlue (240°); scheduled → hueAzure (210°)
+    final hue = isActive
+        ? BitmapDescriptor.hueBlue
+        : BitmapDescriptor.hueAzure;
     return Marker(
       markerId: MarkerId('gs_${stay.id}'),
       position: LatLng(stay.locationLat, stay.locationLng),
-      icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueCyan),
+      icon: BitmapDescriptor.defaultMarkerWithHue(hue),
       infoWindow: InfoWindow(
         title: 'Estancia grupal',
         snippet: '$snippet · ${stay.attendeesCount} asistentes',

@@ -339,7 +339,7 @@ final notificationHandlerProvider = Provider<NotificationHandler>((ref) {
     },
     onGroupStayCancelled: (data) {
       ref.read(groupStayCancelledProvider.notifier).state = data;
-      ref.invalidate(activeGroupStaysProvider);
+      ref.read(activeGroupStaysProvider.notifier).reload();
     },
     onRsvpGroupStay: (data) {
       ref.read(rsvpGroupStayAlertProvider.notifier).state = data;

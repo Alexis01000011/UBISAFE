@@ -78,8 +78,12 @@ class _GroupStaysNotifier extends StateNotifier<AsyncValue<List<GroupStay>>> {
   _GroupStaysNotifier(this._module) : super(const AsyncValue.data([]));
 
   final GroupStayModule _module;
+  double? _lastLat;
+  double? _lastLng;
 
   Future<void> load(double lat, double lng) async {
+    _lastLat = lat;
+    _lastLng = lng;
     if (state is! AsyncData<List<GroupStay>>) {
       state = const AsyncValue.loading();
     }
@@ -89,5 +93,13 @@ class _GroupStaysNotifier extends StateNotifier<AsyncValue<List<GroupStay>>> {
     } catch (e, st) {
       state = AsyncValue.error(e, st);
     }
+  }
+
+  /// Reloads using the last known lat/lng. No-op if [load] was never called.
+  Future<void> reload() async {
+    final lat = _lastLat;
+    final lng = _lastLng;
+    if (lat == null || lng == null) return;
+    await load(lat, lng);
   }
 }

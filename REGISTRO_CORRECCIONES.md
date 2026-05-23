@@ -1591,6 +1591,58 @@
 
 ---
 
+### C-162 · `ScheduleGroupStayScreen` usaba posición GPS como ubicación fija sin selector de mapa + coordenadas crudas visibles `2026-05-23`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-162 · `GroupStayLocationPickerSheet` + eliminación de coordenadas crudas en CU-09 |
+| **Qué se corrigió (técnico)** | (1) Creado `group_stay_location_picker_sheet.dart`: bottom sheet 75% de pantalla con `GoogleMap` embebido, pin central fijo `Icons.storefront_outlined` (color `secondary700`), callback `onCameraMove` captura el `target` como ubicación seleccionada. Sin restricción de radio (a diferencia del `LotLocationPickerSheet` que limita a 1 km). Retorna `LatLng?`. (2) `ScheduleGroupStayScreen` reescrito: campo `LatLng? _selectedLocation`, método `_pickLocation()` que abre el picker con la posición GPS como centro inicial, card visual con estado "no seleccionado" / "seleccionado ✓", botón "Programar estancia" deshabilitado si `_selectedLocation == null`. `_submit()` usa `_selectedLocation` en lugar de la posición GPS en tiempo real. (3) `GroupStayDetailScreen`: el `_InfoRow` de Ubicación (que mostraba lat/lng crudas) se reemplazó por un `GoogleMap` no interactivo de 150 px de alto con un marker cyan en la posición de la estancia. |
+| **Qué se corrigió (simple)** | La pantalla "Programar estancia" asignaba automáticamente la posición GPS actual como ubicación sin darle al vendedor ninguna forma de elegir un punto diferente. El vendedor solo veía coordenadas numéricas. Ahora al tocar la card de ubicación se abre un mapa donde puede mover el pin a cualquier punto; el botón de programar no se habilita hasta que confirme. En la pantalla de detalle, las coordenadas crudas fueron reemplazadas por un mini-mapa que muestra exactamente dónde está la estancia. |
+| **Clase / Método / Módulo** | `ScheduleGroupStayScreen._submit()` + nuevo `GroupStayLocationPickerSheet` → `ubisafe_app/lib/features/dispatching/group_stays/screens/` · `GroupStayDetailScreen` info card → `group_stay_detail_screen.dart` |
+| **Justificación** | El plan §5.1.2 item 8 especifica explícitamente "Mapa con pin draggable o tap-to-set para `location`". El patrón de picker (bottom sheet con mapa + pin central fijo) ya existe para lotes baldíos (`LotLocationPickerSheet`) y se replicó aquí sin la restricción de radio ya que las estancias no tienen límite de distancia. El mini-mapa en el detalle sigue la especificación §5.2.2 ("punto en mini-mapa"). |
+| **Problema que resolvía** | El vendedor no podía elegir el punto de su estancia — siempre se programaba donde estaba parado físicamente en ese momento. Tampoco había retroalimentación visual de dónde quedaría la estancia antes de confirmar. |
+
+---
+
+### C-163 · `ref.invalidate(activeGroupStaysProvider)` reseteaba a lista vacía sin recargar + estancia nueva no aparecía en mapa `2026-05-23`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-163 · `_GroupStaysNotifier.reload()` para P2 y P3 de CU-09 |
+| **Qué se corrigió (técnico)** | (1) `_GroupStaysNotifier` en `group_stay_module.dart`: añadidos campos `double? _lastLat` y `double? _lastLng` que se almacenan en cada llamada a `load(lat, lng)`. Nuevo método `Future<void> reload()` que llama `load(_lastLat!, _lastLng!)` si los valores están disponibles (no-op seguro si `load` nunca fue llamado). (2) `notificationHandlerProvider` en `notification_handler.dart`: el callback `onGroupStayCancelled` cambió de `ref.invalidate(activeGroupStaysProvider)` a `ref.read(activeGroupStaysProvider.notifier).reload()`. (3) `ScheduleGroupStayScreen._submit()`: tras crear la estancia exitosamente, se dispara `unawaited(ref.read(activeGroupStaysProvider.notifier).reload())` antes del `context.pop()`. |
+| **Qué se corrigió (simple)** | (P2) Cuando llegaba un FCM `group_stay_cancelled`, el código llamaba `ref.invalidate(activeGroupStaysProvider)`. Esto descartaba el `StateNotifier` y lo recreaba con su estado inicial `AsyncData([])` (lista vacía), pero nunca llamaba `.load()`. Los mapas quedaban con cero marcadores de estancia en lugar de la lista actualizada sin la estancia cancelada. (P3) Al crear una estancia exitosamente y regresar al mapa, la estancia nueva no aparecía como pin porque el flag `_groupStaysLoaded = true` evitaba que el mapa disparara un nuevo `.load()`. Ahora ambos casos llaman `reload()` que usa las últimas coordenadas conocidas para hacer una recarga real. |
+| **Clase / Método / Módulo** | `_GroupStaysNotifier` + `groupStayModuleProvider` → `group_stay_module.dart` · `notificationHandlerProvider.onGroupStayCancelled` → `notification_handler.dart` · `ScheduleGroupStayScreen._submit()` → `schedule_group_stay_screen.dart` |
+| **Justificación** | `ref.invalidate()` destruye y recrea el notifier desde cero — el estado inicial es `AsyncData([])`, no el resultado de un fetch. Para un `StateNotifier` que depende de parámetros externos (lat/lng) que no están en el provider graph, el patrón correcto es almacenar esos parámetros en el notifier y exponer un método `reload()`. Este patrón evita duplicar la lógica de fetching y mantiene la única fuente de verdad de coordenadas en el propio notifier. |
+| **Problema que resolvía** | Los marcadores de estancias grupales desaparecían del mapa al recibir FCM `group_stay_cancelled` (lista se reseteaba a vacía). Las estancias recién creadas no aparecían en el mapa hasta que el usuario reiniciaba la app. |
+
+---
+
+### C-164 · Marcadores de estancia grupal usaban el mismo color (`hueCyan`) para los estados `scheduled` y `active` `2026-05-23`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-164 · `hueAzure` (scheduled) vs `hueBlue` (active) en `_groupStayToMarker` |
+| **Qué se corrigió (técnico)** | En `_groupStayToMarker` de `map_screen_buyer.dart` y `map_screen_vendor.dart`: la llamada `BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueCyan)` se reemplazó por una expresión condicional: `stay.status == 'active' ? BitmapDescriptor.hueBlue : BitmapDescriptor.hueAzure`. |
+| **Qué se corrigió (simple)** | Todos los marcadores de estancias grupales aparecían del mismo color (cian) en el mapa, sin distinción entre una estancia programada (futura) y una activa (en curso). El plan especifica colores diferentes para cada estado. Ahora los marcadores `scheduled` son azul claro (azure, 210°) y los `active` son azul intenso (blue, 240°). |
+| **Clase / Método / Módulo** | `_MapScreenBuyerState._groupStayToMarker()` → `map_screen_buyer.dart` · `_MapScreenVendorState._groupStayToMarker()` → `map_screen_vendor.dart` |
+| **Justificación** | El SDD3 Fase 5'' especifica `#5C6BC0` para scheduled y `#3F51B5` para active. Ambos tonos tienen el mismo hue HSV (~231°), imposible de diferenciar con `defaultMarkerWithHue`. `hueAzure` (210°) y `hueBlue` (240°) son los valores predefinidos de Google Maps Flutter más cercanos a esa familia de azules y se distinguen claramente a escala de mapa. |
+| **Problema que resolvía** | El usuario no podía distinguir visualmente en el mapa si una estancia era futura o estaba ocurriendo en ese momento. |
+
+---
+
+### C-165 · Tests faltantes de CU-09: idempotencia de asistencia, conteo de args y FCM en cancelación `2026-05-23`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-165 · Tres tests nuevos en `test_group_stays.py` (P5 del audit CU-09) |
+| **Qué se corrigió (técnico)** | Añadidos tres tests a `tests/test_group_stays.py`: (1) `test_confirm_attendance_calls_firestore_with_correct_args`: verifica que `POST /group-stays/{id}/attendances` llama `FirestoreService.confirm_attendance(stay_id, buyer_uid)` con los argumentos exactos usando `assert_awaited_once_with`. (2) `test_double_confirm_is_idempotent`: llama el endpoint de asistencia dos veces consecutivas en el mismo `AsyncClient` y verifica que ambas retornan 204 (la idempotencia real la garantiza la capa FS, pero el endpoint no debe fallar en el segundo intento). (3) `test_vendor_cancel_notifies_attendees`: mockea `get_confirmed_attendance_uids` para retornar `[BUYER_UID]`, mockea `NotificationService.send_group_stay_cancelled`, llama `PATCH /cancel` y tras `await asyncio.sleep(0)` (para vaciar el `asyncio.ensure_future` del router) verifica que el mock de FCM fue llamado con `([BUYER_UID], STAY_ID, "vendor_cancelled")`. |
+| **Qué se corrigió (simple)** | El plan §5.2.1 item 5 especificaba tres tests que no estaban implementados: que el endpoint de asistencia pasa los argumentos correctos a Firestore, que llamarlo dos veces no falla, y que cancelar una estancia con asistentes efectivamente dispara la notificación FCM. Sin estos tests, un refactor del router o del servicio podría romper silenciosamente estas garantías. |
+| **Clase / Método / Módulo** | `tests/test_group_stays.py` → `ubisafe_api/tests/test_group_stays.py` (suite sube de 9 a 12 tests, todos pasan) |
+| **Justificación** | `asyncio.sleep(0)` en el test de cancelación es el patrón estándar para vaciar tareas pendientes creadas con `asyncio.ensure_future` dentro del mismo loop del test. El mock de `NotificationService.send_group_stay_cancelled` se parchea por su path completo de módulo (`modules.shared.notification_service.NotificationService...`) para asegurar que el parche intercepta exactamente la llamada que hace el router. |
+| **Problema que resolvía** | Los tres casos de negocio (argumentos correctos en asistencia, idempotencia, FCM en cancelación) no tenían cobertura de test. Un cambio inadvertido en la firma de `confirm_attendance` o en la lógica de notificación de cancelación habría pasado desapercibido en CI. |
+
+---
+
 ## Notas de contexto para diagnóstico
 
 - **Dispositivo de prueba:** Físico Android (MIUI/Xiaomi recomendado para reproducibilidad), depuración inalámbrica ADB. **No se usa emulador de Android Studio.**

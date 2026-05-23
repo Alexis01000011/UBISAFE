@@ -267,3 +267,81 @@ async def test_vendor_cannot_confirm_attendance(mock_firebase, as_vendor):
             )
 
     assert res.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_confirm_attendance_calls_firestore_with_correct_args(mock_firebase, as_buyer):
+    """POST /attendances delegates to FirestoreService.confirm_attendance(stay_id, buyer_uid)."""
+    from main import app
+
+    with (
+        patch(_FS_GET_USER, new_callable=AsyncMock, return_value=_BUYER_PROFILE),
+        patch(_FS_GET_STAY, new_callable=AsyncMock, return_value=_CREATED_STAY),
+        patch(_FS_CONFIRM_ATT, new_callable=AsyncMock, return_value=None) as mock_confirm,
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            res = await client.post(
+                f"/group-stays/{STAY_ID}/attendances", headers=_AUTH
+            )
+
+    assert res.status_code == 204
+    mock_confirm.assert_awaited_once_with(STAY_ID, BUYER_UID)
+
+
+@pytest.mark.asyncio
+async def test_double_confirm_is_idempotent(mock_firebase, as_buyer):
+    """Two consecutive POST /attendances calls both return 204 (idempotency in FS layer)."""
+    from main import app
+
+    with (
+        patch(_FS_GET_USER, new_callable=AsyncMock, return_value=_BUYER_PROFILE),
+        patch(_FS_GET_STAY, new_callable=AsyncMock, return_value=_CREATED_STAY),
+        patch(_FS_CONFIRM_ATT, new_callable=AsyncMock, return_value=None),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            res1 = await client.post(
+                f"/group-stays/{STAY_ID}/attendances", headers=_AUTH
+            )
+            res2 = await client.post(
+                f"/group-stays/{STAY_ID}/attendances", headers=_AUTH
+            )
+
+    assert res1.status_code == 204
+    assert res2.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_vendor_cancel_notifies_attendees(mock_firebase, as_vendor):
+    """PATCH /cancel with confirmed attendees fires send_group_stay_cancelled FCM."""
+    import asyncio
+
+    from main import app
+
+    cancelled_stay = GroupStay(
+        id=STAY_ID,
+        vendor_uid=VENDOR_UID,
+        location=_LOCATION,
+        start_at=_FUTURE_START_DT.isoformat(),
+        end_at=_FUTURE_END_DT.isoformat(),
+        duration_minutes=60,
+        status="cancelled",
+        cancellation_reason="vendor_cancelled",
+        attendees_count=1,
+    )
+
+    _NS_CANCEL = "modules.shared.notification_service.NotificationService.send_group_stay_cancelled"
+
+    with (
+        patch(_FS_GET_USER, new_callable=AsyncMock, return_value=_VENDOR_PROFILE),
+        patch(_FS_GET_STAY, new_callable=AsyncMock, return_value=_CREATED_STAY),
+        patch(_FS_CANCEL, new_callable=AsyncMock, return_value=cancelled_stay),
+        patch(_FS_ATTENDANCES, new_callable=AsyncMock, return_value=[BUYER_UID]),
+        patch(_NS_CANCEL, new_callable=AsyncMock) as mock_notify,
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            res = await client.patch(f"/group-stays/{STAY_ID}/cancel", headers=_AUTH)
+        # Flush asyncio.ensure_future so the fire-and-forget coroutine executes
+        await asyncio.sleep(0)
+
+    assert res.status_code == 200
+    mock_notify.assert_awaited_once_with([BUYER_UID], STAY_ID, "vendor_cancelled")

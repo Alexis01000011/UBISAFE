@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../../core/design_system/colors.dart';
 import '../../../identity/auth/auth_module.dart';
@@ -230,6 +231,36 @@ class _GroupStayDetailScreenState extends ConsumerState<GroupStayDetailScreen> {
             ),
             const SizedBox(height: 16),
 
+            // Mini-map showing the stay location
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: SizedBox(
+                height: 150,
+                child: GoogleMap(
+                  initialCameraPosition: CameraPosition(
+                    target: LatLng(_stay.locationLat, _stay.locationLng),
+                    zoom: 16,
+                  ),
+                  markers: {
+                    Marker(
+                      markerId: const MarkerId('stay_loc'),
+                      position: LatLng(_stay.locationLat, _stay.locationLng),
+                      icon: BitmapDescriptor.defaultMarkerWithHue(
+                          BitmapDescriptor.hueCyan),
+                    ),
+                  },
+                  myLocationEnabled: false,
+                  myLocationButtonEnabled: false,
+                  zoomControlsEnabled: false,
+                  scrollGesturesEnabled: false,
+                  zoomGesturesEnabled: false,
+                  rotateGesturesEnabled: false,
+                  tiltGesturesEnabled: false,
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+
             // Info card
             Card(
               child: Padding(
@@ -237,14 +268,6 @@ class _GroupStayDetailScreenState extends ConsumerState<GroupStayDetailScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _InfoRow(
-                      icon: Icons.location_on,
-                      label: 'Ubicación',
-                      value:
-                          'Lat: ${_stay.locationLat.toStringAsFixed(5)}\n'
-                          'Lng: ${_stay.locationLng.toStringAsFixed(5)}',
-                    ),
-                    const Divider(),
                     _InfoRow(
                       icon: Icons.play_arrow,
                       label: 'Inicio',
