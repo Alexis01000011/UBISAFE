@@ -329,14 +329,14 @@ async def test_vendor_cancel_notifies_attendees(mock_firebase, as_vendor):
         attendees_count=1,
     )
 
-    _NS_CANCEL = "modules.shared.notification_service.NotificationService.send_group_stay_cancelled"
+    _ns_cancel = "modules.shared.notification_service.NotificationService.send_group_stay_cancelled"
 
     with (
         patch(_FS_GET_USER, new_callable=AsyncMock, return_value=_VENDOR_PROFILE),
         patch(_FS_GET_STAY, new_callable=AsyncMock, return_value=_CREATED_STAY),
         patch(_FS_CANCEL, new_callable=AsyncMock, return_value=cancelled_stay),
         patch(_FS_ATTENDANCES, new_callable=AsyncMock, return_value=[BUYER_UID]),
-        patch(_NS_CANCEL, new_callable=AsyncMock) as mock_notify,
+        patch(_ns_cancel, new_callable=AsyncMock) as mock_notify,
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             res = await client.patch(f"/group-stays/{STAY_ID}/cancel", headers=_AUTH)

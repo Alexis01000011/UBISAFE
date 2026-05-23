@@ -270,7 +270,11 @@ async def test_dismiss_already_voted_409(mock_firebase, as_other):
 
     with (
         patch(_DISMISS_GET_ZONE, new_callable=AsyncMock, return_value=_HIGH_ZONE),
-        patch(_DISMISS_ZONE, new_callable=AsyncMock, side_effect=VoteConflictError("already_voted")),
+        patch(
+            _DISMISS_ZONE, 
+            new_callable=AsyncMock, 
+            side_effect=VoteConflictError("already_voted")
+        ),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             res = await client.post(f"/risk-zones/{ZONE_ID}/dismiss", headers=_AUTH)

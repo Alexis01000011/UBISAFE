@@ -6,6 +6,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../../core/design_system/colors.dart';
 import '../../../identity/auth/auth_module.dart';
+import '../../../safety/services/risk_zone_service.dart';
 import '../../../shared/notifications/notification_handler.dart';
 import '../models/group_stay.dart';
 import '../services/group_stay_module.dart';
@@ -200,6 +201,19 @@ class _GroupStayDetailScreenState extends ConsumerState<GroupStayDetailScreen> {
 
     final currentUid = ref.watch(authStateProvider).valueOrNull?.uid ?? '';
     final isVendor = _stay.vendorUid == currentUid;
+    final riskCircles = ref.watch(activeRiskZonesProvider).maybeWhen(
+          data: (zones) => zones
+              .map((z) => Circle(
+                    circleId: CircleId(z.id),
+                    center: LatLng(z.latitude, z.longitude),
+                    radius: z.radiusMeters.toDouble(),
+                    fillColor: _riskFillColor(z.riskLevel),
+                    strokeColor: _riskStrokeColor(z.riskLevel),
+                    strokeWidth: 2,
+                  ))
+              .toSet(),
+          orElse: () => <Circle>{},
+        );
     final canCancel =
         isVendor && (_stay.status == 'scheduled' || _stay.status == 'active');
     final canAttend = !isVendor &&
@@ -249,6 +263,7 @@ class _GroupStayDetailScreenState extends ConsumerState<GroupStayDetailScreen> {
                           BitmapDescriptor.hueCyan),
                     ),
                   },
+                  circles: riskCircles,
                   myLocationEnabled: false,
                   myLocationButtonEnabled: false,
                   zoomControlsEnabled: false,
@@ -373,6 +388,20 @@ class _GroupStayDetailScreenState extends ConsumerState<GroupStayDetailScreen> {
     );
   }
 }
+
+// ─── Risk zone color helpers ──────────────────────────────────────────────────
+
+Color _riskFillColor(String level) => switch (level) {
+      'HIGH' => const Color(0x59C62828),
+      'MEDIUM' => const Color(0x4DF57C00),
+      _ => const Color(0x400277BD),
+    };
+
+Color _riskStrokeColor(String level) => switch (level) {
+      'HIGH' => const Color(0xFFC62828),
+      'MEDIUM' => const Color(0xFFF57C00),
+      _ => const Color(0xFF0277BD),
+    };
 
 class _InfoRow extends StatelessWidget {
   const _InfoRow({

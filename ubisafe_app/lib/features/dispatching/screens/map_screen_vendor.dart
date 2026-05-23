@@ -697,6 +697,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
       builder: (_) => _IncomingStopDialog(
         buyerLat: double.tryParse(buyerLat) ?? 0,
         buyerLng: double.tryParse(buyerLng) ?? 0,
+        zones: ref.read(activeRiskZonesProvider).valueOrNull ?? [],
         onAccept: () async {
           // B11: verificar GPS ANTES de cerrar el diálogo para que el
           // vendedor pueda reintentar si el GPS no está disponible aún.
@@ -1046,6 +1047,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
         pickupLng: double.tryParse(pickupLng) ?? 0,
         destinationLat: double.tryParse(destinationLat) ?? 0,
         destinationLng: double.tryParse(destinationLng) ?? 0,
+        zones: ref.read(activeRiskZonesProvider).valueOrNull ?? [],
         onAccept: () async {
           // B23: verificar GPS ANTES de cerrar el diálogo para que el
           // vendedor pueda reintentar si el GPS no está disponible aún.
@@ -2021,12 +2023,14 @@ class _IncomingStopDialog extends StatelessWidget {
   const _IncomingStopDialog({
     required this.buyerLat,
     required this.buyerLng,
+    required this.zones,
     required this.onAccept,
     required this.onReject,
   });
 
   final double buyerLat;
   final double buyerLng;
+  final List<RiskZone> zones;
   final VoidCallback onAccept;
   final VoidCallback onReject;
 
@@ -2057,6 +2061,16 @@ class _IncomingStopDialog extends StatelessWidget {
                         BitmapDescriptor.hueBlue),
                   ),
                 },
+                circles: zones
+                    .map((z) => Circle(
+                          circleId: CircleId(z.id),
+                          center: LatLng(z.latitude, z.longitude),
+                          radius: z.radiusMeters.toDouble(),
+                          fillColor: _riskFillColor(z.riskLevel),
+                          strokeColor: _riskStrokeColor(z.riskLevel),
+                          strokeWidth: 2,
+                        ))
+                    .toSet(),
                 scrollGesturesEnabled: false,
                 zoomGesturesEnabled: false,
                 rotateGesturesEnabled: false,
@@ -2148,6 +2162,7 @@ class _IncomingRideDialog extends StatelessWidget {
     required this.pickupLng,
     required this.destinationLat,
     required this.destinationLng,
+    required this.zones,
     required this.onAccept,
     required this.onReject,
   });
@@ -2156,6 +2171,7 @@ class _IncomingRideDialog extends StatelessWidget {
   final double pickupLng;
   final double destinationLat;
   final double destinationLng;
+  final List<RiskZone> zones;
   final VoidCallback onAccept;
   final VoidCallback onReject;
 
@@ -2195,6 +2211,16 @@ class _IncomingRideDialog extends StatelessWidget {
                         BitmapDescriptor.hueRed),
                   ),
                 },
+                circles: zones
+                    .map((z) => Circle(
+                          circleId: CircleId(z.id),
+                          center: LatLng(z.latitude, z.longitude),
+                          radius: z.radiusMeters.toDouble(),
+                          fillColor: _riskFillColor(z.riskLevel),
+                          strokeColor: _riskStrokeColor(z.riskLevel),
+                          strokeWidth: 2,
+                        ))
+                    .toSet(),
                 scrollGesturesEnabled: false,
                 zoomGesturesEnabled: false,
                 rotateGesturesEnabled: false,

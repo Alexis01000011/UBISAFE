@@ -1708,6 +1708,19 @@
 
 ---
 
+### C-171 · Zonas de riesgo en los tres mini-mapas de previsualización `2026-05-23`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-171 · `circles: riskCircles` en `GroupStayDetailScreen`, `_IncomingStopDialog` y `_IncomingRideDialog` |
+| **Qué se corrigió (técnico)** | **`group_stay_detail_screen.dart`**: importado `risk_zone_service.dart`. En `build()` se añade `ref.watch(activeRiskZonesProvider).maybeWhen(data: ..., orElse: () => <Circle>{})` para construir `riskCircles`. El `GoogleMap` del mini-mapa recibe `circles: riskCircles`. Añadidos `_riskFillColor` y `_riskStrokeColor` como funciones privadas de archivo (mismo patrón que los mapas principales). **`map_screen_vendor.dart` — `_IncomingStopDialog`**: añadido parámetro `final List<RiskZone> zones`. En el `GoogleMap` se añade `circles: zones.map((z) => Circle(...)).toSet()`. En `_showIncomingDialog` se pasa `zones: ref.read(activeRiskZonesProvider).valueOrNull ?? []`. **`map_screen_vendor.dart` — `_IncomingRideDialog`**: misma adición de parámetro `zones` y `circles`. En `_showIncomingRideDialog` se pasa igualmente. |
+| **Qué se corrigió (simple)** | Los tres mini-mapas de previsualización (detalle de estancia grupal, diálogo de solicitud de parada, diálogo de solicitud de raite) mostraban solo marcadores de posición sin contexto de seguridad. Ahora superponen las zonas de riesgo activas con los mismos colores del mapa principal (rojo=HIGH, naranja=MEDIUM, azul=LOW), permitiendo al vendedor evaluar el contexto de riesgo antes de aceptar una solicitud, y al usuario ver si su estancia está en una zona problemática. |
+| **Clase / Método / Módulo** | `_GroupStayDetailScreenState.build()` → `group_stay_detail_screen.dart` · `_IncomingStopDialog.build()` + `_showIncomingDialog()` → `map_screen_vendor.dart` · `_IncomingRideDialog.build()` + `_showIncomingRideDialog()` → `map_screen_vendor.dart` |
+| **Justificación** | Costo nulo: `activeRiskZonesProvider` ya está warm mientras el mapa principal está montado. El provider es un `StreamProvider` compartido — leer `.valueOrNull` es sincrónico, sin nuevas llamadas a Firestore. Los `Circle` overlays se renderizan en el hilo nativo del SDK de Maps. Los diálogos siguen siendo `StatelessWidget`; se evitó convertirlos a `ConsumerWidget` pasando las zonas como parámetro desde el llamador que ya tiene `ref`. |
+| **Problema que resolvía** | El vendedor no podía ver si la ubicación del comprador o la ruta recogida–destino pasaba por zonas de riesgo al momento de decidir aceptar/rechazar. El usuario tampoco veía el contexto de riesgo al abrir el detalle de su estancia programada. |
+
+---
+
 ## Notas de contexto para diagnóstico
 
 - **Dispositivo de prueba:** Físico Android (MIUI/Xiaomi recomendado para reproducibilidad), depuración inalámbrica ADB. **No se usa emulador de Android Studio.**
