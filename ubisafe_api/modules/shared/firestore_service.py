@@ -441,7 +441,7 @@ class FirestoreService:
             "updated_at": SERVER_TIMESTAMP,
             "expires_at": expires_at,
         }
-        if body.threat_type == ThreatType.lote_baldio:
+        if body.threat_type == ThreatType.lote:
             data["description"] = body.description
             data["support_count"] = 0
             data["supporters"] = []

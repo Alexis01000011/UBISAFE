@@ -20,7 +20,7 @@ _SUPPORTER_3_TOKEN = {"uid": SUPPORTER_3}
 _BASE_LOT = CommunityReport(
     id=REPORT_ID,
     reporter_uid=REPORTER_UID,
-    threat_type=ThreatType.lote_baldio,
+    threat_type=ThreatType.lote,
     location=GeoPoint(lat=20.6736, lng=-103.344),
     status=ReportStatus.pending_validation,
     support_count=0,
@@ -72,7 +72,7 @@ async def test_support_increments_count(mock_firebase, as_supporter_1):
     updated = CommunityReport(
         id=REPORT_ID,
         reporter_uid=REPORTER_UID,
-        threat_type=ThreatType.lote_baldio,
+        threat_type=ThreatType.lote,
         location=GeoPoint(lat=20.6736, lng=-103.344),
         status=ReportStatus.pending_validation,
         support_count=1,
@@ -97,7 +97,7 @@ async def test_third_support_sets_pending_resolver(mock_firebase, as_supporter_3
     two_supporters = CommunityReport(
         id=REPORT_ID,
         reporter_uid=REPORTER_UID,
-        threat_type=ThreatType.lote_baldio,
+        threat_type=ThreatType.lote,
         location=GeoPoint(lat=20.6736, lng=-103.344),
         status=ReportStatus.pending_validation,
         support_count=2,
@@ -107,7 +107,7 @@ async def test_third_support_sets_pending_resolver(mock_firebase, as_supporter_3
     after_third = CommunityReport(
         id=REPORT_ID,
         reporter_uid=REPORTER_UID,
-        threat_type=ThreatType.lote_baldio,
+        threat_type=ThreatType.lote,
         location=GeoPoint(lat=20.6736, lng=-103.344),
         status=ReportStatus.pending_validation,
         support_count=3,
@@ -131,7 +131,7 @@ async def test_double_support_rejected_409(mock_firebase, as_supporter_1):
     already_supported = CommunityReport(
         id=REPORT_ID,
         reporter_uid=REPORTER_UID,
-        threat_type=ThreatType.lote_baldio,
+        threat_type=ThreatType.lote,
         location=GeoPoint(lat=20.6736, lng=-103.344),
         status=ReportStatus.pending_validation,
         supporters=[SUPPORTER_1],
@@ -151,7 +151,7 @@ async def test_support_on_resolved_status_rejected_409(mock_firebase, as_support
     resolved_lot = CommunityReport(
         id=REPORT_ID,
         reporter_uid=REPORTER_UID,
-        threat_type=ThreatType.lote_baldio,
+        threat_type=ThreatType.lote,
         location=GeoPoint(lat=20.6736, lng=-103.344),
         status=ReportStatus.resolved,
     )
@@ -183,7 +183,7 @@ async def test_only_pending_resolver_can_resolve(mock_firebase, as_supporter_1):
     lot_with_other_resolver = CommunityReport(
         id=REPORT_ID,
         reporter_uid=REPORTER_UID,
-        threat_type=ThreatType.lote_baldio,
+        threat_type=ThreatType.lote,
         location=GeoPoint(lat=20.6736, lng=-103.344),
         status=ReportStatus.pending_validation,
         supporters=[SUPPORTER_1, SUPPORTER_2, SUPPORTER_3],
@@ -204,7 +204,7 @@ async def test_resolve_marks_status_resolved(mock_firebase, as_supporter_3):
     lot_ready = CommunityReport(
         id=REPORT_ID,
         reporter_uid=REPORTER_UID,
-        threat_type=ThreatType.lote_baldio,
+        threat_type=ThreatType.lote,
         location=GeoPoint(lat=20.6736, lng=-103.344),
         status=ReportStatus.pending_validation,
         supporters=[SUPPORTER_1, SUPPORTER_2, SUPPORTER_3],
@@ -214,7 +214,7 @@ async def test_resolve_marks_status_resolved(mock_firebase, as_supporter_3):
     resolved = CommunityReport(
         id=REPORT_ID,
         reporter_uid=REPORTER_UID,
-        threat_type=ThreatType.lote_baldio,
+        threat_type=ThreatType.lote,
         location=GeoPoint(lat=20.6736, lng=-103.344),
         status=ReportStatus.resolved,
         supporters=[SUPPORTER_1, SUPPORTER_2, SUPPORTER_3],
@@ -235,8 +235,8 @@ async def test_resolve_marks_status_resolved(mock_firebase, as_supporter_3):
 
 
 @pytest.mark.asyncio
-async def test_validation_endpoint_rejects_lote_baldio_422(mock_firebase, as_supporter_1):
-    """PATCH /validations must reject lote_baldio with 422 (guard D-2)."""
+async def test_validation_endpoint_rejects_lote_422(mock_firebase, as_supporter_1):
+    """PATCH /validations must reject lote with 422 (guard D-2)."""
     from main import app
 
     with patch(_FS_GET, new_callable=AsyncMock, return_value=_BASE_LOT):
@@ -260,7 +260,7 @@ async def test_resolve_sends_fcm(mock_firebase, as_supporter_3):
     lot_ready = CommunityReport(
         id=REPORT_ID,
         reporter_uid=REPORTER_UID,
-        threat_type=ThreatType.lote_baldio,
+        threat_type=ThreatType.lote,
         location=GeoPoint(lat=20.6736, lng=-103.344),
         status=ReportStatus.pending_validation,
         supporters=[SUPPORTER_1, SUPPORTER_2, SUPPORTER_3],
@@ -270,7 +270,7 @@ async def test_resolve_sends_fcm(mock_firebase, as_supporter_3):
     resolved = CommunityReport(
         id=REPORT_ID,
         reporter_uid=REPORTER_UID,
-        threat_type=ThreatType.lote_baldio,
+        threat_type=ThreatType.lote,
         location=GeoPoint(lat=20.6736, lng=-103.344),
         status=ReportStatus.resolved,
         supporters=[SUPPORTER_1, SUPPORTER_2, SUPPORTER_3],

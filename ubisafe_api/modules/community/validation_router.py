@@ -32,7 +32,7 @@ async def validate_report(
     if report is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="report_not_found")
 
-    if report.threat_type == ThreatType.lote_baldio:
+    if report.threat_type == ThreatType.lote:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="use_support_endpoint",
