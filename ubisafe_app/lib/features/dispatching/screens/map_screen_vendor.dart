@@ -1362,6 +1362,39 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
   Future<void> _completeRide(BuildContext context) async {
     final rideId = _activeRideId;
     if (rideId == null) return;
+
+    // Validar que el vendedor esté a ≤ 50 m del destino antes de completar.
+    // Patrón idéntico a _confirmDelivery (C-57, umbral 15 m para paradas).
+    final position = ref.read(gpsServiceProvider).valueOrNull;
+    if (position == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('GPS no disponible. Actívalo para confirmar la llegada.'),
+        ),
+      );
+      return;
+    }
+    if (_rideDestLat == null || _rideDestLng == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Error: coordenadas del destino no disponibles.')),
+      );
+      return;
+    }
+    final distToDestM = _distanceMeters(
+      position.latitude, position.longitude, _rideDestLat!, _rideDestLng!,
+    );
+    if (distToDestM > 50) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Debes estar a menos de 50 m del destino para completar. '
+            'Distancia actual: ${distToDestM.toStringAsFixed(0)} m.',
+          ),
+        ),
+      );
+      return;
+    }
+
     try {
       await ref
           .read(rideRequestModuleProvider)

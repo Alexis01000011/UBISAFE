@@ -32,6 +32,9 @@ import '../widgets/destination_picker.dart';
 
 enum _BuyerMapState { idle, waiting, waitingRide }
 
+/// Resultado de la validación de zona de riesgo en el destino del raite.
+enum _ZoneCheckResult { blocked, proceedClear, proceedLow }
+
 /// Main map screen for buyers — vendor markers, stop-request flow (CU-01).
 class MapScreenBuyer extends ConsumerStatefulWidget {
   const MapScreenBuyer({super.key});
@@ -752,6 +755,83 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer>
     }
   }
 
+  /// Evalúa si el [destination] cae dentro de una zona de riesgo activa.
+  ///
+  /// HIGH  → muestra SnackBar rojo y retorna [_ZoneCheckResult.blocked].
+  /// MEDIUM → muestra diálogo de confirmación; retorna [blocked] si el usuario
+  ///           cancela, [proceedClear] si decide continuar.
+  /// LOW   → retorna [proceedLow] sin mostrar nada (el caller muestra el aviso
+  ///          una vez que el raite es confirmado — respuesta 4-B del diseño).
+  /// Sin zona → retorna [proceedClear].
+  ///
+  /// Las zonas no se solapan por diseño, así que solo puede haber un match.
+  Future<_ZoneCheckResult> _checkDestinationRiskZone(
+    BuildContext context,
+    LatLng destination,
+  ) async {
+    final zones = await ref
+        .read(activeRiskZonesProvider.future)
+        .catchError((_) => <RiskZone>[]);
+
+    for (final z in zones) {
+      final dist = Geolocator.distanceBetween(
+        destination.latitude,
+        destination.longitude,
+        z.latitude,
+        z.longitude,
+      );
+      if (dist > z.radiusMeters) continue;
+
+      // Match encontrado — evaluar nivel
+      if (z.riskLevel == 'HIGH') {
+        if (!context.mounted) return _ZoneCheckResult.blocked;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No puedes seleccionar este destino: está dentro de una zona de riesgo ALTO.',
+            ),
+            backgroundColor: AppColors.danger500,
+          ),
+        );
+        return _ZoneCheckResult.blocked;
+      }
+
+      if (z.riskLevel == 'MEDIUM') {
+        if (!context.mounted) return _ZoneCheckResult.blocked;
+        final proceed = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => AlertDialog(
+            title: const Text('Destino en zona de riesgo MEDIO'),
+            content: const Text(
+              'El destino está dentro de una zona de riesgo MEDIO. '
+              '¿Deseas continuar de todas formas?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancelar'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Continuar'),
+              ),
+            ],
+          ),
+        );
+        return (proceed == true)
+            ? _ZoneCheckResult.proceedClear
+            : _ZoneCheckResult.blocked;
+      }
+
+      if (z.riskLevel == 'LOW') {
+        return _ZoneCheckResult.proceedLow;
+      }
+    }
+
+    return _ZoneCheckResult.proceedClear;
+  }
+
   Future<void> _requestRide(
     BuildContext context, {
     required String vendorUid,
@@ -764,6 +844,10 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer>
       LatLng(buyerLat, buyerLng),
     );
     if (destination == null || !context.mounted) return;
+
+    // Validar zona de riesgo en el destino antes de cambiar estado o crear el ride.
+    final zoneCheck = await _checkDestinationRiskZone(context, destination);
+    if (zoneCheck == _ZoneCheckResult.blocked || !context.mounted) return;
 
     setState(() => _mapState = _BuyerMapState.waitingRide);
     final messenger = ScaffoldMessenger.of(context);
@@ -790,6 +874,18 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer>
           );
         },
       );
+      // Aviso LOW: solo informativo, no bloquea. Se muestra una vez confirmado
+      // el raite (4-B) para que el comprador sepa antes de que el vendedor responda.
+      if (zoneCheck == _ZoneCheckResult.proceedLow) {
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Tu destino está en una zona de riesgo BAJO. Mantén precaución.',
+            ),
+            backgroundColor: Color(0xFF0277BD),
+          ),
+        );
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() => _mapState = _BuyerMapState.idle);
