@@ -392,6 +392,9 @@ class FirestoreService:
     @classmethod
     def _doc_to_community_report(cls, doc: Any) -> CommunityReport:
         raw = doc.to_dict() or {}
+        # Backward compat: rename pre-rename documents stored as "lote_baldio"
+        if raw.get("threat_type") == "lote_baldio":
+            raw["threat_type"] = "lote"
         loc = raw.get("location", {})
         if hasattr(loc, "latitude"):
             # Native Firestore GeoPoint
