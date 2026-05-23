@@ -3,7 +3,7 @@
 **Proyecto:** Los Borbotones · TSP · ITESM  
 **Rama activa:** `Rama-Miguel`  
 **Dispositivo de prueba:** Físico Android (depuración inalámbrica ADB, NO emulador de computadora)  
-**Última actualización:** 2026-05-18 (C-123)
+**Última actualización:** 2026-05-22 (C-161)
 
 ---
 
@@ -1562,6 +1562,19 @@
 | **Clase / Método / Módulo** | `_ReportDetailScreenState._vote()` → `ubisafe_app/lib/features/community/screens/report_detail_screen.dart` |
 | **Justificación** | Parsear el `detail` del JSON de error es el mismo patrón ya aplicado en `_requestRide` (C-69). El `refresh()` tras voto exitoso crea un rebrief de red (~1 GET) que es aceptable dado que el voto ya causó una escritura en Firestore de todos modos. |
 | **Problema que resolvía** | El usuario que votaba en un reporte en estado de race condition veía el texto técnico del objeto Dio en lugar de un mensaje de usuario. Adicionalmente, volver a la lista y re-entrar al detalle del mismo reporte mostraba botones de voto activos aunque el usuario ya había votado. |
+
+---
+
+### C-161 · Tests Flutter fallaban por `FirebaseException` al construir `MapScreenBuyer` y `MapScreenVendor` `2026-05-22`
+
+| Campo | Detalle |
+|---|---|
+| **Nombre clave** | C-161 · `groupStayModuleProvider` no mockeado en tests de pantallas del mapa |
+| **Qué se corrigió (técnico)** | En `map_screen_buyer_test.dart` y `map_screen_vendor_test.dart`: se añadió `import` de `group_stay_module.dart`, clase `_MockGroupStayModule extends Mock implements GroupStayModule`, y override `groupStayModuleProvider.overrideWith((ref) => _MockGroupStayModule())` en todas las listas de overrides (función helper + `ProviderScope` inline del primer test de cada archivo). |
+| **Qué se corrigió (simple)** | Los tests de las pantallas del mapa lanzaban `FirebaseException: [core/no-app] No Firebase App '[DEFAULT]'` al construirse, porque `activeGroupStaysProvider` (usado en el `build()` de ambas pantallas) intentaba acceder a `FirebaseAuth.instance` a través de la cadena `groupStayModuleProvider → apiClientProvider → JwtInterceptor`. Al no tener Firebase inicializado en el entorno de test, la suite entera fallaba. El override de `groupStayModuleProvider` con un mock corta esa cadena. |
+| **Clase / Método / Módulo** | `overrides()` y `ProviderScope` inline en `map_screen_buyer_test.dart` · `_buildVendorScreen()` y `ProviderScope` inline en `map_screen_vendor_test.dart` (`ubisafe_app/test/features/dispatching/screens/`) |
+| **Justificación** | `activeCommunityReportsProvider` ya estaba mockeado vía `communityReportModuleProvider`, pero `activeGroupStaysProvider` seguía la misma ruta (`groupStayModuleProvider → apiClientProvider → JwtInterceptor`) y no tenía override. El fallo no era un test de negocio sino de infraestructura de test: la cadena de dependencias Riverpod llegaba hasta Firebase antes de que ningún widget fuera relevante. |
+| **Problema que resolvía** | `MapScreenBuyer — GPS guard shows GpsRequiredEmptyState` fallaba con `FlutterError.onError had unexpected additional errors` (encubriendo el `FirebaseException` subyacente). `MapScreenVendor — estado inicial muestra CircularProgressIndicator` fallaba directamente con `FirebaseException`. Resultado: 2 tests fallidos en la suite Flutter (93 tests totales). |
 
 ---
 
