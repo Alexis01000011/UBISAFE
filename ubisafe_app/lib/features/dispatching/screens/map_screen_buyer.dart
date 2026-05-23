@@ -123,7 +123,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer>
       final threatType = alert['threat_type'] as String? ?? '';
       final typeLabel = switch (threatType) {
         'animal_muerto' => 'Animal muerto',
-        'lote_baldio' => 'Lote baldío',
+        'lote' => 'Lote baldío',
         _ => 'Zona sucia',
       };
 

@@ -52,7 +52,7 @@ class _LotFormBottomSheetState extends ConsumerState<LotFormBottomSheet> {
     setState(() => _loading = true);
     try {
       await ref.read(communityReportModuleProvider).createReport(
-            threatType: 'lote_baldio',
+            threatType: 'lote',
             lat: widget.currentLat,
             lng: widget.currentLng,
             description: _descriptionController.text.trim().isNotEmpty

@@ -4,7 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 enum ThreatType {
   animalMuerto('animal_muerto'),
   zonaSucia('zona_sucia'),
-  loteBaldio('lote_baldio');
+  loteBaldio('lote');
 
   const ThreatType(this.value);
   final String value;
