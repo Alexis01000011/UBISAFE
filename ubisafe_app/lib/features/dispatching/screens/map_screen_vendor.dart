@@ -1473,13 +1473,12 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
             _buyerLng = null;
           });
         }
-        unawaited(
-          ref
-              .read(stopRequestModuleProvider)
-              .abandonStopRequest(stopId)
-              .timeout(const Duration(seconds: 3))
-              .catchError((_) {}),
-        );
+        // Await before signOut so the JWT is still valid when the PATCH fires.
+        await ref
+            .read(stopRequestModuleProvider)
+            .abandonStopRequest(stopId)
+            .timeout(const Duration(seconds: 3))
+            .catchError((_) {});
       }
       if (rideId != null) {
         await _rideSub?.cancel();
@@ -1496,13 +1495,12 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
             _rideDestLng = null;
           });
         }
-        unawaited(
-          ref
-              .read(rideRequestModuleProvider)
-              .abandonRide(rideId)
-              .timeout(const Duration(seconds: 3))
-              .catchError((_) {}),
-        );
+        // Await before signOut so the JWT is still valid when the PATCH fires.
+        await ref
+            .read(rideRequestModuleProvider)
+            .abandonRide(rideId)
+            .timeout(const Duration(seconds: 3))
+            .catchError((_) {});
       }
     }
 
@@ -2108,24 +2106,7 @@ class _IncomingRideDialog extends StatelessWidget {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Nueva solicitud de raite'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Un pasajero quiere un raite a:'),
-          const SizedBox(height: 8),
-          Text(
-            'Recogida: ${pickupLat.toStringAsFixed(4)}, ${pickupLng.toStringAsFixed(4)}',
-            style:
-                const TextStyle(color: AppColors.textSecondary, fontSize: 13),
-          ),
-          Text(
-            'Destino: ${destinationLat.toStringAsFixed(4)}, ${destinationLng.toStringAsFixed(4)}',
-            style:
-                const TextStyle(color: AppColors.textSecondary, fontSize: 13),
-          ),
-        ],
-      ),
+      content: const Text('Un pasajero cercano solicita un raite.'),
       actions: [
         OutlinedButton(
           style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger500),

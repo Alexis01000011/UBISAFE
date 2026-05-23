@@ -187,16 +187,14 @@ class GPSService {
     _retryTimer = null;
     await _posSub?.cancel();
     _posSub = null;
-    // Fire-and-forget with a short deadline. Firebase SDK queues RTDB
-    // operations and can hang indefinitely when the emulator is unreachable —
-    // the onDisconnect().remove() handler cleans up the node once connectivity
-    // is restored, so blocking here is unnecessary.
-    unawaited(
-      _rtdbRefFactory(vendorUid).remove().timeout(
-        const Duration(seconds: 2),
-        onTimeout: () {},
-      ).catchError((_) {}),
-    );
+    // Await with a short deadline so callers that await stopTransmission (e.g.
+    // _handleSignOut) can be sure the node is gone before signOut() invalidates
+    // the auth token (RTDB rules: auth.uid === $vendor_uid). The onDisconnect
+    // handler is a fallback for the backgrounded / emulator-unreachable case.
+    await _rtdbRefFactory(vendorUid).remove().timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {},
+    ).catchError((_) {});
     if (!_stateCtrl.isClosed) _stateCtrl.add(GPSServiceState.inactive);
     _activeUid = null;
   }
