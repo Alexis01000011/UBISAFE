@@ -540,7 +540,10 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
                 myLocationButtonEnabled: true,
                 polylines: polylines,
                 circles: circles,
-                markers: communityMarkers.union(stayMarkers).union(zoneMarkers),
+                markers: communityMarkers
+                    .union(stayMarkers)
+                    .union(zoneMarkers)
+                    .union(_rideRouteMarkers()),
                 onTap: _onMapTap,
               ),
               // Visibility toggle button
@@ -1025,6 +1028,31 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
       ),
     );
     return confirmed == true;
+  }
+
+  // ─── Ride route markers ───────────────────────────────────────────────────────
+
+  Set<Marker> _rideRouteMarkers() {
+    if (_activeRideId == null || _ridePhase == 0) return {};
+    final pLat = _ridePickupLat;
+    final pLng = _ridePickupLng;
+    final dLat = _rideDestLat;
+    final dLng = _rideDestLng;
+    if (pLat == null || pLng == null || dLat == null || dLng == null) return {};
+    return {
+      Marker(
+        markerId: const MarkerId('ride_pickup'),
+        position: LatLng(pLat, pLng),
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueCyan),
+        infoWindow: const InfoWindow(title: 'Punto de recogida'),
+      ),
+      Marker(
+        markerId: const MarkerId('ride_destination'),
+        position: LatLng(dLat, dLng),
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+        infoWindow: const InfoWindow(title: 'Destino'),
+      ),
+    };
   }
 
   void _showIncomingRideDialog(
