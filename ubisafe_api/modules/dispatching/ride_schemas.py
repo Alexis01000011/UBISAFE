@@ -56,8 +56,8 @@ RIDE_VALID_TRANSITIONS: dict[tuple[str, str], str] = {
     ("pending", "rejected"): "VENDOR",  # manual reject or destination_too_far
     ("pending", "expired"): "BUYER",    # client timer fired
     ("pending", "cancelled"): "BUYER",  # buyer cancels before vendor responds
-    ("accepted", "in_progress"): "VENDOR",  # buyer boarded
-    ("accepted", "rejected"): "BUYER",  # buyer cancelled after acceptance
+    ("accepted", "in_progress"): "VENDOR",    # buyer boarded
+    ("accepted", "rejected"): "BUYER_OR_VENDOR",  # buyer cancel OR vendor route_zone_rejected
     ("accepted", "abandoned"): "VENDOR",   # vendor exited app mid-ride
     ("in_progress", "completed"): "VENDOR",
     ("in_progress", "abandoned"): "VENDOR", # vendor exited app with passenger aboard

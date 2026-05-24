@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
@@ -25,12 +27,14 @@ import '../../shared/subscriptions/services/subscription_module.dart';
 import '../../shared/widgets/gps_required_empty_state.dart';
 import '../group_stays/models/group_stay.dart';
 import '../group_stays/services/group_stay_module.dart';
+import '../models/ride.dart';
 import '../models/stop_request.dart';
 import '../services/ride_request_module.dart';
 import '../services/stop_request_module.dart';
+import '../utils/map_utils.dart';
 import '../widgets/destination_picker.dart';
 
-enum _BuyerMapState { idle, waiting, waitingRide }
+enum _BuyerMapState { idle, waiting, waitingRide, rideAccepted, vendorArrived, inProgress }
 
 /// Resultado de la validación de zona de riesgo en el destino del raite.
 enum _ZoneCheckResult { blocked, proceedClear, proceedLow }
@@ -57,6 +61,14 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer>
   final Map<String, BitmapDescriptor> _markerIconCache = {};
   Position? _riskZoneAnchorPos;
   BitmapDescriptor? _zoneTapIcon;
+  // Ride-in-progress state (Mejoras 1–3)
+  StreamSubscription<Ride?>? _rideSub;
+  List<LatLng> _routePolyline = [];
+  String _mapsApiKey = '';
+  double? _ridePickupLat;
+  double? _ridePickupLng;
+  double? _rideDestLat;
+  double? _rideDestLng;
 
   @override
   void initState() {
@@ -65,10 +77,12 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer>
     _buildZoneTapIcon().then((icon) {
       if (mounted) setState(() => _zoneTapIcon = icon);
     });
+    _initMapsKey();
   }
 
   @override
   void dispose() {
+    _rideSub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -274,13 +288,15 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer>
       switch (event.type) {
         case RideEventType.accepted:
           ref.read(rideRequestModuleProvider).cancelExpiryTimer();
-          final rideId = _activeRideId;
-          setState(() {
-            _mapState = _BuyerMapState.idle;
-            _activeRideId = null;
-          });
+          setState(() => _mapState = _BuyerMapState.rideAccepted);
+          // Suscribir stream Firestore para detectar in_progress (Mejora 2).
+          _rideSub?.cancel();
+          _rideSub = ref
+              .read(rideRequestModuleProvider)
+              .watchRide(event.rideId)
+              .listen(_onRideUpdate);
           ref.read(rideEventProvider.notifier).state = null;
-          if (rideId != null && context.mounted) {
+          if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
                   content:
@@ -290,9 +306,16 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer>
         case RideEventType.rejected:
         case RideEventType.expired:
           ref.read(rideRequestModuleProvider).cancelExpiryTimer();
+          _rideSub?.cancel();
+          _rideSub = null;
           setState(() {
             _mapState = _BuyerMapState.idle;
             _activeRideId = null;
+            _routePolyline = [];
+            _ridePickupLat = null;
+            _ridePickupLng = null;
+            _rideDestLat = null;
+            _rideDestLng = null;
           });
           ref.read(rideEventProvider.notifier).state = null;
           if (!context.mounted) return;
@@ -306,18 +329,24 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer>
             ),
           );
         case RideEventType.vendorArrived:
+          // Guard: si no hay raite activo (p.ej. llegó tarde por red), ignorar.
+          if (_activeRideId == null) {
+            ref.read(rideEventProvider.notifier).state = null;
+            return;
+          }
+          setState(() => _mapState = _BuyerMapState.vendorArrived);
           ref.read(rideEventProvider.notifier).state = null;
-          if (!context.mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('¡El vendedor llegó al punto de recogida!'),
-              backgroundColor: AppColors.success500,
-            ),
-          );
         case RideEventType.completed:
+          _rideSub?.cancel();
+          _rideSub = null;
           setState(() {
             _mapState = _BuyerMapState.idle;
             _activeRideId = null;
+            _routePolyline = [];
+            _ridePickupLat = null;
+            _ridePickupLng = null;
+            _rideDestLat = null;
+            _rideDestLng = null;
           });
           ref.read(rideEventProvider.notifier).state = null;
           if (!context.mounted) return;
@@ -328,12 +357,20 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer>
             ),
           );
         case RideEventType.cancelledByBuyer:
-          break;
+          _rideSub?.cancel();
+          _rideSub = null;
         case RideEventType.abandoned:
           ref.read(rideRequestModuleProvider).cancelExpiryTimer();
+          _rideSub?.cancel();
+          _rideSub = null;
           setState(() {
             _mapState = _BuyerMapState.idle;
             _activeRideId = null;
+            _routePolyline = [];
+            _ridePickupLat = null;
+            _ridePickupLng = null;
+            _rideDestLat = null;
+            _rideDestLng = null;
           });
           ref.read(rideEventProvider.notifier).state = null;
           if (!context.mounted) return;
@@ -507,8 +544,22 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer>
                 initialCameraPosition: initialCamera,
                 myLocationEnabled: true,
                 myLocationButtonEnabled: true,
-                markers: markers.union(communityMarkers).union(stayMarkers).union(zoneMarkers),
+                markers: markers
+                    .union(communityMarkers)
+                    .union(stayMarkers)
+                    .union(zoneMarkers)
+                    .union(_rideRouteMarkers()),
                 circles: circles,
+                polylines: _routePolyline.isNotEmpty
+                    ? {
+                        Polyline(
+                          polylineId: const PolylineId('ride_route'),
+                          points: _routePolyline,
+                          color: AppColors.primary700,
+                          width: 5,
+                        ),
+                      }
+                    : <Polyline>{},
                 onTap: _onMapTap,
               ),
               if (_mapState == _BuyerMapState.waiting)
@@ -551,6 +602,56 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer>
                     }
                   },
                 ),
+              if (_mapState == _BuyerMapState.rideAccepted)
+                _RideAcceptedBanner(
+                  onCancel: () async {
+                    final rideId = _activeRideId;
+                    await _rideSub?.cancel();
+                    _rideSub = null;
+                    setState(() {
+                      _mapState = _BuyerMapState.idle;
+                      _activeRideId = null;
+                      _routePolyline = [];
+                      _ridePickupLat = null;
+                      _ridePickupLng = null;
+                      _rideDestLat = null;
+                      _rideDestLng = null;
+                    });
+                    if (rideId != null) {
+                      try {
+                        await ref
+                            .read(rideRequestModuleProvider)
+                            .updateStatus(rideId, 'rejected');
+                      } catch (_) {}
+                    }
+                  },
+                ),
+              if (_mapState == _BuyerMapState.vendorArrived)
+                _VendorArrivedBanner(
+                  onCancel: () async {
+                    final rideId = _activeRideId;
+                    await _rideSub?.cancel();
+                    _rideSub = null;
+                    setState(() {
+                      _mapState = _BuyerMapState.idle;
+                      _activeRideId = null;
+                      _routePolyline = [];
+                      _ridePickupLat = null;
+                      _ridePickupLng = null;
+                      _rideDestLat = null;
+                      _rideDestLng = null;
+                    });
+                    if (rideId != null) {
+                      try {
+                        await ref
+                            .read(rideRequestModuleProvider)
+                            .updateStatus(rideId, 'rejected');
+                      } catch (_) {}
+                    }
+                  },
+                ),
+              if (_mapState == _BuyerMapState.inProgress)
+                const _RideInProgressBanner(),
               // Instruction banner while user selects a risk zone point
               if (_selectingRiskPoint)
                 Positioned(
@@ -569,6 +670,135 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer>
         error: (e, _) => Center(child: Text('Error GPS: $e')),
       ),
     );
+  }
+
+  // ── Ride stream listener (Mejoras 1–3) ────────────────────────────────────
+
+  void _onRideUpdate(Ride? ride) {
+    if (ride == null || !mounted) return;
+    // Cachear coordenadas desde el primer snapshot
+    _ridePickupLat ??= ride.pickupLat;
+    _ridePickupLng ??= ride.pickupLng;
+    _rideDestLat ??= ride.destinationLat;
+    _rideDestLng ??= ride.destinationLng;
+
+    if (ride.status == RideStatus.inProgress &&
+        _mapState != _BuyerMapState.inProgress) {
+      setState(() => _mapState = _BuyerMapState.inProgress);
+      if (_ridePickupLat != null &&
+          _ridePickupLng != null &&
+          _rideDestLat != null &&
+          _rideDestLng != null) {
+        _fetchRoute(
+          originLat: _ridePickupLat!,
+          originLng: _ridePickupLng!,
+          destLat: _rideDestLat!,
+          destLng: _rideDestLng!,
+        );
+      }
+    } else if (ride.status == RideStatus.completed ||
+        ride.status == RideStatus.rejected ||
+        ride.status == RideStatus.cancelled ||
+        ride.status == RideStatus.abandoned) {
+      // El stream detectó terminación antes que el FCM — limpiar todo.
+      _rideSub?.cancel();
+      _rideSub = null;
+      if (mounted) {
+        setState(() {
+          _mapState = _BuyerMapState.idle;
+          _activeRideId = null;
+          _routePolyline = [];
+          _ridePickupLat = null;
+          _ridePickupLng = null;
+          _rideDestLat = null;
+          _rideDestLng = null;
+        });
+      }
+    }
+  }
+
+  Set<Marker> _rideRouteMarkers() {
+    if (_mapState != _BuyerMapState.inProgress) return {};
+    final pLat = _ridePickupLat;
+    final pLng = _ridePickupLng;
+    final dLat = _rideDestLat;
+    final dLng = _rideDestLng;
+    if (pLat == null || pLng == null || dLat == null || dLng == null) return {};
+    return {
+      Marker(
+        markerId: const MarkerId('ride_pickup'),
+        position: LatLng(pLat, pLng),
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueCyan),
+        infoWindow: const InfoWindow(title: 'Punto de recogida'),
+      ),
+      Marker(
+        markerId: const MarkerId('ride_destination'),
+        position: LatLng(dLat, dLng),
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+        infoWindow: const InfoWindow(title: 'Destino'),
+      ),
+    };
+  }
+
+  Future<void> _initMapsKey() async {
+    try {
+      const ch = MethodChannel('ubisafe/config');
+      final key = await ch.invokeMethod<String>('getMapsApiKey') ?? '';
+      if (mounted) setState(() => _mapsApiKey = key);
+    } catch (_) {}
+  }
+
+  Future<void> _fetchRoute({
+    required double originLat,
+    required double originLng,
+    required double destLat,
+    required double destLng,
+  }) async {
+    if (_mapsApiKey.isEmpty) await _initMapsKey();
+    if (_mapsApiKey.isEmpty) {
+      debugPrint('[_fetchRoute buyer] Maps API key unavailable');
+      return;
+    }
+    final points = await _requestRoute(
+      originLat: originLat,
+      originLng: originLng,
+      destLat: destLat,
+      destLng: destLng,
+    );
+    if (points != null && mounted) {
+      setState(() => _routePolyline = points);
+    }
+  }
+
+  Future<List<LatLng>?> _requestRoute({
+    required double originLat,
+    required double originLng,
+    required double destLat,
+    required double destLng,
+  }) async {
+    try {
+      final dio = Dio(BaseOptions(
+        connectTimeout: const Duration(seconds: 8),
+        receiveTimeout: const Duration(seconds: 10),
+      ));
+      final res = await dio.get<Map<String, dynamic>>(
+        'https://maps.googleapis.com/maps/api/directions/json',
+        queryParameters: {
+          'origin': '$originLat,$originLng',
+          'destination': '$destLat,$destLng',
+          'key': _mapsApiKey,
+        },
+      );
+      final routes = res.data?['routes'] as List?;
+      if (routes == null || routes.isEmpty) return null;
+      final encoded =
+          (routes[0] as Map)['overview_polyline']?['points'] as String?;
+      if (encoded == null) return null;
+      return decodePolyline(encoded);
+    } catch (e) {
+      debugPrint('[_fetchRoute buyer] Request error: $e');
+      return null;
+    }
   }
 
   Future<void> _buildMissingIcons(List<VendorMarker> vendors) async {
@@ -1238,6 +1468,167 @@ class _WaitingOverlay extends StatelessWidget {
             OutlinedButton(
               onPressed: onCancel,
               child: const Text('Cancelar'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Banner "vendedor llegó" — Mejora 1 ──────────────────────────────────────
+
+class _VendorArrivedBanner extends StatelessWidget {
+  const _VendorArrivedBanner({required this.onCancel});
+
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      bottom: 0,
+      left: 0,
+      right: 0,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.1),
+              blurRadius: 8,
+              offset: const Offset(0, -2),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.hail, size: 36, color: AppColors.warning500),
+            const SizedBox(height: 8),
+            const Text(
+              '¡El vendedor llegó al punto de recogida!',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Preséntate para abordar.',
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 16),
+            OutlinedButton(
+              onPressed: onCancel,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.danger500,
+                side: const BorderSide(color: AppColors.danger500),
+              ),
+              child: const Text('No puedo abordar'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Banner "en trayecto" — Mejora 2 ─────────────────────────────────────────
+
+class _RideInProgressBanner extends StatelessWidget {
+  const _RideInProgressBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      bottom: 0,
+      left: 0,
+      right: 0,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.1),
+              blurRadius: 8,
+              offset: const Offset(0, -2),
+            ),
+          ],
+        ),
+        child: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.directions_car_outlined,
+                size: 36, color: AppColors.primary700),
+            SizedBox(height: 8),
+            Text(
+              'Estás en camino a tu destino',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+            SizedBox(height: 4),
+            Text(
+              'El vendedor te está llevando. Disfruta el trayecto.',
+              style: TextStyle(color: AppColors.textSecondary),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Banner "en camino" — Fix 2 CU-04 ───────────────────────────────────────
+
+class _RideAcceptedBanner extends StatelessWidget {
+  const _RideAcceptedBanner({required this.onCancel});
+
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      bottom: 0,
+      left: 0,
+      right: 0,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.1),
+              blurRadius: 8,
+              offset: const Offset(0, -2),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.electric_rickshaw_outlined,
+                size: 32, color: AppColors.success500),
+            const SizedBox(height: 8),
+            const Text(
+              'El vendedor va en camino',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Permanece en tu punto de recogida.',
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 16),
+            OutlinedButton(
+              onPressed: onCancel,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.danger500,
+                side: const BorderSide(color: AppColors.danger500),
+              ),
+              child: const Text('Cancelar raite'),
             ),
           ],
         ),
