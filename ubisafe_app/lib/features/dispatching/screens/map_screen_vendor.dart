@@ -1219,12 +1219,10 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
 
     if (routeZones.lowCount > 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'La ruta pasa por ${routeZones.lowCount} zona(s) de riesgo BAJO.',
-          ),
-          backgroundColor: const Color(0xFF0277BD),
-          duration: const Duration(seconds: 6),
+        const SnackBar(
+          content: Text('El pasajero se encuentra en una zona de riesgo BAJO.'),
+          backgroundColor: Color(0xFF0277BD),
+          duration: Duration(seconds: 6),
         ),
       );
     }
@@ -1232,7 +1230,10 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     if (routeZones.mediumZones.isNotEmpty) {
       if (!context.mounted) return;
       final proceed = await _showMediumZoneDialog(
-          context, routeZones.mediumZones.length);
+        context,
+        routeZones.mediumZones.length,
+        content: 'El pasajero se encuentra en una zona de riesgo MEDIO. ¿Deseas continuar con la solicitud?',
+      );
       if (!proceed) {
         try {
           await ref.read(rideRequestModuleProvider).updateStatus(
@@ -1256,12 +1257,10 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
 
     if (destRouteZones.lowCount > 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Ruta al destino: ${destRouteZones.lowCount} zona(s) de riesgo BAJO.',
-          ),
-          backgroundColor: const Color(0xFF0277BD),
-          duration: const Duration(seconds: 6),
+        const SnackBar(
+          content: Text('El destino del pasajero se encuentra en una zona de riesgo BAJO.'),
+          backgroundColor: Color(0xFF0277BD),
+          duration: Duration(seconds: 6),
         ),
       );
     }
@@ -1269,7 +1268,10 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     if (destRouteZones.mediumZones.isNotEmpty) {
       if (!context.mounted) return;
       final proceed = await _showMediumZoneDialog(
-          context, destRouteZones.mediumZones.length);
+        context,
+        destRouteZones.mediumZones.length,
+        content: 'El destino del pasajero se encuentra en una zona de riesgo MEDIO. ¿Deseas continuar con la solicitud?',
+      );
       if (!proceed) {
         try {
           await ref.read(rideRequestModuleProvider).updateStatus(
@@ -1389,12 +1391,10 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
 
       if (routeZones.lowCount > 0) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'La ruta al destino pasa por ${routeZones.lowCount} zona(s) de riesgo BAJO.',
-            ),
-            backgroundColor: const Color(0xFF0277BD),
-            duration: const Duration(seconds: 6),
+          const SnackBar(
+            content: Text('El destino del pasajero se encuentra en una zona de riesgo BAJO.'),
+            backgroundColor: Color(0xFF0277BD),
+            duration: Duration(seconds: 6),
           ),
         );
       }
@@ -1402,7 +1402,10 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
       if (routeZones.mediumZones.isNotEmpty) {
         if (!context.mounted) return;
         final proceed = await _showMediumZoneDialog(
-            context, routeZones.mediumZones.length);
+          context,
+          routeZones.mediumZones.length,
+          content: 'El destino del pasajero se encuentra en una zona de riesgo MEDIO. ¿Deseas continuar con la solicitud?',
+        );
         if (!proceed) {
           await _rideSub?.cancel();
           _rideSub = null;
