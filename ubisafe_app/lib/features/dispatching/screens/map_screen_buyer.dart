@@ -53,7 +53,6 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer>
   String? _activeStopId;
   String? _activeRideId;
   String? _activeVendorUid;
-  bool _communityReportsLoaded = false;
   bool _groupStaysLoaded = false;
   bool _speedDialOpen = false;
   bool _selectingRiskPoint = false;
@@ -117,6 +116,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer>
         _riskZoneAnchorPos = current;
         // Provider may have been built while GPS was null → re-subscribe now.
         ref.invalidate(activeRiskZonesProvider);
+        ref.invalidate(activeCommunityReportsProvider);
         return;
       }
       if (Geolocator.distanceBetween(
@@ -126,6 +126,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer>
           500) {
         _riskZoneAnchorPos = current;
         ref.invalidate(activeRiskZonesProvider);
+        ref.invalidate(activeCommunityReportsProvider);
       }
     });
 
@@ -494,17 +495,6 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer>
             },
             orElse: () => <Marker>{},
           );
-
-          // Load community reports once
-          if (!_communityReportsLoaded) {
-            _communityReportsLoaded = true;
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              ref.read(activeCommunityReportsProvider.notifier).load(
-                    lat: position.latitude,
-                    lng: position.longitude,
-                  );
-            });
-          }
 
           // Load active group stays once
           if (!_groupStaysLoaded) {

@@ -45,7 +45,6 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     with WidgetsBindingObserver {
   bool _isVisible = false;
   bool _isNavigating = false;
-  bool _communityReportsLoaded = false;
   bool _groupStaysLoaded = false;
   bool _speedDialOpen = false;
   String _mapsApiKey = '';
@@ -182,6 +181,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
         _riskZoneAnchorPos = current;
         // Provider may have been built while GPS was null → re-subscribe now.
         ref.invalidate(activeRiskZonesProvider);
+        ref.invalidate(activeCommunityReportsProvider);
         return;
       }
       if (Geolocator.distanceBetween(
@@ -191,6 +191,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
           500) {
         _riskZoneAnchorPos = current;
         ref.invalidate(activeRiskZonesProvider);
+        ref.invalidate(activeCommunityReportsProvider);
       }
     });
 
@@ -215,8 +216,11 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
       final reportLat = double.tryParse(alert['lat'] as String? ?? '');
       final reportLng = double.tryParse(alert['lng'] as String? ?? '');
       final threatType = alert['threat_type'] as String? ?? '';
-      final typeLabel =
-          threatType == 'animal_muerto' ? 'Animal muerto' : 'Zona sucia';
+      final typeLabel = switch (threatType) {
+        'animal_muerto' => 'Animal muerto',
+        'lote' => 'Lote baldío',
+        _ => 'Zona sucia',
+      };
 
       final position = ref.read(gpsServiceProvider).valueOrNull;
       String distanceLabel = '';
@@ -489,17 +493,6 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
                   ),
                 }
               : <Polyline>{};
-
-          // Load community reports once
-          if (!_communityReportsLoaded) {
-            _communityReportsLoaded = true;
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              ref.read(activeCommunityReportsProvider.notifier).load(
-                    lat: position.latitude,
-                    lng: position.longitude,
-                  );
-            });
-          }
 
           // Load active group stays once
           if (!_groupStaysLoaded) {

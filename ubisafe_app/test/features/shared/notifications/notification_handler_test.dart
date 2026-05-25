@@ -213,7 +213,7 @@ void main() {
 
       expect(received, isNotNull);
       expect(received!['risk_level'], 'MEDIUM');
-      expect(received['lat'], '19.0000');
+      expect(received!['lat'], '19.0000');
     });
 
     test('risk_zone_expired calls invalidateRiskZones', () {

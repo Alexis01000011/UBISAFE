@@ -1,10 +1,21 @@
-import 'dart:async';
+import 'dart:math';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_client.dart';
+import '../../presence/services/gps_service.dart';
 import '../models/community_report.dart';
+
+double _haversineKm(double lat1, double lng1, double lat2, double lng2) {
+  const r = 6371.0;
+  final dLat = (lat2 - lat1) * pi / 180;
+  final dLng = (lng2 - lng1) * pi / 180;
+  final a = pow(sin(dLat / 2), 2) +
+      cos(lat1 * pi / 180) * cos(lat2 * pi / 180) * pow(sin(dLng / 2), 2);
+  return r * 2 * asin(sqrt(a));
+}
 
 // Retry delays per SDD2_FASE4B §9.6.D: 2 s → 4 s → 8 s, max 3 attempts.
 const _retryDelays = [
@@ -93,51 +104,30 @@ final communityReportModuleProvider = Provider<CommunityReportModule>(
   (ref) => CommunityReportModule(ref.read(apiClientProvider)),
 );
 
-/// Holds the latest list of active community reports for the current map view.
-/// Refreshed by FCM community_report_nearby and after successful POST.
-final activeCommunityReportsProvider = StateNotifierProvider<
-    _CommunityReportsNotifier, AsyncValue<List<CommunityReport>>>(
-  (ref) => _CommunityReportsNotifier(ref.read(communityReportModuleProvider)),
-);
+/// Real-time stream of active community reports within 5 km of the current GPS.
+///
+/// Subscribes directly to Firestore so any vote, confirmation, or dismissal is
+/// reflected immediately on all devices without polling or manual refresh.
+/// Mirror of [activeRiskZonesProvider] pattern.
+///
+/// GPS position is captured once at stream creation. Call
+/// ref.invalidate(activeCommunityReportsProvider) to re-subscribe with an
+/// updated position (done automatically by the map-screen GPS listeners when
+/// the user moves >500 m, and by ActiveReportsScreen when GPS first becomes
+/// available).
+final activeCommunityReportsProvider =
+    StreamProvider.autoDispose<List<CommunityReport>>((ref) {
+  final pos = ref.read(gpsServiceProvider).valueOrNull;
+  if (pos == null) return Stream.value([]);
 
-class _CommunityReportsNotifier
-    extends StateNotifier<AsyncValue<List<CommunityReport>>> {
-  _CommunityReportsNotifier(this._module) : super(const AsyncValue.loading());
-
-  final CommunityReportModule _module;
-  double? _lat;
-  double? _lng;
-
-  /// True if [load] has been called at least once (from a map screen or the
-  /// ActiveReportsScreen itself). Used to detect the "never loaded" state.
-  bool get hasCoordinates => _lat != null && _lng != null;
-
-  Future<void> load({required double lat, required double lng}) async {
-    _lat = lat;
-    _lng = lng;
-    // B27 — Only show the loading spinner on the first fetch. On subsequent
-    // refreshes, keep the existing data visible while the request is in flight
-    // so map markers don't flicker off for 2-5 s on every FCM refresh.
-    if (state is! AsyncData<List<CommunityReport>>) {
-      state = const AsyncValue.loading();
-    }
-    try {
-      final reports = await _module.fetchReports(lat: lat, lng: lng);
-      state = AsyncValue.data(reports);
-    } catch (e, st) {
-      state = AsyncValue.error(e, st);
-    }
-  }
-
-  Future<void> refresh() async {
-    if (_lat != null && _lng != null) {
-      await load(lat: _lat!, lng: _lng!);
-    }
-  }
-
-  /// Called by [ActiveReportsScreen] when GPS is not available and load was
-  /// never triggered. Replaces the eternal loading spinner with an error state.
-  void setGpsUnavailable() {
-    state = AsyncValue.error('gps_unavailable', StackTrace.current);
-  }
-}
+  return FirebaseFirestore.instance
+      .collection('community_reports')
+      .where('status', whereIn: ['pending_validation', 'confirmed'])
+      .snapshots()
+      .map((snap) => snap.docs
+          .map((d) => CommunityReport.fromFirestore(d.id, d.data()))
+          .where((r) =>
+              _haversineKm(pos.latitude, pos.longitude, r.latitude, r.longitude) <=
+              5.0)
+          .toList());
+});

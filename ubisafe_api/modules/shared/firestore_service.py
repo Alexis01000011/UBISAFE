@@ -370,12 +370,18 @@ class FirestoreService:
 
     @classmethod
     async def get_nearby_user_fcm_tokens(
-        cls, lat: float, lng: float, radius_km: float
+        cls, lat: float, lng: float, radius_km: float, exclude_uid: str | None = None
     ) -> list[str]:
-        """Return FCM tokens for users whose last_location is within radius_km."""
+        """Return FCM tokens for users whose last_location is within radius_km.
+
+        exclude_uid: omit the token of this user (e.g. the reporter themselves,
+        who already got a success confirmation and should not receive a second alert).
+        """
         docs = cls._db().collection("users").stream()
         tokens: list[str] = []
         for d in docs:
+            if exclude_uid and d.id == exclude_uid:
+                continue
             data = d.to_dict() or {}
             token = data.get("fcm_token")
             if not token:

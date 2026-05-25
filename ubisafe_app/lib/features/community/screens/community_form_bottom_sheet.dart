@@ -67,8 +67,6 @@ class _CommunityFormBottomSheetState
             lng: widget.currentLng,
           );
 
-      await ref.read(activeCommunityReportsProvider.notifier).refresh();
-
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(

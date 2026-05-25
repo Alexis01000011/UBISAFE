@@ -332,11 +332,15 @@ final notificationHandlerProvider = Provider<NotificationHandler>((ref) {
     onRiskZoneAlert: (data) =>
         ref.read(riskZoneAlertProvider.notifier).state = data,
     onCommunityReportNearby: (data) {
-      ref.read(activeCommunityReportsProvider.notifier).refresh();
+      final reportId = data['report_id'] as String?;
+      if (reportId != null &&
+          ref.read(communityReportAlertProvider)?['report_id'] == reportId) {
+        return;
+      }
+      ref.invalidate(activeCommunityReportsProvider);
       ref.read(communityReportAlertProvider.notifier).state = data;
     },
-    onReportStatusChanged: () =>
-        ref.read(activeCommunityReportsProvider.notifier).refresh(),
+    onReportStatusChanged: () => ref.invalidate(activeCommunityReportsProvider),
     setIncomingRide: (data) =>
         ref.read(incomingRideProvider.notifier).state = data,
     setRideEvent: (event) => ref.read(rideEventProvider.notifier).state = event,
@@ -345,7 +349,7 @@ final notificationHandlerProvider = Provider<NotificationHandler>((ref) {
     onVendorProximityAlert: (data) =>
         ref.read(vendorProximityAlertProvider.notifier).state = data,
     onLotResolved: (data) {
-      ref.read(activeCommunityReportsProvider.notifier).refresh();
+      ref.invalidate(activeCommunityReportsProvider);
       ref.read(lotResolvedProvider.notifier).state = data;
     },
     onGroupStayCancelled: (data) {

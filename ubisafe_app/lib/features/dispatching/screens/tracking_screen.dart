@@ -292,7 +292,7 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
                     ),
                   ),
                 ),
-              if (widget.rideId != null)
+              if (widget.stopRequestId != null || widget.rideId != null)
                 Positioned(
                   bottom: 32,
                   left: 24,

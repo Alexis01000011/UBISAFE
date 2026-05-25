@@ -86,6 +86,14 @@ class CommunityReport {
     return null;
   }
 
+  // Reads from a Firestore DocumentSnapshot — id must be passed separately
+  // because doc.data() does not include the document ID.
+  static CommunityReport fromFirestore(String id, Map<String, dynamic> data) {
+    final injected = Map<String, dynamic>.from(data);
+    injected['id'] = id;
+    return fromMap(injected);
+  }
+
   // Reads from Firestore snapshot
   static CommunityReport fromMap(Map<String, dynamic> map) {
     final loc = map['location'];

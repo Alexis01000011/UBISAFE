@@ -92,7 +92,8 @@ async def _notify_nearby(report: CommunityReport) -> None:
     logger = logging.getLogger(__name__)
     try:
         tokens = await FirestoreService.get_nearby_user_fcm_tokens(
-            report.location.lat, report.location.lng, _NOTIFY_RADIUS_KM
+            report.location.lat, report.location.lng, _NOTIFY_RADIUS_KM,
+            exclude_uid=report.reporter_uid,
         )
         await NotificationService.send_community_report_nearby(
             tokens=tokens,

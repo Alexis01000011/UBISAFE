@@ -60,8 +60,6 @@ class _LotFormBottomSheetState extends ConsumerState<LotFormBottomSheet> {
                 : null,
           );
 
-      await ref.read(activeCommunityReportsProvider.notifier).refresh();
-
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
