@@ -1345,6 +1345,9 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
           ride.status == RideStatus.cancelled) {
         _rideSub?.cancel();
         _rideSub = null;
+        // Capture before setState clears it — used to avoid double SnackBar
+        // if FCM cancelledByBuyer arrives after this fires (race condition).
+        final wasActive = _activeRideId != null;
         setState(() {
           _activeRideId = null;
           _ridePhase = 0;
@@ -1354,6 +1357,14 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
           _rideDestLat = null;
           _rideDestLng = null;
         });
+        // Show message when the buyer cancelled (rejected while vendor had an
+        // active ride).  The FCM path handles the same message when it arrives
+        // first; wasActive == false in that case, preventing a double SnackBar.
+        if (ride.status == RideStatus.rejected && wasActive && context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('El pasajero canceló el raite.')),
+          );
+        }
       }
     });
   }
