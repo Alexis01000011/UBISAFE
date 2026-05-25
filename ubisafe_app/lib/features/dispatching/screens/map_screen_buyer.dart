@@ -159,6 +159,39 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer>
       );
     });
 
+    // Show visible SnackBar when a new risk zone is created within 4 km.
+    ref.listen<Map<String, dynamic>?>(riskZoneAlertProvider, (_, alert) {
+      if (alert == null || !context.mounted) return;
+      final zoneLat = double.tryParse(alert['lat'] as String? ?? '');
+      final zoneLng = double.tryParse(alert['lng'] as String? ?? '');
+      final riskLevel = alert['risk_level'] as String? ?? '';
+      final levelLabel = switch (riskLevel) {
+        'HIGH' => 'ALTO',
+        'MEDIUM' => 'MEDIO',
+        _ => 'BAJO',
+      };
+      final color = switch (riskLevel) {
+        'HIGH' => const Color(0xFFC62828),
+        'MEDIUM' => const Color(0xFFF57C00),
+        _ => const Color(0xFF0277BD),
+      };
+      final position = ref.read(gpsServiceProvider).valueOrNull;
+      String distanceLabel = '';
+      if (position != null && zoneLat != null && zoneLng != null) {
+        final distM = Geolocator.distanceBetween(
+          position.latitude, position.longitude, zoneLat, zoneLng,
+        );
+        distanceLabel = ' a ${distM.round()} m';
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Nueva zona de riesgo$distanceLabel — Nivel $levelLabel'),
+          backgroundColor: color,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    });
+
     ref.listen<Map<String, dynamic>?>(vendorProximityAlertProvider, (_, alert) {
       if (alert == null || !context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

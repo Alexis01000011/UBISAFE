@@ -85,7 +85,7 @@ async def create_risk_zone(
 
     loc = zone.location
     fcm_tokens = await FirestoreService.get_nearby_user_fcm_tokens(
-        loc.lat, loc.lng, radius_km=5.0
+        loc.lat, loc.lng, radius_km=4.0
     )
     await NotificationService.notify_risk_zone_alert(
         fcm_tokens,

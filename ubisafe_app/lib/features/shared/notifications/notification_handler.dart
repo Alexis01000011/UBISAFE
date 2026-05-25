@@ -47,6 +47,11 @@ final routeZoneWarningProvider =
 final communityReportAlertProvider =
     StateProvider<Map<String, dynamic>?>((ref) => null);
 
+/// Carries the FCM payload of a risk_zone_alert event so map screens can show
+/// a visible SnackBar with distance and risk level when a new zone is created.
+final riskZoneAlertProvider =
+    StateProvider<Map<String, dynamic>?>((ref) => null);
+
 /// Carries the FCM payload of a vendor_proximity_alert event so map screens
 /// can show a SnackBar when a subscribed vendor activates their radar.
 final vendorProximityAlertProvider =
@@ -91,6 +96,7 @@ class NotificationHandler {
     required void Function(Map<String, dynamic>?) setIncomingStop,
     required void Function(StopEvent?) setStopEvent,
     required void Function() invalidateRiskZones,
+    required void Function(Map<String, dynamic>) onRiskZoneAlert,
     required void Function(Map<String, dynamic>) onCommunityReportNearby,
     required void Function() onReportStatusChanged,
     required void Function(Map<String, dynamic>?) setIncomingRide,
@@ -103,6 +109,7 @@ class NotificationHandler {
   })  : _setIncomingStop = setIncomingStop,
         _setStopEvent = setStopEvent,
         _invalidateRiskZones = invalidateRiskZones,
+        _onRiskZoneAlert = onRiskZoneAlert,
         _onCommunityReportNearby = onCommunityReportNearby,
         _onReportStatusChanged = onReportStatusChanged,
         _setIncomingRide = setIncomingRide,
@@ -118,6 +125,7 @@ class NotificationHandler {
   final void Function(Map<String, dynamic>?) _setIncomingStop;
   final void Function(StopEvent?) _setStopEvent;
   final void Function() _invalidateRiskZones;
+  final void Function(Map<String, dynamic>) _onRiskZoneAlert;
   final void Function(Map<String, dynamic>) _onCommunityReportNearby;
   final void Function() _onReportStatusChanged;
   final void Function(Map<String, dynamic>?) _setIncomingRide;
@@ -226,6 +234,7 @@ class NotificationHandler {
 
       case 'risk_zone_alert':
         _invalidateRiskZones();
+        _onRiskZoneAlert(Map<String, dynamic>.from(data));
 
       case 'risk_zone_expired':
         _invalidateRiskZones();
@@ -320,6 +329,8 @@ final notificationHandlerProvider = Provider<NotificationHandler>((ref) {
     setStopEvent: (event) =>
         ref.read(stopRequestEventProvider.notifier).state = event,
     invalidateRiskZones: () => ref.invalidate(activeRiskZonesProvider),
+    onRiskZoneAlert: (data) =>
+        ref.read(riskZoneAlertProvider.notifier).state = data,
     onCommunityReportNearby: (data) {
       ref.read(activeCommunityReportsProvider.notifier).refresh();
       ref.read(communityReportAlertProvider.notifier).state = data;
