@@ -53,6 +53,31 @@ RouteZones zonesOnRoute({
   return RouteZones(mediumZones: mediumZones, lowCount: lowCount);
 }
 
+/// Returns LOW/MEDIUM zones whose circle contains the given point.
+/// A zone "contains" a point when the Haversine distance from the zone centre
+/// to the point is ≤ radiusMeters. HIGH zones are skipped — they are handled
+/// exclusively via [buildAvoidWaypoints].
+RouteZones zonesAtPoint({
+  required double lat,
+  required double lng,
+  required List<RiskZone> zones,
+}) {
+  final mediumZones = <RiskZone>[];
+  int lowCount = 0;
+  for (final z in zones) {
+    if (z.riskLevel == 'HIGH') continue;
+    if (distanceMeters(lat, lng, z.latitude, z.longitude) > z.radiusMeters) {
+      continue;
+    }
+    if (z.riskLevel == 'MEDIUM') {
+      mediumZones.add(z);
+    } else {
+      lowCount++;
+    }
+  }
+  return RouteZones(mediumZones: mediumZones, lowCount: lowCount);
+}
+
 // ─── Waypoint builder (HIGH zone avoidance) ───────────────────────────────────
 
 List<String> buildAvoidWaypoints({

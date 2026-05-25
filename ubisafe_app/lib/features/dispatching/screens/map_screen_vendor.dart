@@ -1215,9 +1215,15 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
       zones: zones,
     );
 
+    // Point-in-zone checks: only warn if the pickup/destination point itself
+    // is inside a zone circle, not when the route merely passes through one.
+    // zonesOnRoute (above) is kept for routeWarnings sent to the backend.
+    final pickupZones = zonesAtPoint(lat: pLat, lng: pLng, zones: zones);
+    final destZones = zonesAtPoint(lat: dLat, lng: dLng, zones: zones);
+
     if (!context.mounted) return;
 
-    if (routeZones.lowCount > 0) {
+    if (pickupZones.lowCount > 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('El pasajero se encuentra en una zona de riesgo BAJO.'),
@@ -1227,11 +1233,11 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
       );
     }
 
-    if (routeZones.mediumZones.isNotEmpty) {
+    if (pickupZones.mediumZones.isNotEmpty) {
       if (!context.mounted) return;
       final proceed = await _showMediumZoneDialog(
         context,
-        routeZones.mediumZones.length,
+        pickupZones.mediumZones.length,
         content: 'El pasajero se encuentra en una zona de riesgo MEDIO. ¿Deseas continuar con la solicitud?',
       );
       if (!proceed) {
@@ -1244,18 +1250,9 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
       }
     }
 
-    // 4b: Advertencia temprana pickup → destino antes de aceptar
-    final destRouteZones = zonesOnRoute(
-      originLat: pLat,
-      originLng: pLng,
-      destLat: dLat,
-      destLng: dLng,
-      zones: zones,
-    );
-
     if (!context.mounted) return;
 
-    if (destRouteZones.lowCount > 0) {
+    if (destZones.lowCount > 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('El destino del pasajero se encuentra en una zona de riesgo BAJO.'),
@@ -1265,11 +1262,11 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
       );
     }
 
-    if (destRouteZones.mediumZones.isNotEmpty) {
+    if (destZones.mediumZones.isNotEmpty) {
       if (!context.mounted) return;
       final proceed = await _showMediumZoneDialog(
         context,
-        destRouteZones.mediumZones.length,
+        destZones.mediumZones.length,
         content: 'El destino del pasajero se encuentra en una zona de riesgo MEDIO. ¿Deseas continuar con la solicitud?',
       );
       if (!proceed) {
@@ -1390,17 +1387,11 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
           .read(activeRiskZonesProvider.future)
           .catchError((_) => <RiskZone>[]);
 
-      final routeZones = zonesOnRoute(
-        originLat: originLat,
-        originLng: originLng,
-        destLat: dLat,
-        destLng: dLng,
-        zones: zones,
-      );
+      final destZones = zonesAtPoint(lat: dLat, lng: dLng, zones: zones);
 
       if (!context.mounted) return;
 
-      if (routeZones.lowCount > 0) {
+      if (destZones.lowCount > 0) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('El destino del pasajero se encuentra en una zona de riesgo BAJO.'),
@@ -1410,11 +1401,11 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
         );
       }
 
-      if (routeZones.mediumZones.isNotEmpty) {
+      if (destZones.mediumZones.isNotEmpty) {
         if (!context.mounted) return;
         final proceed = await _showMediumZoneDialog(
           context,
-          routeZones.mediumZones.length,
+          destZones.mediumZones.length,
           content: 'El destino del pasajero se encuentra en una zona de riesgo MEDIO. ¿Deseas continuar con la solicitud?',
         );
         if (!proceed) {
@@ -1442,7 +1433,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
           );
           return;
         }
-        routeWarnings = routeZones.mediumZones.map((z) => z.id).toList();
+        routeWarnings = destZones.mediumZones.map((z) => z.id).toList();
       }
     }
 
