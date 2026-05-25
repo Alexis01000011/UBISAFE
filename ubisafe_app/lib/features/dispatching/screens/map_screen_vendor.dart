@@ -766,12 +766,10 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     // LOW: blue informational snackbar (non-blocking)
     if (routeZones.lowCount > 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'La ruta pasa por ${routeZones.lowCount} zona(s) de riesgo BAJO.',
-          ),
-          backgroundColor: const Color(0xFF0277BD),
-          duration: const Duration(seconds: 6),
+        const SnackBar(
+          content: Text('El comprador se encuentra en una zona de riesgo BAJO.'),
+          backgroundColor: Color(0xFF0277BD),
+          duration: Duration(seconds: 6),
         ),
       );
     }
@@ -780,7 +778,10 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     if (routeZones.mediumZones.isNotEmpty) {
       if (!context.mounted) return;
       final proceed = await _showMediumZoneDialog(
-          context, routeZones.mediumZones.length);
+        context,
+        routeZones.mediumZones.length,
+        content: 'El comprador se encuentra en una zona de riesgo MEDIO. ¿Deseas continuar con la solicitud?',
+      );
       if (!proceed) {
         try {
           await ref.read(stopRequestModuleProvider).rejectStopRequest(stopId);
@@ -1000,16 +1001,20 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     }
   }
 
-  Future<bool> _showMediumZoneDialog(BuildContext context, int zoneCount) async {
+  Future<bool> _showMediumZoneDialog(
+    BuildContext context,
+    int zoneCount, {
+    String? content,
+  }) async {
+    final dialogContent = content ??
+        'La ruta pasa por $zoneCount zona(s) de riesgo MEDIO. '
+            '¿Deseas continuar con la solicitud?';
     final confirmed = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (_) => AlertDialog(
         title: const Text('Advertencia de zona de riesgo'),
-        content: Text(
-          'La ruta pasa por $zoneCount zona(s) de riesgo MEDIO. '
-          '¿Deseas continuar con la solicitud?',
-        ),
+        content: Text(dialogContent),
         actions: [
           OutlinedButton(
             style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger500),

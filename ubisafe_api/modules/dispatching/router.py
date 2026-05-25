@@ -151,12 +151,6 @@ async def update_stop_status(
     vendor_uid = updated.vendor_uid
     if body.status == "accepted":
         asyncio.ensure_future(NotificationService.send_stop_accepted(buyer_uid, stop_id))
-        if body.route_warnings:
-            asyncio.ensure_future(
-                NotificationService.send_route_zone_warning(
-                    buyer_uid, stop_id, len(body.route_warnings), is_ride=False
-                )
-            )
     elif body.status == "rejected":
         asyncio.ensure_future(NotificationService.send_stop_rejected(buyer_uid, stop_id))
     elif body.status == "completed":

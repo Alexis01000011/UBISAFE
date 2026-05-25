@@ -240,6 +240,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer>
         if (!context.mounted) return;
         context.push('/tracking?stop_id=${event.stopId}');
       } else if (event.status == StopRequestStatus.rejected) {
+        ref.read(stopRequestModuleProvider).cancelTimer();
         setState(() {
           _mapState = _BuyerMapState.idle;
           _activeStopId = null;
