@@ -661,29 +661,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer>
                   },
                 ),
               if (_mapState == _BuyerMapState.vendorArrived)
-                _VendorArrivedBanner(
-                  onCancel: () async {
-                    final rideId = _activeRideId;
-                    await _rideSub?.cancel();
-                    _rideSub = null;
-                    setState(() {
-                      _mapState = _BuyerMapState.idle;
-                      _activeRideId = null;
-                      _routePolyline = [];
-                      _ridePickupLat = null;
-                      _ridePickupLng = null;
-                      _rideDestLat = null;
-                      _rideDestLng = null;
-                    });
-                    if (rideId != null) {
-                      try {
-                        await ref
-                            .read(rideRequestModuleProvider)
-                            .updateStatus(rideId, 'rejected');
-                      } catch (_) {}
-                    }
-                  },
-                ),
+                const _VendorArrivedBanner(),
               if (_mapState == _BuyerMapState.inProgress)
                 const _RideInProgressBanner(),
               // Instruction banner while user selects a risk zone point
@@ -1513,9 +1491,7 @@ class _WaitingOverlay extends StatelessWidget {
 // ─── Banner "vendedor llegó" — Mejora 1 ──────────────────────────────────────
 
 class _VendorArrivedBanner extends StatelessWidget {
-  const _VendorArrivedBanner({required this.onCancel});
-
-  final VoidCallback onCancel;
+  const _VendorArrivedBanner();
 
   @override
   Widget build(BuildContext context) {
@@ -1536,29 +1512,20 @@ class _VendorArrivedBanner extends StatelessWidget {
             ),
           ],
         ),
-        child: Column(
+        child: const Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.hail, size: 36, color: AppColors.warning500),
-            const SizedBox(height: 8),
-            const Text(
+            Icon(Icons.hail, size: 36, color: AppColors.warning500),
+            SizedBox(height: 8),
+            Text(
               '¡El vendedor llegó al punto de recogida!',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 4),
-            const Text(
+            SizedBox(height: 4),
+            Text(
               'Preséntate para abordar.',
               style: TextStyle(color: AppColors.textSecondary),
-            ),
-            const SizedBox(height: 16),
-            OutlinedButton(
-              onPressed: onCancel,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppColors.danger500,
-                side: const BorderSide(color: AppColors.danger500),
-              ),
-              child: const Text('No puedo abordar'),
             ),
           ],
         ),

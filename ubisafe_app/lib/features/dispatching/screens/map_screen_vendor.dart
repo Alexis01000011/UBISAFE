@@ -61,8 +61,9 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
   double? _rideDestLng;
   bool _selectingRiskPoint = false;
   final Set<String> _resolvedLotIds = {};
-  // 1 = going to pickup, 2 = ride in progress (passenger aboard)
+  // 1 = going to pickup, 3 = arrived/waiting to start, 2 = ride in progress (passenger aboard)
   int _ridePhase = 0;
+  List<String> _pendingRouteWarnings = [];
   Position? _riskZoneAnchorPos;
   BitmapDescriptor? _zoneTapIcon;
   List<LatLng> _routePolyline = [];
@@ -607,6 +608,19 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
                     buttonText: 'Llegué al punto de recogida',
                     buttonColor: AppColors.primary700,
                     onAction: () => _signalVendorArrived(context),
+                  ),
+                ),
+              // Ride phase 3: arrived at pickup, waiting for passenger to board
+              if (_ridePhase == 3)
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: _RideActionSheet(
+                    label: 'Espera a que el pasajero aborde.',
+                    buttonText: 'Empezar raite',
+                    buttonColor: AppColors.success500,
+                    onAction: () => _startRide(context),
                   ),
                 ),
               // Ride phase 2: passenger aboard
@@ -1367,7 +1381,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     _rideSub =
         ref.read(rideRequestModuleProvider).watchRide(rideId).listen((ride) {
       if (ride == null) return;
-      if (ride.status == RideStatus.inProgress && _ridePhase == 1) {
+      if (ride.status == RideStatus.inProgress && (_ridePhase == 1 || _ridePhase == 3)) {
         setState(() => _ridePhase = 2);
       } else if (ride.status == RideStatus.completed ||
           ride.status == RideStatus.rejected ||
@@ -1403,20 +1417,18 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     final rideId = _activeRideId;
     if (rideId == null) return;
 
-    // Fase 2: coordenadas para el tramo recogida → destino
     final dLat = _rideDestLat;
     final dLng = _rideDestLng;
+    final currentPos = ref.read(gpsServiceProvider).valueOrNull;
     final pLat = _ridePickupLat;
     final pLng = _ridePickupLng;
-    final currentPos = ref.read(gpsServiceProvider).valueOrNull;
     final originLat = currentPos?.latitude ?? pLat;
     final originLng = currentPos?.longitude ?? pLng;
 
     List<String> routeWarnings = const [];
-    List<RiskZone> zones = const [];
 
     if (dLat != null && dLng != null && originLat != null && originLng != null) {
-      zones = await ref
+      final zones = await ref
           .read(activeRiskZonesProvider.future)
           .catchError((_) => <RiskZone>[]);
 
@@ -1480,21 +1492,40 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
       );
       return;
     }
+
+    _pendingRouteWarnings = routeWarnings;
+    if (mounted) setState(() => _ridePhase = 3);
+  }
+
+  Future<void> _startRide(BuildContext context) async {
+    final rideId = _activeRideId;
+    if (rideId == null) return;
+
     try {
       await ref.read(rideRequestModuleProvider).updateStatus(
             rideId, 'in_progress',
-            routeWarnings: routeWarnings);
+            routeWarnings: _pendingRouteWarnings);
     } catch (e) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error al actualizar estado: $e')),
+        SnackBar(content: Text('Error al iniciar el raite: $e')),
       );
       return;
     }
     if (mounted) setState(() => _ridePhase = 2);
 
-    // Fetch route to destination with HIGH zone avoidance
+    final dLat = _rideDestLat;
+    final dLng = _rideDestLng;
+    final currentPos = ref.read(gpsServiceProvider).valueOrNull;
+    final pLat = _ridePickupLat;
+    final pLng = _ridePickupLng;
+    final originLat = currentPos?.latitude ?? pLat;
+    final originLng = currentPos?.longitude ?? pLng;
+
     if (dLat != null && dLng != null && originLat != null && originLng != null) {
+      final zones = await ref
+          .read(activeRiskZonesProvider.future)
+          .catchError((_) => <RiskZone>[]);
       final highZones = zones.where((z) => z.riskLevel == 'HIGH').toList();
       final avoidWaypoints = buildAvoidWaypoints(
         originLat: originLat,
