@@ -293,6 +293,18 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
       );
     });
 
+    // Show SnackBar when a buyer subscribes to this vendor (CU-08).
+    ref.listen<Map<String, dynamic>?>(subscriptionCreatedProvider, (_, data) {
+      if (data == null || !context.mounted) return;
+      final buyerName = data['buyer_name'] as String? ?? 'Un comprador';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$buyerName se suscribió a tu actividad.'),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    });
+
     // Listen for incoming stop requests (vendor receives FCM)
     ref.listen<Map<String, dynamic>?>(incomingStopRequestProvider, (_, data) {
       if (data == null) return;

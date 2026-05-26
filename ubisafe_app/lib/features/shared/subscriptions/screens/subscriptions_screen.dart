@@ -128,15 +128,13 @@ class _SubscriptionsScreenState extends ConsumerState<SubscriptionsScreen> {
 
   Widget _buildTile(Subscription sub) {
     final createdLabel = _formatDate(sub.createdAt);
-    final shortId = sub.vendorUid.length > 8
-        ? '${sub.vendorUid.substring(0, 8)}…'
-        : sub.vendorUid;
+    final displayName = sub.vendorName ?? 'Vendedor';
 
     return ListTile(
       leading: const CircleAvatar(
         child: Icon(Icons.storefront_outlined),
       ),
-      title: Text('Vendedor $shortId'),
+      title: Text(displayName),
       subtitle: createdLabel != null ? Text('Desde $createdLabel') : null,
       trailing: IconButton(
         icon: const Icon(Icons.delete_outline),

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from dependencies import get_current_user
 from modules.shared.firestore_service import FirestoreService
+from modules.shared.notification_service import NotificationService
 from modules.shared.subscription_schemas import CreateSubscriptionBody, Subscription
 
 router = APIRouter()
@@ -21,6 +24,12 @@ async def create_subscription(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="vendor_cannot_subscribe",
         )
+    active_subs = await FirestoreService.list_active_subscriptions(uid)
+    if len(active_subs) >= 5:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="max_subscriptions_reached",
+        )
     subscription_id = f"{uid}_{body.vendor_uid}"
     existing = await FirestoreService.get_subscription(subscription_id)
     if existing and existing.active:
@@ -28,7 +37,12 @@ async def create_subscription(
             status_code=status.HTTP_409_CONFLICT,
             detail="already_subscribed",
         )
-    return await FirestoreService.create_subscription(uid, body.vendor_uid)
+    subscription = await FirestoreService.create_subscription(uid, body.vendor_uid)
+    buyer_name = profile.name if profile and profile.name else "Un comprador"
+    asyncio.ensure_future(
+        NotificationService.send_subscription_created(body.vendor_uid, buyer_name)
+    )
+    return subscription
 
 
 @router.get("", response_model=list[Subscription])

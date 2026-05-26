@@ -332,6 +332,16 @@ class NotificationService:
         )
 
     @staticmethod
+    async def send_subscription_created(vendor_uid: str, buyer_name: str) -> None:
+        """Notifica al vendedor que un comprador se suscribió a su actividad."""
+        await NotificationService.send_to_user(
+            uid=vendor_uid,
+            title="Nueva suscripción",
+            body=f"{buyer_name} se suscribió a tu actividad.",
+            data={"type": "subscription_created", "buyer_name": buyer_name},
+        )
+
+    @staticmethod
     async def notify_risk_zone_alert(
         fcm_tokens: list[str],
         data: dict,

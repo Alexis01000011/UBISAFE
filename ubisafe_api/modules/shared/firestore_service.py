@@ -863,14 +863,19 @@ class FirestoreService:
 
     @classmethod
     async def list_active_subscriptions(cls, buyer_uid: str) -> list[Subscription]:
-        docs = (
+        docs = list(
             cls._db()
             .collection("subscriptions")
             .where("buyer_uid", "==", buyer_uid)
             .where("active", "==", True)
             .stream()
         )
-        return [cls._doc_to_subscription(d) for d in docs]
+        subs = [cls._doc_to_subscription(d) for d in docs]
+        for sub in subs:
+            vendor_doc = cls._db().collection("users").document(sub.vendor_uid).get()
+            if vendor_doc.exists:
+                sub.vendor_name = (vendor_doc.to_dict() or {}).get("name")
+        return subs
 
     @classmethod
     async def cancel_subscription(cls, subscription_id: str, reason: str) -> None:

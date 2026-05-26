@@ -11,6 +11,7 @@ class Subscription(BaseModel):
     created_at: str | None = None
     cancelled_at: str | None = None
     cancellation_reason: str | None = None
+    vendor_name: str | None = None
 
 
 class CreateSubscriptionBody(BaseModel):

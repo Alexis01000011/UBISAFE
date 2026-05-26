@@ -51,6 +51,7 @@ void main() {
     void Function(Map<String, dynamic>)? onLotResolved,
     void Function(Map<String, dynamic>)? onGroupStayCancelled,
     void Function(Map<String, dynamic>)? onRsvpGroupStay,
+    void Function(Map<String, dynamic>)? onSubscriptionCreated,
   }) =>
       NotificationHandler(
         mockMessaging,
@@ -68,6 +69,7 @@ void main() {
         onLotResolved: onLotResolved ?? (_) {},
         onGroupStayCancelled: onGroupStayCancelled ?? (_) {},
         onRsvpGroupStay: onRsvpGroupStay ?? (_) {},
+        onSubscriptionCreated: onSubscriptionCreated ?? (_) {},
       );
 
   group('NotificationHandler.init', () {

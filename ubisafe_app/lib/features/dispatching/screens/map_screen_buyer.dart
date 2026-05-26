@@ -1674,19 +1674,28 @@ class _VendorBottomSheetState extends ConsumerState<_VendorBottomSheet> {
     final prevId = _subscriptionId;
     if (prev == null) return;
 
-    // Soft warning before subscribing
+    // Hard limit: block if already at 5 active subscriptions
     if (!prev) {
       try {
         final subs = await ref.read(subscriptionModuleProvider).listActive();
-        if (subs.length >= 10) {
+        if (subs.length >= 5) {
           if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Tienes muchas suscripciones — podrías recibir muchas notificaciones.',
+          await showDialog<void>(
+            context: context,
+            builder: (_) => AlertDialog(
+              title: const Text('Límite de suscripciones'),
+              content: const Text(
+                'Tienes 5 suscripciones activas. Cancela una desde "Mis suscripciones" para poder suscribirte a este vendedor.',
               ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Entendido'),
+                ),
+              ],
             ),
           );
+          return;
         }
       } catch (_) {}
     }
@@ -1707,19 +1716,27 @@ class _VendorBottomSheetState extends ConsumerState<_VendorBottomSheet> {
             .subscribe(widget.vendorUid);
         if (!mounted) return;
         setState(() => _subscriptionId = sub.id);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('¡Suscripción registrada exitosamente!'),
+          ),
+        );
       }
-    } catch (_) {
+    } catch (e) {
       // Rollback on error
       if (!mounted) return;
       setState(() {
         _isSubscribed = prev;
         _subscriptionId = prevId;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Error al actualizar suscripción. Intenta de nuevo.'),
-        ),
-      );
+      String? detail;
+      if (e is DioException) {
+        detail = (e.response?.data as Map?)?['detail'] as String?;
+      }
+      final msg = detail == 'max_subscriptions_reached'
+          ? 'Tienes 5 suscripciones activas. Cancela una para continuar.'
+          : 'Error al actualizar suscripción. Intenta de nuevo.';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     }
   }
 

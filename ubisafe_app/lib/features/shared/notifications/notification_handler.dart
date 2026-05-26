@@ -72,6 +72,11 @@ final groupStayCancelledProvider =
 final rsvpGroupStayAlertProvider =
     StateProvider<Map<String, dynamic>?>((ref) => null);
 
+/// Carries the FCM payload of a subscription_created event so the vendor map
+/// screen can show a SnackBar informing that a buyer subscribed.
+final subscriptionCreatedProvider =
+    StateProvider<Map<String, dynamic>?>((ref) => null);
+
 class RideEvent {
   const RideEvent(this.rideId, this.type);
   final String rideId;
@@ -106,6 +111,7 @@ class NotificationHandler {
     required void Function(Map<String, dynamic>) onLotResolved,
     required void Function(Map<String, dynamic>) onGroupStayCancelled,
     required void Function(Map<String, dynamic>) onRsvpGroupStay,
+    required void Function(Map<String, dynamic>) onSubscriptionCreated,
   })  : _setIncomingStop = setIncomingStop,
         _setStopEvent = setStopEvent,
         _invalidateRiskZones = invalidateRiskZones,
@@ -118,7 +124,8 @@ class NotificationHandler {
         _onVendorProximityAlert = onVendorProximityAlert,
         _onLotResolved = onLotResolved,
         _onGroupStayCancelled = onGroupStayCancelled,
-        _onRsvpGroupStay = onRsvpGroupStay;
+        _onRsvpGroupStay = onRsvpGroupStay,
+        _onSubscriptionCreated = onSubscriptionCreated;
 
   final FirebaseMessaging _messaging;
   final Dio _dio;
@@ -135,6 +142,7 @@ class NotificationHandler {
   final void Function(Map<String, dynamic>) _onLotResolved;
   final void Function(Map<String, dynamic>) _onGroupStayCancelled;
   final void Function(Map<String, dynamic>) _onRsvpGroupStay;
+  final void Function(Map<String, dynamic>) _onSubscriptionCreated;
   bool _initialized = false;
 
   /// Must be called once before runApp() — cannot be in init() because
@@ -309,6 +317,9 @@ class NotificationHandler {
       case 'rsvp_group_stay':
         _onRsvpGroupStay(Map<String, dynamic>.from(data));
 
+      case 'subscription_created':
+        _onSubscriptionCreated(Map<String, dynamic>.from(data));
+
       default:
         debugPrint('FCM unhandled type [$type]');
     }
@@ -359,6 +370,9 @@ final notificationHandlerProvider = Provider<NotificationHandler>((ref) {
     onRsvpGroupStay: (data) {
       ref.read(rsvpGroupStayAlertProvider.notifier).state = data;
       LocalNotificationService.showRsvpGroupStayNotification(data);
+    },
+    onSubscriptionCreated: (data) {
+      ref.read(subscriptionCreatedProvider.notifier).state = data;
     },
   );
 });
