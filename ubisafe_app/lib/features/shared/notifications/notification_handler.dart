@@ -77,6 +77,11 @@ final rsvpGroupStayAlertProvider =
 final subscriptionCreatedProvider =
     StateProvider<Map<String, dynamic>?>((ref) => null);
 
+/// Carries the FCM payload of a group_stay_created event so map screens
+/// can reload the active group stays list in real-time.
+final groupStayCreatedProvider =
+    StateProvider<Map<String, dynamic>?>((ref) => null);
+
 class RideEvent {
   const RideEvent(this.rideId, this.type);
   final String rideId;
@@ -112,6 +117,7 @@ class NotificationHandler {
     required void Function(Map<String, dynamic>) onGroupStayCancelled,
     required void Function(Map<String, dynamic>) onRsvpGroupStay,
     required void Function(Map<String, dynamic>) onSubscriptionCreated,
+    required void Function(Map<String, dynamic>) onGroupStayCreated,
   })  : _setIncomingStop = setIncomingStop,
         _setStopEvent = setStopEvent,
         _invalidateRiskZones = invalidateRiskZones,
@@ -125,7 +131,8 @@ class NotificationHandler {
         _onLotResolved = onLotResolved,
         _onGroupStayCancelled = onGroupStayCancelled,
         _onRsvpGroupStay = onRsvpGroupStay,
-        _onSubscriptionCreated = onSubscriptionCreated;
+        _onSubscriptionCreated = onSubscriptionCreated,
+        _onGroupStayCreated = onGroupStayCreated;
 
   final FirebaseMessaging _messaging;
   final Dio _dio;
@@ -143,6 +150,7 @@ class NotificationHandler {
   final void Function(Map<String, dynamic>) _onGroupStayCancelled;
   final void Function(Map<String, dynamic>) _onRsvpGroupStay;
   final void Function(Map<String, dynamic>) _onSubscriptionCreated;
+  final void Function(Map<String, dynamic>) _onGroupStayCreated;
   bool _initialized = false;
 
   /// Must be called once before runApp() — cannot be in init() because
@@ -320,6 +328,9 @@ class NotificationHandler {
       case 'subscription_created':
         _onSubscriptionCreated(Map<String, dynamic>.from(data));
 
+      case 'group_stay_created':
+        _onGroupStayCreated(Map<String, dynamic>.from(data));
+
       default:
         debugPrint('FCM unhandled type [$type]');
     }
@@ -373,6 +384,10 @@ final notificationHandlerProvider = Provider<NotificationHandler>((ref) {
     },
     onSubscriptionCreated: (data) {
       ref.read(subscriptionCreatedProvider.notifier).state = data;
+    },
+    onGroupStayCreated: (data) {
+      ref.read(groupStayCreatedProvider.notifier).state = data;
+      ref.read(activeGroupStaysProvider.notifier).reload();
     },
   );
 });

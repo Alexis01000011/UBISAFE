@@ -11,6 +11,7 @@ class GroupStay {
     this.cancellationReason,
     this.attendeesCount = 0,
     this.riskLevelAtCreation,
+    this.hasAttended,
     this.createdAt,
     this.updatedAt,
   });
@@ -26,6 +27,7 @@ class GroupStay {
   final String? cancellationReason;
   final int attendeesCount;
   final String? riskLevelAtCreation;
+  final bool? hasAttended;
   final String? createdAt;
   final String? updatedAt;
 
@@ -45,6 +47,7 @@ class GroupStay {
       cancellationReason: json['cancellation_reason'] as String?,
       attendeesCount: (json['attendees_count'] as num?)?.toInt() ?? 0,
       riskLevelAtCreation: json['risk_level_at_creation'] as String?,
+      hasAttended: json['has_attended'] as bool?,
       createdAt: json['created_at'] as String?,
       updatedAt: json['updated_at'] as String?,
     );

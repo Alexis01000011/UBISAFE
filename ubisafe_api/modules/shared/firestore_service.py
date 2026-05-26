@@ -813,6 +813,13 @@ class FirestoreService:
         )
 
     @classmethod
+    async def get_user_last_location(cls, uid: str) -> dict | None:
+        doc = cls._db().collection("users").document(uid).get()
+        if not doc.exists:
+            return None
+        return (doc.to_dict() or {}).get("last_location")
+
+    @classmethod
     async def update_radar_status(cls, uid: str, is_active_radar: bool) -> None:
         cls._db().collection("users").document(uid).set(
             {"is_active_radar": is_active_radar, "updated_at": SERVER_TIMESTAMP},

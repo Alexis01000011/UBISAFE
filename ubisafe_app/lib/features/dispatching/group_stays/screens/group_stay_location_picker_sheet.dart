@@ -1,18 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../../core/design_system/colors.dart';
 import '../../../../core/design_system/typography.dart';
 
-/// Lets the vendor pick the location for a group stay.
+const double _kMaxRadiusM = 2000.0;
+
+/// Lets the vendor pick the location for a group stay within 2 km of their position.
 ///
 /// Call [GroupStayLocationPickerSheet.show]; returns [LatLng] on confirm or null on cancel.
 class GroupStayLocationPickerSheet extends StatefulWidget {
-  const GroupStayLocationPickerSheet({super.key, required this.initialPosition});
+  const GroupStayLocationPickerSheet({super.key, required this.vendorPosition});
 
-  final LatLng initialPosition;
+  final LatLng vendorPosition;
 
-  static Future<LatLng?> show(BuildContext context, LatLng initialPosition) {
+  static Future<LatLng?> show(BuildContext context, LatLng vendorPosition) {
     return showModalBottomSheet<LatLng>(
       context: context,
       isScrollControlled: true,
@@ -22,7 +25,7 @@ class GroupStayLocationPickerSheet extends StatefulWidget {
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (_) =>
-          GroupStayLocationPickerSheet(initialPosition: initialPosition),
+          GroupStayLocationPickerSheet(vendorPosition: vendorPosition),
     );
   }
 
@@ -34,15 +37,25 @@ class GroupStayLocationPickerSheet extends StatefulWidget {
 class _GroupStayLocationPickerSheetState
     extends State<GroupStayLocationPickerSheet> {
   late LatLng _selected;
+  bool _outOfRange = false;
 
   @override
   void initState() {
     super.initState();
-    _selected = widget.initialPosition;
+    _selected = widget.vendorPosition;
   }
 
   void _onCameraMove(CameraPosition pos) {
-    setState(() => _selected = pos.target);
+    final distM = Geolocator.distanceBetween(
+      widget.vendorPosition.latitude,
+      widget.vendorPosition.longitude,
+      pos.target.latitude,
+      pos.target.longitude,
+    );
+    setState(() {
+      _selected = pos.target;
+      _outOfRange = distM > _kMaxRadiusM;
+    });
   }
 
   @override
@@ -65,7 +78,7 @@ class _GroupStayLocationPickerSheetState
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 24),
             child: Text(
-              'Mueve el mapa hasta que el pin esté en el lugar donde estarás.',
+              'Mueve el mapa hasta que el pin esté en el lugar donde estarás. Radio máximo: 2 km.',
               style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
             ),
           ),
@@ -76,13 +89,23 @@ class _GroupStayLocationPickerSheetState
               children: [
                 GoogleMap(
                   initialCameraPosition: CameraPosition(
-                    target: widget.initialPosition,
-                    zoom: 16,
+                    target: widget.vendorPosition,
+                    zoom: 15,
                   ),
                   myLocationEnabled: true,
                   myLocationButtonEnabled: false,
                   zoomControlsEnabled: false,
                   onCameraMove: _onCameraMove,
+                  circles: {
+                    Circle(
+                      circleId: const CircleId('stay_range'),
+                      center: widget.vendorPosition,
+                      radius: _kMaxRadiusM,
+                      fillColor: AppColors.secondary700.withValues(alpha: 0.10),
+                      strokeColor: AppColors.secondary700,
+                      strokeWidth: 2,
+                    ),
+                  },
                 ),
                 const IgnorePointer(
                   child: Icon(
@@ -94,6 +117,15 @@ class _GroupStayLocationPickerSheetState
               ],
             ),
           ),
+          if (_outOfRange)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+              child: Text(
+                'El punto está a más de 2 km de tu posición.',
+                style: AppTypography.caption.copyWith(color: AppColors.danger500),
+                textAlign: TextAlign.center,
+              ),
+            ),
           Padding(
             padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
             child: Row(
@@ -112,7 +144,9 @@ class _GroupStayLocationPickerSheetState
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 14),
                     ),
-                    onPressed: () => Navigator.of(context).pop(_selected),
+                    onPressed: _outOfRange
+                        ? null
+                        : () => Navigator.of(context).pop(_selected),
                     child: const Text('Confirmar ubicación'),
                   ),
                 ),

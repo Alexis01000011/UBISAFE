@@ -189,6 +189,15 @@ class _ScheduleGroupStayScreenState
           );
           return;
         }
+        if (errorKey == 'location_out_of_range') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                  'El punto seleccionado está a más de 2 km de tu posición actual.'),
+            ),
+          );
+          return;
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error de validación: $detail')),
         );

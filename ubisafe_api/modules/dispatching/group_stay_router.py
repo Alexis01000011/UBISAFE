@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -19,6 +20,18 @@ router = APIRouter()
 
 _MIN_ADVANCE_MINUTES = 5
 _ZONE_VALIDATION_RADIUS_M = 200
+_MAX_GROUP_STAY_RADIUS_KM = 2.0
+
+
+def _dist_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    R = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlng = math.radians(lng2 - lng1)
+    a = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlng / 2) ** 2
+    )
+    return R * 2 * math.asin(math.sqrt(a))
 
 
 async def _require_vendor(uid: str) -> None:
@@ -46,6 +59,19 @@ async def create_group_stay(
     """
     vendor_uid = current_user["uid"]
     await _require_vendor(vendor_uid)
+
+    # Validate vendor is within 2 km of the chosen stay location
+    vendor_loc = await FirestoreService.get_user_last_location(vendor_uid)
+    if vendor_loc:
+        dist = _dist_km(
+            vendor_loc["lat"], vendor_loc["lng"],
+            body.location.lat, body.location.lng,
+        )
+        if dist > _MAX_GROUP_STAY_RADIUS_KM:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="location_out_of_range",
+            )
 
     # Validate temporal advance (R-B1: keep logic in server)
     now = datetime.now(tz=UTC)
@@ -97,6 +123,17 @@ async def create_group_stay(
         vendor_uid, body, risk_level_at_creation
     )
 
+    # Notify all nearby users so their maps update in real-time
+    nearby_tokens = await FirestoreService.get_nearby_user_fcm_tokens(
+        body.location.lat, body.location.lng,
+        radius_km=_MAX_GROUP_STAY_RADIUS_KM,
+        exclude_uid=vendor_uid,
+    )
+    if nearby_tokens:
+        asyncio.ensure_future(
+            NotificationService.send_group_stay_created(nearby_tokens, stay.id)
+        )
+
     return CreateGroupStayResponse(stay=stay, warning=warning)
 
 
@@ -104,7 +141,7 @@ async def create_group_stay(
 async def list_active_stays(
     lat: float,
     lng: float,
-    radius_km: float = 1.0,
+    radius_km: float = 2.0,
     current_user: dict = Depends(get_current_user),
 ):
     """Return active group stays within radius_km of (lat, lng)."""
@@ -119,6 +156,9 @@ async def get_stay(
     stay = await FirestoreService.get_group_stay(stay_id)
     if stay is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="stay_not_found")
+    uid = current_user["uid"]
+    attended_uids = await FirestoreService.get_confirmed_attendance_uids(stay_id)
+    stay.has_attended = uid in attended_uids
     return stay
 
 
@@ -146,11 +186,16 @@ async def cancel_stay(
         )
 
     cancelled = await FirestoreService.cancel_group_stay(stay_id, "vendor_cancelled")
-    attendee_uids = await FirestoreService.get_confirmed_attendance_uids(stay_id)
-    if attendee_uids:
+    # Notify ALL nearby users (2 km) so map icons disappear for everyone, not just attendees
+    nearby_tokens = await FirestoreService.get_nearby_user_fcm_tokens(
+        stay.location.lat, stay.location.lng,
+        radius_km=_MAX_GROUP_STAY_RADIUS_KM,
+        exclude_uid=vendor_uid,
+    )
+    if nearby_tokens:
         asyncio.ensure_future(
-            NotificationService.send_group_stay_cancelled(
-                attendee_uids, stay_id, "vendor_cancelled"
+            NotificationService.send_group_stay_cancelled_nearby(
+                nearby_tokens, stay_id, "vendor_cancelled"
             )
         )
     return cancelled

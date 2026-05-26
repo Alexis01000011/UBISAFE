@@ -322,6 +322,44 @@ class NotificationService:
             )
 
     @staticmethod
+    async def send_group_stay_cancelled_nearby(
+        tokens: list[str], stay_id: str, reason: str
+    ) -> None:
+        """Multicast group_stay_cancelled to all nearby users (not just confirmed attendees)."""
+        if not tokens:
+            return
+        fcm = FirebaseAdminInit.get_fcm()
+        data = {
+            "type": "group_stay_cancelled",
+            "group_stay_id": stay_id,
+            "reason": reason,
+        }
+        chunk_size = 500
+        for i in range(0, len(tokens), chunk_size):
+            chunk = tokens[i : i + chunk_size]
+            try:
+                message = fcm.MulticastMessage(data=data, tokens=chunk)
+                await asyncio.to_thread(fcm.send_each_for_multicast, message)
+            except Exception as exc:
+                logger.error("FCM group_stay_cancelled multicast failed: %s", exc)
+
+    @staticmethod
+    async def send_group_stay_created(tokens: list[str], stay_id: str) -> None:
+        """Multicast group_stay_created to all nearby users so their maps update."""
+        if not tokens:
+            return
+        fcm = FirebaseAdminInit.get_fcm()
+        data = {"type": "group_stay_created", "group_stay_id": stay_id}
+        chunk_size = 500
+        for i in range(0, len(tokens), chunk_size):
+            chunk = tokens[i : i + chunk_size]
+            try:
+                message = fcm.MulticastMessage(data=data, tokens=chunk)
+                await asyncio.to_thread(fcm.send_each_for_multicast, message)
+            except Exception as exc:
+                logger.error("FCM group_stay_created multicast failed: %s", exc)
+
+    @staticmethod
     async def send_risk_zone_dismissed(reporter_uid: str, zone_id: str) -> None:
         """Notifica al reportante que su zona fue desmentida por la comunidad."""
         await NotificationService.send_to_user(

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -34,6 +36,21 @@ class _GroupStayDetailScreenState extends ConsumerState<GroupStayDetailScreen> {
   void initState() {
     super.initState();
     _stay = widget.stay;
+    // Fetch fresh data to get current attendee count and has_attended
+    WidgetsBinding.instance.addPostFrameCallback((_) => _fetchFreshStay());
+  }
+
+  Future<void> _fetchFreshStay() async {
+    try {
+      final fresh = await ref.read(groupStayModuleProvider).getStay(_stay.id);
+      if (!mounted) return;
+      setState(() {
+        _stay = fresh;
+        _attended = fresh.hasAttended ?? false;
+      });
+    } catch (_) {
+      // Silent fallback — use widget.stay
+    }
   }
 
   Future<void> _cancel() async {
@@ -120,11 +137,16 @@ class _GroupStayDetailScreenState extends ConsumerState<GroupStayDetailScreen> {
       await ref
           .read(groupStayModuleProvider)
           .confirmAttendance(_stay.id);
+      // Refetch to get updated attendees count
+      final fresh = await ref.read(groupStayModuleProvider).getStay(_stay.id);
       if (!mounted) return;
       setState(() {
         _attended = true;
         _loading = false;
+        _stay = fresh;
       });
+      // Update map markers with new attendee count
+      unawaited(ref.read(activeGroupStaysProvider.notifier).reload());
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Asistencia confirmada')),
       );
@@ -216,9 +238,6 @@ class _GroupStayDetailScreenState extends ConsumerState<GroupStayDetailScreen> {
         );
     final canCancel =
         isVendor && (_stay.status == 'scheduled' || _stay.status == 'active');
-    final canAttend = !isVendor &&
-        !_attended &&
-        (_stay.status == 'scheduled' || _stay.status == 'active');
 
     return Scaffold(
       appBar: AppBar(
@@ -350,38 +369,52 @@ class _GroupStayDetailScreenState extends ConsumerState<GroupStayDetailScreen> {
                     style: TextStyle(fontSize: 16)),
               ),
 
-            if (canAttend) ...[
-              FilledButton.icon(
-                onPressed: _loading ? null : _confirmAttendance,
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.secondary700,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                ),
-                icon: _loading
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white),
-                      )
-                    : const Icon(Icons.check_circle_outline),
-                label: const Text('Confirmar asistencia',
-                    style: TextStyle(fontSize: 16)),
-              ),
-            ],
-
-            if (_attended)
-              const Padding(
-                padding: EdgeInsets.only(top: 8),
-                child: Center(
-                  child: Text(
-                    'Asistencia confirmada',
-                    style: TextStyle(color: Colors.green, fontWeight: FontWeight.w600),
+            if (!isVendor &&
+                (_stay.status == 'scheduled' || _stay.status == 'active')) ...[
+              if (_attended)
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.green),
                   ),
+                  child: const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.check_circle, color: Colors.green),
+                      SizedBox(width: 8),
+                      Text(
+                        'Ya confirmaste asistencia',
+                        style: TextStyle(
+                            color: Colors.green,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 16),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                FilledButton.icon(
+                  onPressed: _loading ? null : _confirmAttendance,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.secondary700,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                  icon: _loading
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Icon(Icons.check_circle_outline),
+                  label: const Text('Confirmar asistencia',
+                      style: TextStyle(fontSize: 16)),
                 ),
-              ),
+            ],
           ],
         ),
       ),
