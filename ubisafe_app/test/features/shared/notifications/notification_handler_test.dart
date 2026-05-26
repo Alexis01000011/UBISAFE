@@ -41,6 +41,7 @@ void main() {
     void Function(Map<String, dynamic>?)? onIncoming,
     void Function(StopEvent?)? onEvent,
     void Function()? onInvalidateRiskZones,
+    void Function(Map<String, dynamic>)? onRiskZoneAlert,
     void Function(Map<String, dynamic>)? onCommunityReportNearby,
     void Function()? onReportStatusChanged,
     void Function(Map<String, dynamic>?)? onIncomingRide,
@@ -50,6 +51,8 @@ void main() {
     void Function(Map<String, dynamic>)? onLotResolved,
     void Function(Map<String, dynamic>)? onGroupStayCancelled,
     void Function(Map<String, dynamic>)? onRsvpGroupStay,
+    void Function(Map<String, dynamic>)? onSubscriptionCreated,
+    void Function(Map<String, dynamic>)? onGroupStayCreated,
   }) =>
       NotificationHandler(
         mockMessaging,
@@ -57,6 +60,7 @@ void main() {
         setIncomingStop: onIncoming ?? (_) {},
         setStopEvent: onEvent ?? (_) {},
         invalidateRiskZones: onInvalidateRiskZones ?? () {},
+        onRiskZoneAlert: onRiskZoneAlert ?? (_) {},
         onCommunityReportNearby: onCommunityReportNearby ?? (_) {},
         onReportStatusChanged: onReportStatusChanged ?? () {},
         setIncomingRide: onIncomingRide ?? (_) {},
@@ -66,6 +70,8 @@ void main() {
         onLotResolved: onLotResolved ?? (_) {},
         onGroupStayCancelled: onGroupStayCancelled ?? (_) {},
         onRsvpGroupStay: onRsvpGroupStay ?? (_) {},
+        onSubscriptionCreated: onSubscriptionCreated ?? (_) {},
+        onGroupStayCreated: onGroupStayCreated ?? (_) {},
       );
 
   group('NotificationHandler.init', () {
@@ -189,9 +195,29 @@ void main() {
         'type': 'risk_zone_alert',
         'risk_zone_id': 'rz-001',
         'risk_level': 'HIGH',
+        'lat': '19.0000',
+        'lng': '-99.0000',
       });
 
       expect(invalidated, isTrue);
+    });
+
+    test('risk_zone_alert also calls onRiskZoneAlert with full payload', () {
+      Map<String, dynamic>? received;
+      final handler = makeHandler(onRiskZoneAlert: (data) => received = data);
+
+      handler.handleMessageForTest({
+        'type': 'risk_zone_alert',
+        'risk_zone_id': 'rz-001',
+        'risk_level': 'MEDIUM',
+        'threat_type': 'jauría',
+        'lat': '19.0000',
+        'lng': '-99.0000',
+      });
+
+      expect(received, isNotNull);
+      expect(received!['risk_level'], 'MEDIUM');
+      expect(received!['lat'], '19.0000');
     });
 
     test('risk_zone_expired calls invalidateRiskZones', () {

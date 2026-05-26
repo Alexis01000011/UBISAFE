@@ -41,6 +41,11 @@ async def support_community_report(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"report_status_is_{report.status.value}",
         )
+    if (report.support_count or 0) >= 3:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="max_supporters_reached",
+        )
     if uid in (report.supporters or []):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -62,7 +67,7 @@ async def resolve_community_report(
 ):
     """Mark a lote_baldio report as resolved.
 
-    Only callable by the user set as pending_resolver_uid (the 3rd supporter).
+    Any authenticated user can resolve once the lot has reached 3 supporters.
     Sends FCM to the reporter and all supporters (fire-and-forget).
     """
     uid = current_user["uid"]
@@ -74,10 +79,10 @@ async def resolve_community_report(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="use_validation_endpoint",
         )
-    if report.pending_resolver_uid != uid:
+    if (report.support_count or 0) < 3:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="not_pending_resolver",
+            status_code=status.HTTP_409_CONFLICT,
+            detail="insufficient_supports",
         )
     if report.status != ReportStatus.pending_validation:
         raise HTTPException(

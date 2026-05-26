@@ -145,6 +145,27 @@ async def test_double_support_rejected_409(mock_firebase, as_supporter_1):
 
 
 @pytest.mark.asyncio
+async def test_support_beyond_3_rejected_409(mock_firebase, as_supporter_1):
+    from main import app
+
+    full_lot = CommunityReport(
+        id=REPORT_ID,
+        reporter_uid=REPORTER_UID,
+        threat_type=ThreatType.lote,
+        location=GeoPoint(lat=20.6736, lng=-103.344),
+        status=ReportStatus.pending_validation,
+        supporters=[SUPPORTER_1, SUPPORTER_2, SUPPORTER_3],
+        support_count=3,
+        pending_resolver_uid=SUPPORTER_3,
+    )
+    with patch(_FS_GET, new_callable=AsyncMock, return_value=full_lot):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            res = await client.post(f"/community-reports/{REPORT_ID}/support", headers=_AUTH)
+    assert res.status_code == 409
+    assert res.json()["detail"] == "max_supporters_reached"
+
+
+@pytest.mark.asyncio
 async def test_support_on_resolved_status_rejected_409(mock_firebase, as_supporter_1):
     from main import app
 
@@ -177,10 +198,32 @@ async def test_support_on_non_lot_rejected_422(mock_firebase, as_supporter_1):
 
 
 @pytest.mark.asyncio
-async def test_only_pending_resolver_can_resolve(mock_firebase, as_supporter_1):
+async def test_resolve_requires_3_supports(mock_firebase, as_supporter_1):
     from main import app
 
-    lot_with_other_resolver = CommunityReport(
+    two_supporter_lot = CommunityReport(
+        id=REPORT_ID,
+        reporter_uid=REPORTER_UID,
+        threat_type=ThreatType.lote,
+        location=GeoPoint(lat=20.6736, lng=-103.344),
+        status=ReportStatus.pending_validation,
+        supporters=[SUPPORTER_1, SUPPORTER_2],
+        support_count=2,
+        pending_resolver_uid=None,
+    )
+    with patch(_FS_GET, new_callable=AsyncMock, return_value=two_supporter_lot):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            res = await client.patch(f"/community-reports/{REPORT_ID}/resolve", headers=_AUTH)
+    assert res.status_code == 409
+    assert res.json()["detail"] == "insufficient_supports"
+
+
+@pytest.mark.asyncio
+async def test_any_user_can_resolve_with_3_supports(mock_firebase, as_supporter_1):
+    """SUPPORTER_1 (not the pending_resolver_uid) can resolve once support_count >= 3."""
+    from main import app
+
+    lot_ready = CommunityReport(
         id=REPORT_ID,
         reporter_uid=REPORTER_UID,
         threat_type=ThreatType.lote,
@@ -190,11 +233,26 @@ async def test_only_pending_resolver_can_resolve(mock_firebase, as_supporter_1):
         support_count=3,
         pending_resolver_uid=SUPPORTER_3,
     )
-    with patch(_FS_GET, new_callable=AsyncMock, return_value=lot_with_other_resolver):
+    resolved = CommunityReport(
+        id=REPORT_ID,
+        reporter_uid=REPORTER_UID,
+        threat_type=ThreatType.lote,
+        location=GeoPoint(lat=20.6736, lng=-103.344),
+        status=ReportStatus.resolved,
+        supporters=[SUPPORTER_1, SUPPORTER_2, SUPPORTER_3],
+        support_count=3,
+        pending_resolver_uid=SUPPORTER_3,
+        resolved_by_uid=SUPPORTER_1,
+    )
+    with (
+        patch(_FS_GET, new_callable=AsyncMock, return_value=lot_ready),
+        patch(_FS_RESOLVE, new_callable=AsyncMock, return_value=resolved),
+        patch(_NOTIFY_LOT, new_callable=AsyncMock),
+    ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             res = await client.patch(f"/community-reports/{REPORT_ID}/resolve", headers=_AUTH)
-    assert res.status_code == 403
-    assert res.json()["detail"] == "not_pending_resolver"
+    assert res.status_code == 200
+    assert res.json()["status"] == "resolved"
 
 
 @pytest.mark.asyncio

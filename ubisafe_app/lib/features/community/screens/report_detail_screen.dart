@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -67,13 +65,13 @@ class _ReportDetailScreenState extends ConsumerState<ReportDetailScreen> {
           .supportReport(snapshot.id);
       if (!mounted) return;
       setState(() => _current = updated);
-      unawaited(ref.read(activeCommunityReportsProvider.notifier).refresh());
     } on DioException catch (e) {
       if (!mounted) return;
       setState(() => _current = snapshot);
       final detail = (e.response?.data as Map?)?['detail'] as String?;
       final msg = switch (detail) {
         'already_supported' => 'Ya apoyaste este reporte.',
+        'max_supporters_reached' => 'Este lote ya tiene 3 apoyos.',
         final String s when s.startsWith('report_status_is_') =>
           'Este lote ya no está disponible para apoyar.',
         _ => 'Error al apoyar. Intenta de nuevo.',
@@ -124,7 +122,6 @@ class _ReportDetailScreenState extends ConsumerState<ReportDetailScreen> {
           .resolveLot(snapshot.id);
       if (!mounted) return;
       setState(() => _current = updated);
-      unawaited(ref.read(activeCommunityReportsProvider.notifier).refresh());
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Lote marcado como resuelto.')),
       );
@@ -133,7 +130,8 @@ class _ReportDetailScreenState extends ConsumerState<ReportDetailScreen> {
       setState(() => _current = snapshot);
       final detail = (e.response?.data as Map?)?['detail'] as String?;
       final msg = switch (detail) {
-        'not_pending_resolver' => 'Solo el tercer apoyo puede marcar como resuelto.',
+        'insufficient_supports' || 'not_pending_resolver' =>
+          'Se necesitan 3 apoyos para poder resolver.',
         final String s when s.startsWith('report_status_is_') =>
           'Este lote ya fue resuelto.',
         _ => 'Error al resolver. Intenta de nuevo.',
@@ -158,9 +156,6 @@ class _ReportDetailScreenState extends ConsumerState<ReportDetailScreen> {
           .vote(reportId: _current!.id, vote: vote);
       if (!mounted) return;
       setState(() => _current = updated);
-      // B33 — refresh the shared provider so the list shows the updated object
-      // when the user navigates back, avoiding stale vote buttons on re-entry.
-      unawaited(ref.read(activeCommunityReportsProvider.notifier).refresh());
     } on DioException catch (e) {
       // B32 — parse the backend detail to show a human-readable message instead
       // of the raw DioException (e.g. on 409 race conditions).
@@ -220,9 +215,10 @@ class _ReportDetailScreenState extends ConsumerState<ReportDetailScreen> {
     final alreadySupported = report.supporters.contains(currentUid);
     final canSupport = isLote &&
         !alreadySupported &&
+        report.supportCount < 3 &&
         report.status == ReportStatus.pendingValidation;
     final canResolve = isLote &&
-        report.pendingResolverUid == currentUid &&
+        report.supportCount >= 3 &&
         report.status == ReportStatus.pendingValidation;
 
     return Scaffold(
@@ -358,9 +354,10 @@ class _InfoRow extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('$label: ', style: const TextStyle(fontWeight: FontWeight.w600)),
-          Text(value),
+          Expanded(child: Text(value)),
         ],
       ),
     );

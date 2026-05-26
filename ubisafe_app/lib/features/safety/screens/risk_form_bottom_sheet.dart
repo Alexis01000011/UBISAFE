@@ -116,18 +116,12 @@ class _RiskFormBottomSheetState extends ConsumerState<RiskFormBottomSheet> {
             style: Theme.of(context).textTheme.titleLarge,
           ),
           const SizedBox(height: 4),
-          Row(
-            children: [
-              const Icon(Icons.location_on, size: 14, color: Colors.grey),
-              const SizedBox(width: 4),
-              Text(
-                '${widget.selectedLocation.latitude.toStringAsFixed(5)}, '
-                '${widget.selectedLocation.longitude.toStringAsFixed(5)}',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
+          Text(
+            '${widget.selectedLocation.latitude.toStringAsFixed(5)}, '
+            '${widget.selectedLocation.longitude.toStringAsFixed(5)}',
+            style: const TextStyle(fontSize: 12, color: Colors.grey),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 2),
           const Text(
             'Tipo de amenaza: Jauría',
             style: TextStyle(fontSize: 13, color: Colors.grey),

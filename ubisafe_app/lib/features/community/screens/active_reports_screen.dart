@@ -9,40 +9,19 @@ import '../models/community_report.dart';
 import '../services/community_report_module.dart';
 
 /// W-CU06-01 — List of active community reports in the user's zone.
-class ActiveReportsScreen extends ConsumerStatefulWidget {
+class ActiveReportsScreen extends ConsumerWidget {
   const ActiveReportsScreen({super.key});
 
   @override
-  ConsumerState<ActiveReportsScreen> createState() =>
-      _ActiveReportsScreenState();
-}
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Re-subscribe the stream when GPS transitions from unavailable to available.
+    ref.listen(gpsServiceProvider, (prev, next) {
+      if (prev?.valueOrNull == null && next.valueOrNull != null) {
+        ref.invalidate(activeCommunityReportsProvider);
+      }
+    });
 
-class _ActiveReportsScreenState extends ConsumerState<ActiveReportsScreen> {
-  @override
-  void initState() {
-    super.initState();
-    // If the user arrives here directly (e.g., from the drawer) without having
-    // visited a map screen first, the notifier has no coordinates and stays
-    // in AsyncValue.loading() forever. Trigger the initial load from GPS.
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadIfNeeded());
-  }
-
-  void _loadIfNeeded() {
-    if (!mounted) return;
-    final notifier = ref.read(activeCommunityReportsProvider.notifier);
-    if (notifier.hasCoordinates) return; // already loaded by a map screen
-    final position = ref.read(gpsServiceProvider).valueOrNull;
-    if (position == null) {
-      // GPS unavailable: replace the eternal spinner with an error state so
-      // the user sees a meaningful message instead of an infinite loader.
-      notifier.setGpsUnavailable();
-      return;
-    }
-    notifier.load(lat: position.latitude, lng: position.longitude);
-  }
-
-  @override
-  Widget build(BuildContext context) {
+    final positionAsync = ref.watch(gpsServiceProvider);
     final reportsAsync = ref.watch(activeCommunityReportsProvider);
 
     return Scaffold(
@@ -54,30 +33,6 @@ class _ActiveReportsScreenState extends ConsumerState<ActiveReportsScreen> {
         ),
         backgroundColor: AppColors.primary700,
         iconTheme: const IconThemeData(color: Colors.white),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh, color: Colors.white),
-            tooltip: 'Actualizar',
-            // B29 — if GPS was unavailable when the screen loaded, _lat/_lng
-            // are null and refresh() is a no-op. Replicate _loadIfNeeded so
-            // that tapping Refresh after enabling GPS actually works.
-            onPressed: () {
-              final notifier =
-                  ref.read(activeCommunityReportsProvider.notifier);
-              if (notifier.hasCoordinates) {
-                notifier.refresh();
-              } else {
-                final position = ref.read(gpsServiceProvider).valueOrNull;
-                if (position != null) {
-                  notifier.load(
-                      lat: position.latitude, lng: position.longitude);
-                } else {
-                  notifier.setGpsUnavailable();
-                }
-              }
-            },
-          ),
-        ],
       ),
       body: reportsAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -85,9 +40,7 @@ class _ActiveReportsScreenState extends ConsumerState<ActiveReportsScreen> {
           child: Padding(
             padding: const EdgeInsets.all(24),
             child: Text(
-              e.toString().contains('gps_unavailable')
-                  ? 'Activa el GPS para ver reportes cercanos.'
-                  : 'No se pudieron cargar los reportes. Intenta de nuevo.',
+              'No se pudieron cargar los reportes. Intenta de nuevo.',
               textAlign: TextAlign.center,
               style: AppTypography.body1.copyWith(color: AppColors.textSecondary),
             ),
@@ -95,8 +48,20 @@ class _ActiveReportsScreenState extends ConsumerState<ActiveReportsScreen> {
         ),
         data: (reports) {
           if (reports.isEmpty) {
-            return const Center(
-              child: Text('No hay reportes activos en tu zona'),
+            // Distinguish between "GPS off" and "no nearby reports".
+            final gpsAvailable = positionAsync.valueOrNull != null;
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  gpsAvailable
+                      ? 'No hay reportes activos en tu zona'
+                      : 'Activa el GPS para ver reportes cercanos.',
+                  textAlign: TextAlign.center,
+                  style:
+                      AppTypography.body1.copyWith(color: AppColors.textSecondary),
+                ),
+              ),
             );
           }
           return ListView.separated(

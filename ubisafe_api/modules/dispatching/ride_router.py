@@ -130,7 +130,17 @@ async def update_ride_status(
         )
 
     required_role = RIDE_VALID_TRANSITIONS[transition]
-    await _require_role(current_user["uid"], required_role)
+    if required_role == "BUYER_OR_VENDOR":
+        profile = await FirestoreService.get_user(current_user["uid"])
+        if not profile or profile.role not in ("BUYER", "VENDOR"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only BUYER or VENDOR users can perform this action.",
+            )
+        caller_role = profile.role
+    else:
+        await _require_role(current_user["uid"], required_role)
+        caller_role = required_role
 
     if body.status == "expired":
         updated, was_updated = await FirestoreService.update_ride_status_if_pending(
@@ -175,32 +185,21 @@ async def update_ride_status(
 
     if body.status == "accepted":
         asyncio.ensure_future(NotificationService.send_ride_accepted(buyer_uid, ride_id))
-        if body.route_warnings:
-            asyncio.ensure_future(
-                NotificationService.send_route_zone_warning(
-                    buyer_uid, ride_id, len(body.route_warnings), is_ride=True
-                )
-            )
     elif body.status == "rejected":
         from_status = ride.status.value  # ride is the pre-update snapshot
-        if from_status == "accepted":
+        if from_status == "accepted" and caller_role == "BUYER":
             # Buyer cancelled after acceptance
             asyncio.ensure_future(
                 NotificationService.send_ride_cancelled_by_buyer(vendor_uid, ride_id)
             )
         else:
-            # Vendor rejected (pending→rejected or destination_too_far)
+            # Vendor rejected: pending→rejected, destination_too_far, or route_zone_rejected
             reason = body.rejected_reason or "vendor_rejected"
             asyncio.ensure_future(
                 NotificationService.send_ride_rejected(buyer_uid, ride_id, reason)
             )
     elif body.status == "in_progress":
-        if body.route_warnings:
-            asyncio.ensure_future(
-                NotificationService.send_route_zone_warning(
-                    buyer_uid, ride_id, len(body.route_warnings), is_ride=True
-                )
-            )
+        pass
     elif body.status == "completed":
         asyncio.ensure_future(
             NotificationService.send_ride_completed(buyer_uid, vendor_uid, ride_id)

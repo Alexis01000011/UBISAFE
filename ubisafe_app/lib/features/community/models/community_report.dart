@@ -4,7 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 enum ThreatType {
   animalMuerto('animal_muerto'),
   zonaSucia('zona_sucia'),
-  loteBaldio('lote_baldio');
+  loteBaldio('lote');
 
   const ThreatType(this.value);
   final String value;
@@ -84,6 +84,14 @@ class CommunityReport {
     if (v is Timestamp) return v.toDate();
     if (v is String) return DateTime.tryParse(v);
     return null;
+  }
+
+  // Reads from a Firestore DocumentSnapshot — id must be passed separately
+  // because doc.data() does not include the document ID.
+  static CommunityReport fromFirestore(String id, Map<String, dynamic> data) {
+    final injected = Map<String, dynamic>.from(data);
+    injected['id'] = id;
+    return fromMap(injected);
   }
 
   // Reads from Firestore snapshot

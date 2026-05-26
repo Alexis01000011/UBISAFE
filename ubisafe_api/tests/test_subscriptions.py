@@ -12,6 +12,12 @@ _BUYER_TOKEN = {"uid": _BUYER_UID, "email": "buyer@example.com"}
 _VENDOR_TOKEN = {"uid": _VENDOR_UID, "email": "vendor@example.com"}
 _SUB_ID = f"{_BUYER_UID}_{_VENDOR_UID}"
 
+_FS_LIST = "modules.shared.firestore_service.FirestoreService.list_active_subscriptions"
+_FS_GET_USER = "modules.shared.firestore_service.FirestoreService.get_user"
+_FS_GET_SUB = "modules.shared.firestore_service.FirestoreService.get_subscription"
+_FS_CREATE = "modules.shared.firestore_service.FirestoreService.create_subscription"
+_NOTIFY_SUB = "modules.shared.notification_service.NotificationService.send_subscription_created"
+
 
 @pytest.fixture
 def mock_firebase():
@@ -59,21 +65,11 @@ async def test_buyer_can_subscribe_to_vendor(mock_firebase, mock_buyer_token):
     from main import app
 
     with (
-        patch(
-            "modules.shared.firestore_service.FirestoreService.get_user",
-            new_callable=AsyncMock,
-            return_value=_make_profile(_BUYER_UID, "BUYER"),
-        ),
-        patch(
-            "modules.shared.firestore_service.FirestoreService.get_subscription",
-            new_callable=AsyncMock,
-            return_value=None,
-        ),
-        patch(
-            "modules.shared.firestore_service.FirestoreService.create_subscription",
-            new_callable=AsyncMock,
-            return_value=_make_sub(active=True),
-        ),
+        patch(_FS_GET_USER, new_callable=AsyncMock, return_value=_make_profile(_BUYER_UID, "BUYER")),
+        patch(_FS_LIST, new_callable=AsyncMock, return_value=[]),
+        patch(_FS_GET_SUB, new_callable=AsyncMock, return_value=None),
+        patch(_FS_CREATE, new_callable=AsyncMock, return_value=_make_sub(active=True)),
+        patch(_NOTIFY_SUB, new_callable=AsyncMock),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post(
@@ -94,16 +90,9 @@ async def test_buyer_cannot_subscribe_twice_returns_409(mock_firebase, mock_buye
     from main import app
 
     with (
-        patch(
-            "modules.shared.firestore_service.FirestoreService.get_user",
-            new_callable=AsyncMock,
-            return_value=_make_profile(_BUYER_UID, "BUYER"),
-        ),
-        patch(
-            "modules.shared.firestore_service.FirestoreService.get_subscription",
-            new_callable=AsyncMock,
-            return_value=_make_sub(active=True),
-        ),
+        patch(_FS_GET_USER, new_callable=AsyncMock, return_value=_make_profile(_BUYER_UID, "BUYER")),
+        patch(_FS_LIST, new_callable=AsyncMock, return_value=[_make_sub()]),
+        patch(_FS_GET_SUB, new_callable=AsyncMock, return_value=_make_sub(active=True)),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post(
@@ -113,6 +102,27 @@ async def test_buyer_cannot_subscribe_twice_returns_409(mock_firebase, mock_buye
             )
 
     assert response.status_code == 409
+    assert response.json()["detail"] == "already_subscribed"
+
+
+@pytest.mark.asyncio
+async def test_buyer_exceeds_5_subscriptions_returns_409(mock_firebase, mock_buyer_token):
+    from main import app
+
+    five_subs = [_make_sub(buyer_uid=f"uid-{i}") for i in range(5)]
+    with (
+        patch(_FS_GET_USER, new_callable=AsyncMock, return_value=_make_profile(_BUYER_UID, "BUYER")),
+        patch(_FS_LIST, new_callable=AsyncMock, return_value=five_subs),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post(
+                "/subscriptions",
+                headers={"Authorization": "Bearer valid-token"},
+                json={"vendor_uid": _VENDOR_UID},
+            )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "max_subscriptions_reached"
 
 
 @pytest.mark.asyncio
@@ -120,21 +130,11 @@ async def test_inactive_subscription_gets_reactivated(mock_firebase, mock_buyer_
     from main import app
 
     with (
-        patch(
-            "modules.shared.firestore_service.FirestoreService.get_user",
-            new_callable=AsyncMock,
-            return_value=_make_profile(_BUYER_UID, "BUYER"),
-        ),
-        patch(
-            "modules.shared.firestore_service.FirestoreService.get_subscription",
-            new_callable=AsyncMock,
-            return_value=_make_sub(active=False),
-        ),
-        patch(
-            "modules.shared.firestore_service.FirestoreService.create_subscription",
-            new_callable=AsyncMock,
-            return_value=_make_sub(active=True),
-        ),
+        patch(_FS_GET_USER, new_callable=AsyncMock, return_value=_make_profile(_BUYER_UID, "BUYER")),
+        patch(_FS_LIST, new_callable=AsyncMock, return_value=[]),
+        patch(_FS_GET_SUB, new_callable=AsyncMock, return_value=_make_sub(active=False)),
+        patch(_FS_CREATE, new_callable=AsyncMock, return_value=_make_sub(active=True)),
+        patch(_NOTIFY_SUB, new_callable=AsyncMock),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post(

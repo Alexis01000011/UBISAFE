@@ -370,12 +370,18 @@ class FirestoreService:
 
     @classmethod
     async def get_nearby_user_fcm_tokens(
-        cls, lat: float, lng: float, radius_km: float
+        cls, lat: float, lng: float, radius_km: float, exclude_uid: str | None = None
     ) -> list[str]:
-        """Return FCM tokens for users whose last_location is within radius_km."""
+        """Return FCM tokens for users whose last_location is within radius_km.
+
+        exclude_uid: omit the token of this user (e.g. the reporter themselves,
+        who already got a success confirmation and should not receive a second alert).
+        """
         docs = cls._db().collection("users").stream()
         tokens: list[str] = []
         for d in docs:
+            if exclude_uid and d.id == exclude_uid:
+                continue
             data = d.to_dict() or {}
             token = data.get("fcm_token")
             if not token:
@@ -392,6 +398,9 @@ class FirestoreService:
     @classmethod
     def _doc_to_community_report(cls, doc: Any) -> CommunityReport:
         raw = doc.to_dict() or {}
+        # Backward compat: rename pre-rename documents stored as "lote_baldio"
+        if raw.get("threat_type") == "lote_baldio":
+            raw["threat_type"] = "lote"
         loc = raw.get("location", {})
         if hasattr(loc, "latitude"):
             # Native Firestore GeoPoint
@@ -804,6 +813,13 @@ class FirestoreService:
         )
 
     @classmethod
+    async def get_user_last_location(cls, uid: str) -> dict | None:
+        doc = cls._db().collection("users").document(uid).get()
+        if not doc.exists:
+            return None
+        return (doc.to_dict() or {}).get("last_location")
+
+    @classmethod
     async def update_radar_status(cls, uid: str, is_active_radar: bool) -> None:
         cls._db().collection("users").document(uid).set(
             {"is_active_radar": is_active_radar, "updated_at": SERVER_TIMESTAMP},
@@ -854,14 +870,19 @@ class FirestoreService:
 
     @classmethod
     async def list_active_subscriptions(cls, buyer_uid: str) -> list[Subscription]:
-        docs = (
+        docs = list(
             cls._db()
             .collection("subscriptions")
             .where("buyer_uid", "==", buyer_uid)
             .where("active", "==", True)
             .stream()
         )
-        return [cls._doc_to_subscription(d) for d in docs]
+        subs = [cls._doc_to_subscription(d) for d in docs]
+        for sub in subs:
+            vendor_doc = cls._db().collection("users").document(sub.vendor_uid).get()
+            if vendor_doc.exists:
+                sub.vendor_name = (vendor_doc.to_dict() or {}).get("name")
+        return subs
 
     @classmethod
     async def cancel_subscription(cls, subscription_id: str, reason: str) -> None:

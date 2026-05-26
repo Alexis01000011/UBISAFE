@@ -27,6 +27,7 @@ class GroupStay(BaseModel):
     attendees_count: int = 0
     risk_level_at_creation: str | None = None
     start_at_iso: str | None = None  # plain ISO string for FCM data payload
+    has_attended: bool | None = None  # set per-caller in GET /{stay_id}
     created_at: str | None = None
     updated_at: str | None = None
 

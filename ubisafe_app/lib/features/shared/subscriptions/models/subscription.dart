@@ -7,6 +7,7 @@ class Subscription {
     this.createdAt,
     this.cancelledAt,
     this.cancellationReason,
+    this.vendorName,
   });
 
   final String id;
@@ -16,6 +17,7 @@ class Subscription {
   final String? createdAt;
   final String? cancelledAt;
   final String? cancellationReason;
+  final String? vendorName;
 
   factory Subscription.fromJson(Map<String, dynamic> json) => Subscription(
         id: json['id'] as String,
@@ -25,5 +27,6 @@ class Subscription {
         createdAt: json['created_at'] as String?,
         cancelledAt: json['cancelled_at'] as String?,
         cancellationReason: json['cancellation_reason'] as String?,
+        vendorName: json['vendor_name'] as String?,
       );
 }

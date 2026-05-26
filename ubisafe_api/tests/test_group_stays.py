@@ -38,6 +38,7 @@ _VENDOR_PROFILE = type("P", (), {"role": "VENDOR"})()
 _BUYER_PROFILE = type("P", (), {"role": "BUYER"})()
 
 _FS_GET_USER = "modules.shared.firestore_service.FirestoreService.get_user"
+_FS_GET_LOCATION = "modules.shared.firestore_service.FirestoreService.get_user_last_location"
 _FS_CREATE = "modules.shared.firestore_service.FirestoreService.create_group_stay"
 _FS_ZONES = "modules.shared.firestore_service.FirestoreService.get_active_risk_zones_near"
 _FS_OVERLAP = "modules.shared.firestore_service.FirestoreService.vendor_has_overlapping_stay"
@@ -45,7 +46,10 @@ _FS_LIST_ACTIVE = "modules.shared.firestore_service.FirestoreService.list_active
 _FS_GET_STAY = "modules.shared.firestore_service.FirestoreService.get_group_stay"
 _FS_CANCEL = "modules.shared.firestore_service.FirestoreService.cancel_group_stay"
 _FS_ATTENDANCES = "modules.shared.firestore_service.FirestoreService.get_confirmed_attendance_uids"
+_FS_NEARBY = "modules.shared.firestore_service.FirestoreService.get_nearby_user_fcm_tokens"
 _FS_CONFIRM_ATT = "modules.shared.firestore_service.FirestoreService.confirm_attendance"
+_NS_CANCEL_NEARBY = "modules.shared.notification_service.NotificationService.send_group_stay_cancelled_nearby"
+_NS_CREATED = "modules.shared.notification_service.NotificationService.send_group_stay_created"
 
 
 @pytest.fixture
@@ -83,9 +87,11 @@ async def test_vendor_can_create_stay(mock_firebase, as_vendor):
 
     with (
         patch(_FS_GET_USER, new_callable=AsyncMock, return_value=_VENDOR_PROFILE),
+        patch(_FS_GET_LOCATION, new_callable=AsyncMock, return_value=None),
         patch(_FS_ZONES, new_callable=AsyncMock, return_value=[]),
         patch(_FS_OVERLAP, new_callable=AsyncMock, return_value=False),
         patch(_FS_CREATE, new_callable=AsyncMock, return_value=_CREATED_STAY),
+        patch(_FS_NEARBY, new_callable=AsyncMock, return_value=[]),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             res = await client.post("/group-stays", json=_stay_body(), headers=_AUTH)
@@ -114,6 +120,7 @@ async def test_create_rejected_if_zone_high_422(mock_firebase, as_vendor):
 
     with (
         patch(_FS_GET_USER, new_callable=AsyncMock, return_value=_VENDOR_PROFILE),
+        patch(_FS_GET_LOCATION, new_callable=AsyncMock, return_value=None),
         patch(_FS_ZONES, new_callable=AsyncMock, return_value=[high_zone]),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -142,9 +149,11 @@ async def test_create_returns_warning_for_medium_zone(mock_firebase, as_vendor):
 
     with (
         patch(_FS_GET_USER, new_callable=AsyncMock, return_value=_VENDOR_PROFILE),
+        patch(_FS_GET_LOCATION, new_callable=AsyncMock, return_value=None),
         patch(_FS_ZONES, new_callable=AsyncMock, return_value=[medium_zone]),
         patch(_FS_OVERLAP, new_callable=AsyncMock, return_value=False),
         patch(_FS_CREATE, new_callable=AsyncMock, return_value=_CREATED_STAY),
+        patch(_FS_NEARBY, new_callable=AsyncMock, return_value=[]),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             res = await client.post("/group-stays", json=_stay_body(), headers=_AUTH)
@@ -162,6 +171,7 @@ async def test_create_rejected_overlap_409(mock_firebase, as_vendor):
 
     with (
         patch(_FS_GET_USER, new_callable=AsyncMock, return_value=_VENDOR_PROFILE),
+        patch(_FS_GET_LOCATION, new_callable=AsyncMock, return_value=None),
         patch(_FS_ZONES, new_callable=AsyncMock, return_value=[]),
         patch(_FS_OVERLAP, new_callable=AsyncMock, return_value=True),
     ):
@@ -226,7 +236,7 @@ async def test_vendor_can_cancel_own_stay(mock_firebase, as_vendor):
         patch(_FS_GET_USER, new_callable=AsyncMock, return_value=_VENDOR_PROFILE),
         patch(_FS_GET_STAY, new_callable=AsyncMock, return_value=_CREATED_STAY),
         patch(_FS_CANCEL, new_callable=AsyncMock, return_value=cancelled_stay),
-        patch(_FS_ATTENDANCES, new_callable=AsyncMock, return_value=[]),
+        patch(_FS_NEARBY, new_callable=AsyncMock, return_value=[]),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             res = await client.patch(f"/group-stays/{STAY_ID}/cancel", headers=_AUTH)
@@ -311,8 +321,8 @@ async def test_double_confirm_is_idempotent(mock_firebase, as_buyer):
 
 
 @pytest.mark.asyncio
-async def test_vendor_cancel_notifies_attendees(mock_firebase, as_vendor):
-    """PATCH /cancel with confirmed attendees fires send_group_stay_cancelled FCM."""
+async def test_vendor_cancel_notifies_nearby_users(mock_firebase, as_vendor):
+    """PATCH /cancel multicast group_stay_cancelled_nearby to all nearby FCM tokens."""
     import asyncio
 
     from main import app
@@ -328,15 +338,14 @@ async def test_vendor_cancel_notifies_attendees(mock_firebase, as_vendor):
         cancellation_reason="vendor_cancelled",
         attendees_count=1,
     )
-
-    _ns_cancel = "modules.shared.notification_service.NotificationService.send_group_stay_cancelled"
+    _nearby_tokens = ["buyer-fcm-token"]
 
     with (
         patch(_FS_GET_USER, new_callable=AsyncMock, return_value=_VENDOR_PROFILE),
         patch(_FS_GET_STAY, new_callable=AsyncMock, return_value=_CREATED_STAY),
         patch(_FS_CANCEL, new_callable=AsyncMock, return_value=cancelled_stay),
-        patch(_FS_ATTENDANCES, new_callable=AsyncMock, return_value=[BUYER_UID]),
-        patch(_ns_cancel, new_callable=AsyncMock) as mock_notify,
+        patch(_FS_NEARBY, new_callable=AsyncMock, return_value=_nearby_tokens),
+        patch(_NS_CANCEL_NEARBY, new_callable=AsyncMock) as mock_notify,
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             res = await client.patch(f"/group-stays/{STAY_ID}/cancel", headers=_AUTH)
@@ -344,4 +353,4 @@ async def test_vendor_cancel_notifies_attendees(mock_firebase, as_vendor):
         await asyncio.sleep(0)
 
     assert res.status_code == 200
-    mock_notify.assert_awaited_once_with([BUYER_UID], STAY_ID, "vendor_cancelled")
+    mock_notify.assert_awaited_once_with(_nearby_tokens, STAY_ID, "vendor_cancelled")

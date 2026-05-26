@@ -67,15 +67,6 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
         if (mounted) ref.read(stopRequestModuleProvider).cancelTimer();
       });
     }
-    // Show route_zone_warning if it arrived before this screen was pushed.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final warning = ref.read(routeZoneWarningProvider);
-      if (warning != null) {
-        _showRouteZoneSnackbar(warning);
-        ref.read(routeZoneWarningProvider.notifier).state = null;
-      }
-    });
     _stalenessTimer = Timer.periodic(const Duration(seconds: 10), (_) => _checkStaleness());
   }
 
@@ -136,15 +127,6 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
     final positionAsync = ref.watch(gpsServiceProvider);
     final vendorsAsync = ref.watch(vendorMarkersProvider);
     final stopId = widget.stopRequestId ?? '';
-
-    // Route zone warning — may arrive after navigation to this screen.
-    ref.listen<Map<String, dynamic>?>(routeZoneWarningProvider, (_, data) {
-      if (data == null) return;
-      _showRouteZoneSnackbar(data);
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) ref.read(routeZoneWarningProvider.notifier).state = null;
-      });
-    });
 
     // Unconditional listener — stop request status changes (completed)
     ref.listen<StopEvent?>(stopRequestEventProvider, (_, event) {
@@ -310,39 +292,26 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
                     ),
                   ),
                 ),
-              Positioned(
-                bottom: 32,
-                left: 24,
-                right: 24,
-                child: OutlinedButton(
-                  style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: AppColors.danger500),
-                    foregroundColor: AppColors.danger500,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
+              if (widget.stopRequestId != null || widget.rideId != null)
+                Positioned(
+                  bottom: 32,
+                  left: 24,
+                  right: 24,
+                  child: OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: AppColors.danger500),
+                      foregroundColor: AppColors.danger500,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                    ),
+                    onPressed: () => _confirmCancel(context),
+                    child: const Text('Cancelar solicitud'),
                   ),
-                  onPressed: () => _confirmCancel(context),
-                  child: const Text('Cancelar solicitud'),
                 ),
-              ),
             ],
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Error GPS: $e')),
-      ),
-    );
-  }
-
-  void _showRouteZoneSnackbar(Map<String, dynamic> data) {
-    if (!context.mounted) return;
-    final zoneCount = data['zone_count'] as String? ?? '?';
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'La ruta del vendedor pasa por $zoneCount zona(s) de riesgo MEDIO.',
-        ),
-        backgroundColor: AppColors.warning500,
-        duration: const Duration(seconds: 8),
       ),
     );
   }

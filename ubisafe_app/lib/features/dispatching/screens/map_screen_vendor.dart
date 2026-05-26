@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:dio/dio.dart';
@@ -32,6 +31,7 @@ import '../models/ride.dart';
 import '../models/stop_request.dart';
 import '../services/ride_request_module.dart';
 import '../services/stop_request_module.dart';
+import '../utils/map_utils.dart';
 
 /// Main map screen for vendors — GPS visibility toggle + CU-01 responder.
 class MapScreenVendor extends ConsumerStatefulWidget {
@@ -45,7 +45,6 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     with WidgetsBindingObserver {
   bool _isVisible = false;
   bool _isNavigating = false;
-  bool _communityReportsLoaded = false;
   bool _groupStaysLoaded = false;
   bool _speedDialOpen = false;
   String _mapsApiKey = '';
@@ -61,8 +60,9 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
   double? _rideDestLng;
   bool _selectingRiskPoint = false;
   final Set<String> _resolvedLotIds = {};
-  // 1 = going to pickup, 2 = ride in progress (passenger aboard)
+  // 1 = going to pickup, 3 = arrived/waiting to start, 2 = ride in progress (passenger aboard)
   int _ridePhase = 0;
+  List<String> _pendingRouteWarnings = [];
   Position? _riskZoneAnchorPos;
   BitmapDescriptor? _zoneTapIcon;
   List<LatLng> _routePolyline = [];
@@ -181,6 +181,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
         _riskZoneAnchorPos = current;
         // Provider may have been built while GPS was null → re-subscribe now.
         ref.invalidate(activeRiskZonesProvider);
+        ref.invalidate(activeCommunityReportsProvider);
         return;
       }
       if (Geolocator.distanceBetween(
@@ -190,6 +191,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
           500) {
         _riskZoneAnchorPos = current;
         ref.invalidate(activeRiskZonesProvider);
+        ref.invalidate(activeCommunityReportsProvider);
       }
     });
 
@@ -214,8 +216,11 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
       final reportLat = double.tryParse(alert['lat'] as String? ?? '');
       final reportLng = double.tryParse(alert['lng'] as String? ?? '');
       final threatType = alert['threat_type'] as String? ?? '';
-      final typeLabel =
-          threatType == 'animal_muerto' ? 'Animal muerto' : 'Zona sucia';
+      final typeLabel = switch (threatType) {
+        'animal_muerto' => 'Animal muerto',
+        'lote' => 'Lote baldío',
+        _ => 'Zona sucia',
+      };
 
       final position = ref.read(gpsServiceProvider).valueOrNull;
       String distanceLabel = '';
@@ -230,6 +235,39 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
         SnackBar(
           content: Text('Reporte avistado$distanceLabel — $typeLabel'),
           backgroundColor: const Color(0xFF795548),
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    });
+
+    // Show visible SnackBar when a new risk zone is created within 4 km.
+    ref.listen<Map<String, dynamic>?>(riskZoneAlertProvider, (_, alert) {
+      if (alert == null || !context.mounted) return;
+      final zoneLat = double.tryParse(alert['lat'] as String? ?? '');
+      final zoneLng = double.tryParse(alert['lng'] as String? ?? '');
+      final riskLevel = alert['risk_level'] as String? ?? '';
+      final levelLabel = switch (riskLevel) {
+        'HIGH' => 'ALTO',
+        'MEDIUM' => 'MEDIO',
+        _ => 'BAJO',
+      };
+      final color = switch (riskLevel) {
+        'HIGH' => const Color(0xFFC62828),
+        'MEDIUM' => const Color(0xFFF57C00),
+        _ => const Color(0xFF0277BD),
+      };
+      final position = ref.read(gpsServiceProvider).valueOrNull;
+      String distanceLabel = '';
+      if (position != null && zoneLat != null && zoneLng != null) {
+        final distM = Geolocator.distanceBetween(
+          position.latitude, position.longitude, zoneLat, zoneLng,
+        );
+        distanceLabel = ' a ${distM.round()} m';
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Nueva zona de riesgo$distanceLabel — Nivel $levelLabel'),
+          backgroundColor: color,
           duration: const Duration(seconds: 5),
         ),
       );
@@ -252,6 +290,18 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
           : 'Una estancia grupal fue cancelada.';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(msg), duration: const Duration(seconds: 5)),
+      );
+    });
+
+    // Show SnackBar when a buyer subscribes to this vendor (CU-08).
+    ref.listen<Map<String, dynamic>?>(subscriptionCreatedProvider, (_, data) {
+      if (data == null || !context.mounted) return;
+      final buyerName = data['buyer_name'] as String? ?? 'Un comprador';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$buyerName se suscribió a tu actividad.'),
+          duration: const Duration(seconds: 4),
+        ),
       );
     });
 
@@ -456,17 +506,6 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
                 }
               : <Polyline>{};
 
-          // Load community reports once
-          if (!_communityReportsLoaded) {
-            _communityReportsLoaded = true;
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              ref.read(activeCommunityReportsProvider.notifier).load(
-                    lat: position.latitude,
-                    lng: position.longitude,
-                  );
-            });
-          }
-
           // Load active group stays once
           if (!_groupStaysLoaded) {
             _groupStaysLoaded = true;
@@ -540,7 +579,10 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
                 myLocationButtonEnabled: true,
                 polylines: polylines,
                 circles: circles,
-                markers: communityMarkers.union(stayMarkers).union(zoneMarkers),
+                markers: communityMarkers
+                    .union(stayMarkers)
+                    .union(zoneMarkers)
+                    .union(_rideRouteMarkers()),
                 onTap: _onMapTap,
               ),
               // Visibility toggle button
@@ -571,6 +613,19 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
                     buttonText: 'Llegué al punto de recogida',
                     buttonColor: AppColors.primary700,
                     onAction: () => _signalVendorArrived(context),
+                  ),
+                ),
+              // Ride phase 3: arrived at pickup, waiting for passenger to board
+              if (_ridePhase == 3)
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: _RideActionSheet(
+                    label: 'Espera a que el pasajero aborde.',
+                    buttonText: 'Empezar raite',
+                    buttonColor: AppColors.success500,
+                    onAction: () => _startRide(context),
                   ),
                 ),
               // Ride phase 2: passenger aboard
@@ -750,7 +805,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
         .read(activeRiskZonesProvider.future)
         .catchError((_) => <RiskZone>[]);
 
-    final routeZones = _zonesOnRoute(
+    final routeZones = zonesOnRoute(
       originLat: position.latitude,
       originLng: position.longitude,
       destLat: destLat,
@@ -763,12 +818,10 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     // LOW: blue informational snackbar (non-blocking)
     if (routeZones.lowCount > 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'La ruta pasa por ${routeZones.lowCount} zona(s) de riesgo BAJO.',
-          ),
-          backgroundColor: const Color(0xFF0277BD),
-          duration: const Duration(seconds: 6),
+        const SnackBar(
+          content: Text('El comprador se encuentra en una zona de riesgo BAJO.'),
+          backgroundColor: Color(0xFF0277BD),
+          duration: Duration(seconds: 6),
         ),
       );
     }
@@ -777,7 +830,10 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     if (routeZones.mediumZones.isNotEmpty) {
       if (!context.mounted) return;
       final proceed = await _showMediumZoneDialog(
-          context, routeZones.mediumZones.length);
+        context,
+        routeZones.mediumZones.length,
+        content: 'El comprador se encuentra en una zona de riesgo MEDIO. ¿Deseas continuar con la solicitud?',
+      );
       if (!proceed) {
         try {
           await ref.read(stopRequestModuleProvider).rejectStopRequest(stopId);
@@ -813,7 +869,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     setState(() => _activeStopId = stopId);
 
     final highZones = zones.where((z) => z.riskLevel == 'HIGH').toList();
-    final avoidWaypoints = _buildAvoidWaypoints(
+    final avoidWaypoints = buildAvoidWaypoints(
       originLat: position.latitude,
       originLng: position.longitude,
       destLat: destLat,
@@ -921,7 +977,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
       final encoded =
           (routes[0] as Map)['overview_polyline']?['points'] as String?;
       if (encoded == null) return null;
-      return _decodePolyline(encoded);
+      return decodePolyline(encoded);
     } catch (e) {
       debugPrint('[_fetchRoute] Request error: $e');
       return null;
@@ -953,7 +1009,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
       );
       return;
     }
-    final dist = _distanceMeters(
+    final dist = distanceMeters(
       position.latitude,
       position.longitude,
       _buyerLat!,
@@ -997,16 +1053,20 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     }
   }
 
-  Future<bool> _showMediumZoneDialog(BuildContext context, int zoneCount) async {
+  Future<bool> _showMediumZoneDialog(
+    BuildContext context,
+    int zoneCount, {
+    String? content,
+  }) async {
+    final dialogContent = content ??
+        'La ruta pasa por $zoneCount zona(s) de riesgo MEDIO. '
+            '¿Deseas continuar con la solicitud?';
     final confirmed = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (_) => AlertDialog(
         title: const Text('Advertencia de zona de riesgo'),
-        content: Text(
-          'La ruta pasa por $zoneCount zona(s) de riesgo MEDIO. '
-          '¿Deseas continuar con la solicitud?',
-        ),
+        content: Text(dialogContent),
         actions: [
           OutlinedButton(
             style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger500),
@@ -1027,6 +1087,31 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     return confirmed == true;
   }
 
+  // ─── Ride route markers ───────────────────────────────────────────────────────
+
+  Set<Marker> _rideRouteMarkers() {
+    if (_activeRideId == null || _ridePhase == 0) return {};
+    final pLat = _ridePickupLat;
+    final pLng = _ridePickupLng;
+    final dLat = _rideDestLat;
+    final dLng = _rideDestLng;
+    if (pLat == null || pLng == null || dLat == null || dLng == null) return {};
+    return {
+      Marker(
+        markerId: const MarkerId('ride_pickup'),
+        position: LatLng(pLat, pLng),
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueCyan),
+        infoWindow: const InfoWindow(title: 'Punto de recogida'),
+      ),
+      Marker(
+        markerId: const MarkerId('ride_destination'),
+        position: LatLng(dLat, dLng),
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+        infoWindow: const InfoWindow(title: 'Destino'),
+      ),
+    };
+  }
+
   void _showIncomingRideDialog(
     BuildContext context, {
     required String rideId,
@@ -1039,15 +1124,44 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(incomingRideProvider.notifier).state = null;
     });
+
+    final pLat = double.tryParse(pickupLat) ?? 0;
+    final pLng = double.tryParse(pickupLng) ?? 0;
+    final dLat = double.tryParse(destinationLat) ?? 0;
+    final dLng = double.tryParse(destinationLng) ?? 0;
+    final position = ref.read(gpsServiceProvider).valueOrNull;
+    final zones = ref.read(activeRiskZonesProvider).valueOrNull ?? [];
+
+    // Pre-compute zones for both legs so the dialog shows warnings immediately.
+    RouteZones? vendorToPickupZones;
+    if (position != null) {
+      vendorToPickupZones = zonesOnRoute(
+        originLat: position.latitude,
+        originLng: position.longitude,
+        destLat: pLat,
+        destLng: pLng,
+        zones: zones,
+      );
+    }
+    final pickupToDestZones = zonesOnRoute(
+      originLat: pLat,
+      originLng: pLng,
+      destLat: dLat,
+      destLng: dLng,
+      zones: zones,
+    );
+
     showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (_) => _IncomingRideDialog(
-        pickupLat: double.tryParse(pickupLat) ?? 0,
-        pickupLng: double.tryParse(pickupLng) ?? 0,
-        destinationLat: double.tryParse(destinationLat) ?? 0,
-        destinationLng: double.tryParse(destinationLng) ?? 0,
-        zones: ref.read(activeRiskZonesProvider).valueOrNull ?? [],
+        pickupLat: pLat,
+        pickupLng: pLng,
+        destinationLat: dLat,
+        destinationLng: dLng,
+        zones: zones,
+        vendorToPickupZones: vendorToPickupZones,
+        pickupToDestZones: pickupToDestZones,
         onAccept: () async {
           // B23: verificar GPS ANTES de cerrar el diálogo para que el
           // vendedor pueda reintentar si el GPS no está disponible aún.
@@ -1145,7 +1259,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
         .read(activeRiskZonesProvider.future)
         .catchError((_) => <RiskZone>[]);
 
-    final routeZones = _zonesOnRoute(
+    final routeZones = zonesOnRoute(
       originLat: position.latitude,
       originLng: position.longitude,
       destLat: pLat,
@@ -1153,24 +1267,60 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
       zones: zones,
     );
 
+    // Point-in-zone checks: only warn if the pickup/destination point itself
+    // is inside a zone circle, not when the route merely passes through one.
+    // zonesOnRoute (above) is kept for routeWarnings sent to the backend.
+    final pickupZones = zonesAtPoint(lat: pLat, lng: pLng, zones: zones);
+    final destZones = zonesAtPoint(lat: dLat, lng: dLng, zones: zones);
+
     if (!context.mounted) return;
 
-    if (routeZones.lowCount > 0) {
+    if (pickupZones.lowCount > 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'La ruta pasa por ${routeZones.lowCount} zona(s) de riesgo BAJO.',
-          ),
-          backgroundColor: const Color(0xFF0277BD),
-          duration: const Duration(seconds: 6),
+        const SnackBar(
+          content: Text('El pasajero se encuentra en una zona de riesgo BAJO.'),
+          backgroundColor: Color(0xFF0277BD),
+          duration: Duration(seconds: 6),
         ),
       );
     }
 
-    if (routeZones.mediumZones.isNotEmpty) {
+    if (pickupZones.mediumZones.isNotEmpty) {
       if (!context.mounted) return;
       final proceed = await _showMediumZoneDialog(
-          context, routeZones.mediumZones.length);
+        context,
+        pickupZones.mediumZones.length,
+        content: 'El pasajero se encuentra en una zona de riesgo MEDIO. ¿Deseas continuar con la solicitud?',
+      );
+      if (!proceed) {
+        try {
+          await ref.read(rideRequestModuleProvider).updateStatus(
+                rideId, 'rejected',
+                rejectedReason: 'vendor_rejected');
+        } catch (_) {}
+        return;
+      }
+    }
+
+    if (!context.mounted) return;
+
+    if (destZones.lowCount > 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('El destino del pasajero se encuentra en una zona de riesgo BAJO.'),
+          backgroundColor: Color(0xFF0277BD),
+          duration: Duration(seconds: 6),
+        ),
+      );
+    }
+
+    if (destZones.mediumZones.isNotEmpty) {
+      if (!context.mounted) return;
+      final proceed = await _showMediumZoneDialog(
+        context,
+        destZones.mediumZones.length,
+        content: 'El destino del pasajero se encuentra en una zona de riesgo MEDIO. ¿Deseas continuar con la solicitud?',
+      );
       if (!proceed) {
         try {
           await ref.read(rideRequestModuleProvider).updateStatus(
@@ -1216,7 +1366,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
 
     // Fase 1: ruta del vendedor al punto de recogida (con desvío de zonas HIGH)
     final highZones = zones.where((z) => z.riskLevel == 'HIGH').toList();
-    final avoidWaypoints = _buildAvoidWaypoints(
+    final avoidWaypoints = buildAvoidWaypoints(
       originLat: position.latitude,
       originLng: position.longitude,
       destLat: pLat,
@@ -1236,7 +1386,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     _rideSub =
         ref.read(rideRequestModuleProvider).watchRide(rideId).listen((ride) {
       if (ride == null) return;
-      if (ride.status == RideStatus.inProgress && _ridePhase == 1) {
+      if (ride.status == RideStatus.inProgress && (_ridePhase == 1 || _ridePhase == 3)) {
         setState(() => _ridePhase = 2);
       } else if (ride.status == RideStatus.completed ||
           ride.status == RideStatus.rejected ||
@@ -1244,6 +1394,9 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
           ride.status == RideStatus.cancelled) {
         _rideSub?.cancel();
         _rideSub = null;
+        // Capture before setState clears it — used to avoid double SnackBar
+        // if FCM cancelledByBuyer arrives after this fires (race condition).
+        final wasActive = _activeRideId != null;
         setState(() {
           _activeRideId = null;
           _ridePhase = 0;
@@ -1253,6 +1406,14 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
           _rideDestLat = null;
           _rideDestLng = null;
         });
+        // Show message when the buyer cancelled (rejected while vendor had an
+        // active ride).  The FCM path handles the same message when it arrives
+        // first; wasActive == false in that case, preventing a double SnackBar.
+        if (ride.status == RideStatus.rejected && wasActive && context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('El pasajero canceló el raite.')),
+          );
+        }
       }
     });
   }
@@ -1261,49 +1422,42 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     final rideId = _activeRideId;
     if (rideId == null) return;
 
-    // Fase 2: coordenadas para el tramo recogida → destino
     final dLat = _rideDestLat;
     final dLng = _rideDestLng;
+    final currentPos = ref.read(gpsServiceProvider).valueOrNull;
     final pLat = _ridePickupLat;
     final pLng = _ridePickupLng;
-    final currentPos = ref.read(gpsServiceProvider).valueOrNull;
     final originLat = currentPos?.latitude ?? pLat;
     final originLng = currentPos?.longitude ?? pLng;
 
     List<String> routeWarnings = const [];
-    List<RiskZone> zones = const [];
 
     if (dLat != null && dLng != null && originLat != null && originLng != null) {
-      zones = await ref
+      final zones = await ref
           .read(activeRiskZonesProvider.future)
           .catchError((_) => <RiskZone>[]);
 
-      final routeZones = _zonesOnRoute(
-        originLat: originLat,
-        originLng: originLng,
-        destLat: dLat,
-        destLng: dLng,
-        zones: zones,
-      );
+      final destZones = zonesAtPoint(lat: dLat, lng: dLng, zones: zones);
 
       if (!context.mounted) return;
 
-      if (routeZones.lowCount > 0) {
+      if (destZones.lowCount > 0) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'La ruta al destino pasa por ${routeZones.lowCount} zona(s) de riesgo BAJO.',
-            ),
-            backgroundColor: const Color(0xFF0277BD),
-            duration: const Duration(seconds: 6),
+          const SnackBar(
+            content: Text('El destino del pasajero se encuentra en una zona de riesgo BAJO.'),
+            backgroundColor: Color(0xFF0277BD),
+            duration: Duration(seconds: 6),
           ),
         );
       }
 
-      if (routeZones.mediumZones.isNotEmpty) {
+      if (destZones.mediumZones.isNotEmpty) {
         if (!context.mounted) return;
         final proceed = await _showMediumZoneDialog(
-            context, routeZones.mediumZones.length);
+          context,
+          destZones.mediumZones.length,
+          content: 'El destino del pasajero se encuentra en una zona de riesgo MEDIO. ¿Deseas continuar con la solicitud?',
+        );
         if (!proceed) {
           await _rideSub?.cancel();
           _rideSub = null;
@@ -1317,16 +1471,19 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
             _rideDestLat = null;
             _rideDestLng = null;
           });
+          // Usar rejected (no abandoned) para que el comprador vea
+          // "El vendedor no pudo llevarte" en lugar de "abandonó la app".
           unawaited(
             ref
                 .read(rideRequestModuleProvider)
-                .abandonRide(rideId)
-                .timeout(const Duration(seconds: 3))
+                .updateStatus(rideId, 'rejected',
+                    rejectedReason: 'route_zone_rejected')
+                .then((_) {})
                 .catchError((_) {}),
           );
           return;
         }
-        routeWarnings = routeZones.mediumZones.map((z) => z.id).toList();
+        routeWarnings = destZones.mediumZones.map((z) => z.id).toList();
       }
     }
 
@@ -1340,23 +1497,42 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
       );
       return;
     }
+
+    _pendingRouteWarnings = routeWarnings;
+    if (mounted) setState(() => _ridePhase = 3);
+  }
+
+  Future<void> _startRide(BuildContext context) async {
+    final rideId = _activeRideId;
+    if (rideId == null) return;
+
     try {
       await ref.read(rideRequestModuleProvider).updateStatus(
             rideId, 'in_progress',
-            routeWarnings: routeWarnings);
+            routeWarnings: _pendingRouteWarnings);
     } catch (e) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error al actualizar estado: $e')),
+        SnackBar(content: Text('Error al iniciar el raite: $e')),
       );
       return;
     }
     if (mounted) setState(() => _ridePhase = 2);
 
-    // Fetch route to destination with HIGH zone avoidance
+    final dLat = _rideDestLat;
+    final dLng = _rideDestLng;
+    final currentPos = ref.read(gpsServiceProvider).valueOrNull;
+    final pLat = _ridePickupLat;
+    final pLng = _ridePickupLng;
+    final originLat = currentPos?.latitude ?? pLat;
+    final originLng = currentPos?.longitude ?? pLng;
+
     if (dLat != null && dLng != null && originLat != null && originLng != null) {
+      final zones = await ref
+          .read(activeRiskZonesProvider.future)
+          .catchError((_) => <RiskZone>[]);
       final highZones = zones.where((z) => z.riskLevel == 'HIGH').toList();
-      final avoidWaypoints = _buildAvoidWaypoints(
+      final avoidWaypoints = buildAvoidWaypoints(
         originLat: originLat,
         originLng: originLng,
         destLat: dLat,
@@ -1394,7 +1570,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
       );
       return;
     }
-    final distToDestM = _distanceMeters(
+    final distToDestM = distanceMeters(
       position.latitude, position.longitude, _rideDestLat!, _rideDestLng!,
     );
     if (distToDestM > 50) {
@@ -1837,164 +2013,6 @@ Future<BitmapDescriptor> _buildZoneTapIcon() async {
   return BitmapDescriptor.bytes(bytes);
 }
 
-/// Returns perpendicular-offset waypoint strings to route around HIGH zones.
-/// Only zones whose circle intersects the origin→destination segment are
-/// considered; zones off the route are ignored to avoid unnecessary detours.
-/// All geometry is computed in metric space (meters) using the midpoint latitude
-/// to correct for the longitude-degree scale, then converted back to degrees.
-List<String> _buildAvoidWaypoints({
-  required double originLat,
-  required double originLng,
-  required double destLat,
-  required double destLng,
-  required List<RiskZone> highZones,
-}) {
-  if (highZones.isEmpty) return const [];
-
-  // Scale factors: longitude degrees are shorter than latitude degrees
-  // by a factor of cos(latitude). Use the midpoint for best accuracy.
-  final midLat = (originLat + destLat) / 2;
-  final cosLat = math.cos(midLat * math.pi / 180);
-  const metersPerDegLat = 111000.0;
-  final metersPerDegLng = metersPerDegLat * cosLat;
-
-  // Route direction vector in meters (metric space)
-  final dLatM = (destLat - originLat) * metersPerDegLat;
-  final dLngM = (destLng - originLng) * metersPerDegLng;
-  final length = math.sqrt(dLatM * dLatM + dLngM * dLngM);
-  if (length == 0) return const [];
-
-  // Perpendicular unit vector in metric space (90° CCW rotation)
-  final perpLatM = -dLngM / length;
-  final perpLngM = dLatM / length;
-
-  final waypoints = <String>[];
-  for (final z in highZones) {
-    // Zone position relative to origin, in meters
-    final zLatM = (z.latitude - originLat) * metersPerDegLat;
-    final zLngM = (z.longitude - originLng) * metersPerDegLng;
-
-    // Project zone center onto the route segment: t ∈ [0, 1]
-    final t = ((zLatM * dLatM + zLngM * dLngM) / (length * length))
-        .clamp(0.0, 1.0);
-    // Closest point on segment to zone center (in meters from origin)
-    final closestLatM = dLatM * t;
-    final closestLngM = dLngM * t;
-    // Perpendicular distance from zone center to the segment
-    final distM = math.sqrt(
-      math.pow(zLatM - closestLatM, 2) + math.pow(zLngM - closestLngM, 2),
-    );
-
-    // Zone does not intersect the route segment — skip, no detour needed
-    if (distM > z.radiusMeters) continue;
-
-    // Cross product determines which side of the route the zone lies on
-    final cross = dLatM * zLngM - dLngM * zLatM;
-    final side = cross >= 0 ? 1.0 : -1.0;
-    final offsetMeters = (z.radiusMeters + 50).toDouble();
-    // Waypoint = zone center displaced perpendicular to route, converted back to degrees
-    final wpLat = z.latitude + perpLatM * offsetMeters * side / metersPerDegLat;
-    final wpLng = z.longitude + perpLngM * offsetMeters * side / metersPerDegLng;
-    waypoints.add('$wpLat,$wpLng');
-  }
-  return waypoints;
-}
-
-// ─── Zone-on-route detection ──────────────────────────────────────────────────
-
-class _RouteZones {
-  const _RouteZones({required this.mediumZones, required this.lowCount});
-  final List<RiskZone> mediumZones;
-  final int lowCount;
-}
-
-/// Returns MEDIUM/LOW zones whose circles intersect the origin→dest segment.
-/// Uses the same metric-space projection as [_buildAvoidWaypoints].
-_RouteZones _zonesOnRoute({
-  required double originLat,
-  required double originLng,
-  required double destLat,
-  required double destLng,
-  required List<RiskZone> zones,
-}) {
-  final midLat = (originLat + destLat) / 2;
-  final cosLat = math.cos(midLat * math.pi / 180);
-  const metersPerDegLat = 111000.0;
-  final metersPerDegLng = metersPerDegLat * cosLat;
-
-  final dLatM = (destLat - originLat) * metersPerDegLat;
-  final dLngM = (destLng - originLng) * metersPerDegLng;
-  final length = math.sqrt(dLatM * dLatM + dLngM * dLngM);
-  if (length == 0) return const _RouteZones(mediumZones: [], lowCount: 0);
-
-  final mediumZones = <RiskZone>[];
-  int lowCount = 0;
-
-  for (final z in zones) {
-    if (z.riskLevel == 'HIGH') continue;
-    final zLatM = (z.latitude - originLat) * metersPerDegLat;
-    final zLngM = (z.longitude - originLng) * metersPerDegLng;
-    final t =
-        ((zLatM * dLatM + zLngM * dLngM) / (length * length)).clamp(0.0, 1.0);
-    final distM = math.sqrt(
-      math.pow(zLatM - dLatM * t, 2) + math.pow(zLngM - dLngM * t, 2),
-    );
-    if (distM > z.radiusMeters) continue;
-    if (z.riskLevel == 'MEDIUM') {
-      mediumZones.add(z);
-    } else {
-      lowCount++;
-    }
-  }
-  return _RouteZones(mediumZones: mediumZones, lowCount: lowCount);
-}
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/// Haversine distance in meters between two WGS-84 coordinates.
-double _distanceMeters(double lat1, double lng1, double lat2, double lng2) {
-  const r = 6371000.0;
-  final phi1 = lat1 * math.pi / 180;
-  final phi2 = lat2 * math.pi / 180;
-  final dPhi = (lat2 - lat1) * math.pi / 180;
-  final dLam = (lng2 - lng1) * math.pi / 180;
-  final a = math.sin(dPhi / 2) * math.sin(dPhi / 2) +
-      math.cos(phi1) * math.cos(phi2) * math.sin(dLam / 2) * math.sin(dLam / 2);
-  return r * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
-}
-
-/// Decodes a Google Maps encoded polyline string to a list of LatLng points.
-List<LatLng> _decodePolyline(String encoded) {
-  final result = <LatLng>[];
-  int index = 0;
-  int lat = 0;
-  int lng = 0;
-
-  while (index < encoded.length) {
-    int shift = 0;
-    int result0 = 0;
-    int b;
-    do {
-      b = encoded.codeUnitAt(index++) - 63;
-      result0 |= (b & 0x1f) << shift;
-      shift += 5;
-    } while (b >= 0x20);
-    lat += (result0 & 1) != 0 ? ~(result0 >> 1) : (result0 >> 1);
-
-    shift = 0;
-    result0 = 0;
-    do {
-      b = encoded.codeUnitAt(index++) - 63;
-      result0 |= (b & 0x1f) << shift;
-      shift += 5;
-    } while (b >= 0x20);
-    lng += (result0 & 1) != 0 ? ~(result0 >> 1) : (result0 >> 1);
-
-    result.add(LatLng(lat / 1e5, lng / 1e5));
-  }
-  return result;
-}
-
 // ─── Widgets ─────────────────────────────────────────────────────────────────
 
 class _VisibilityBadge extends StatelessWidget {
@@ -2165,6 +2183,8 @@ class _IncomingRideDialog extends StatelessWidget {
     required this.zones,
     required this.onAccept,
     required this.onReject,
+    this.vendorToPickupZones,
+    this.pickupToDestZones,
   });
 
   final double pickupLat;
@@ -2174,6 +2194,65 @@ class _IncomingRideDialog extends StatelessWidget {
   final List<RiskZone> zones;
   final VoidCallback onAccept;
   final VoidCallback onReject;
+  final RouteZones? vendorToPickupZones;
+  final RouteZones? pickupToDestZones;
+
+  List<Widget> _buildZoneBadges() {
+    final badges = <Widget>[];
+
+    Widget badge(Color color, IconData icon, String text) => Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Row(
+            children: [
+              Icon(icon, color: color, size: 16),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(text,
+                    style: TextStyle(
+                        fontSize: 12,
+                        color: color,
+                        fontWeight: FontWeight.w500)),
+              ),
+            ],
+          ),
+        );
+
+    final v2p = vendorToPickupZones;
+    if (v2p != null) {
+      if (v2p.mediumZones.isNotEmpty) {
+        badges.add(badge(
+          Colors.orange.shade700,
+          Icons.warning_amber_rounded,
+          'Tú → recogida: ${v2p.mediumZones.length} zona(s) MEDIA',
+        ));
+      } else if (v2p.lowCount > 0) {
+        badges.add(badge(
+          const Color(0xFF0277BD),
+          Icons.info_outline,
+          'Tú → recogida: ${v2p.lowCount} zona(s) BAJA',
+        ));
+      }
+    }
+
+    final p2d = pickupToDestZones;
+    if (p2d != null) {
+      if (p2d.mediumZones.isNotEmpty) {
+        badges.add(badge(
+          Colors.orange.shade700,
+          Icons.warning_amber_rounded,
+          'Recogida → destino: ${p2d.mediumZones.length} zona(s) MEDIA',
+        ));
+      } else if (p2d.lowCount > 0) {
+        badges.add(badge(
+          const Color(0xFF0277BD),
+          Icons.info_outline,
+          'Recogida → destino: ${p2d.lowCount} zona(s) BAJA',
+        ));
+      }
+    }
+
+    return badges;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2257,6 +2336,7 @@ class _IncomingRideDialog extends StatelessWidget {
               const Text('Destino', style: TextStyle(fontSize: 12)),
             ],
           ),
+          ..._buildZoneBadges(),
         ],
       ),
       actions: [

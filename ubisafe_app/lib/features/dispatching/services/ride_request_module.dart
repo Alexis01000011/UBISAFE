@@ -59,37 +59,34 @@ class RideRequestModule {
     await _dio.post<void>('/rides/$rideId/vendor_arrived');
   }
 
-  Future<void> expireRide(String rideId) async {
+  /// Returns true if the ride was actually expired, false if a vendor had
+  /// already accepted it concurrently (409 Conflict).
+  Future<bool> expireRide(String rideId) async {
     try {
       await updateStatus(rideId, 'expired');
+      return true;
     } on DioException catch (e) {
-      // 409 = already processed concurrently; swallow silently.
-      if (e.response?.statusCode == 409) return;
+      if (e.response?.statusCode == 409) return false;
       rethrow;
     }
   }
 
-  /// Starts a 60-second timer that marks the ride as expired if not answered.
-  /// Each rideId gets its own timer; a second call for the same id replaces
-  /// the previous timer (same semantics as StopRequestModule._startTimer).
-  /// [onExpired] is always called — even if the network request fails — so
-  /// the buyer UI never stays stuck in a pending state after the TTL elapses.
+  /// Starts a 60-second timer. [onExpired] is called only when the ride was
+  /// truly expired (backend returned 2xx). If a vendor accepted first (409),
+  /// the arriving FCM `accepted` event will clean up the buyer UI instead.
   void startExpiryTimer(String rideId, {required void Function() onExpired}) {
     _expiryTimers[rideId]?.cancel();
     _expiryTimers[rideId] = Timer(
       const Duration(seconds: _kRideTtlSeconds),
       () async {
         _expiryTimers.remove(rideId);
+        bool actuallyExpired = false;
         try {
-          await expireRide(rideId);
+          actuallyExpired = await expireRide(rideId);
         } on DioException catch (e) {
-          // 409 = already processed concurrently — expected, swallow silently.
-          // Any other error is unexpected; log it but still notify the UI.
-          if (e.response?.statusCode != 409) {
-            if (kDebugMode) debugPrint('RideRequestModule: expiry failed — $e');
-          }
+          if (kDebugMode) debugPrint('RideRequestModule: expiry failed — $e');
         }
-        onExpired();
+        if (actuallyExpired) onExpired();
       },
     );
   }
