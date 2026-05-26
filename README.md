@@ -49,6 +49,7 @@ UBISAFE connects street vendors and buyers in real time on a shared map, while l
 | Backend API | FastAPI (Python) — accessed via Dio |
 | Maps | Google Maps Flutter |
 | Location | Geolocator |
+| UI extras | flutter_speed_dial (SpeedDial FAB), google_fonts |
 
 ---
 
@@ -208,6 +209,18 @@ ubisafe_app/
 │                                          # /community/reports, /community/reports/detail,
 │                                          # /group-stays/schedule, /group-stays/detail
 │
+├── test/                                  # Flutter test suite (~93 tests)
+│   ├── smoke_test.dart
+│   ├── widget_test.dart
+│   ├── core/api/api_client_test.dart
+│   ├── core/design_system/theme_test.dart
+│   ├── features/dispatching/screens/      # map_screen_buyer, map_screen_vendor, tracking_screen
+│   ├── features/dispatching/services/     # stop_request_module
+│   ├── features/presence/services/        # gps_service, vendor_tracker
+│   ├── features/safety/screens/           # risk_form_bottom_sheet
+│   ├── features/safety/services/          # risk_zone_service
+│   ├── features/shared/notifications/     # notification_handler
+│   └── features/shared/widgets/           # gps_required_empty_state
 ├── pubspec.yaml
 └── android/
     ├── build.gradle
