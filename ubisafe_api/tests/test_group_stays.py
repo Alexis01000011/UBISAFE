@@ -357,4 +357,4 @@ async def test_vendor_cancel_notifies_nearby_users(mock_firebase, as_vendor):
         await asyncio.sleep(0)
 
     assert res.status_code == 200
-    mock_notify.assert_awaited_once_with(_nearby_tokens, STAY_ID, "vendor_cancelled")
+    mock_notify.assert_awaited_once_with(_nearby_tokens, STAY_ID, "vendor_cancelled", vendor_uid=VENDOR_UID)
