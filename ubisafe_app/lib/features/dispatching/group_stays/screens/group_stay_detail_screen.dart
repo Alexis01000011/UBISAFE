@@ -49,7 +49,12 @@ class _GroupStayDetailScreenState extends ConsumerState<GroupStayDetailScreen> {
         _attended = fresh.hasAttended ?? false;
       });
     } catch (_) {
-      // Silent fallback — use widget.stay
+      // Silent fallback — use widget.stay data when available.
+      // widget.stay.hasAttended is non-null only when the screen is opened from
+      // a context that already knows the attendance state (e.g. the FCM flow).
+      if (mounted && widget.stay.hasAttended == true) {
+        setState(() => _attended = true);
+      }
     }
   }
 
@@ -104,7 +109,10 @@ class _GroupStayDetailScreenState extends ConsumerState<GroupStayDetailScreen> {
           .read(groupStayModuleProvider)
           .cancelStay(_stay.id);
       if (!mounted) return;
-      setState(() => _stay = cancelled);
+      setState(() {
+        _stay = cancelled;
+        _loading = false;
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Estancia cancelada')),
       );
@@ -215,9 +223,11 @@ class _GroupStayDetailScreenState extends ConsumerState<GroupStayDetailScreen> {
       if (payload == null) return;
       if (payload['group_stay_id'] != _stay.id) return;
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('La estancia fue cancelada por el vendedor.')),
-      );
+      final reason = payload['reason'] as String? ?? '';
+      final msg = reason == 'risk_zone_high'
+          ? 'La estancia fue cancelada por zona de alto riesgo.'
+          : 'La estancia fue cancelada por el vendedor.';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
       context.pop();
     });
 

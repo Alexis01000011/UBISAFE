@@ -15,6 +15,8 @@ class GroupStayModule {
     required double lng,
     required DateTime startAt,
     required int durationMinutes,
+    double? vendorLat,
+    double? vendorLng,
   }) async {
     final res = await _dio.post<Map<String, dynamic>>(
       '/group-stays',
@@ -22,6 +24,8 @@ class GroupStayModule {
         'location': {'lat': lat, 'lng': lng},
         'start_at': startAt.toUtc().toIso8601String(),
         'duration_minutes': durationMinutes,
+        if (vendorLat != null) 'vendor_lat': vendorLat,
+        if (vendorLng != null) 'vendor_lng': vendorLng,
       },
     );
     return CreateGroupStayResponse.fromJson(res.data!);
@@ -50,7 +54,7 @@ class GroupStayModule {
   Future<List<GroupStay>> fetchActive({
     required double lat,
     required double lng,
-    double radiusKm = 1.0,
+    double radiusKm = 2.0,
   }) async {
     final res = await _dio.get<List<dynamic>>(
       '/group-stays',

@@ -75,6 +75,10 @@ def _stay_body(start_iso: str | None = None, duration: int = 60) -> dict:
         "location": {"lat": _LOCATION.lat, "lng": _LOCATION.lng},
         "start_at": start_iso or _FUTURE_START,
         "duration_minutes": duration,
+        # Include real-time vendor GPS so the router takes the body path and
+        # skips the Firestore last_location lookup (0 km distance → always valid).
+        "vendor_lat": _LOCATION.lat,
+        "vendor_lng": _LOCATION.lng,
     }
 
 

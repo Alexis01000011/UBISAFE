@@ -36,6 +36,8 @@ class CreateGroupStayBody(BaseModel):
     location: GeoPoint
     start_at: datetime
     duration_minutes: int = Field(ge=15, le=480)
+    vendor_lat: float | None = None  # GPS en tiempo real del dispositivo (para validar distancia)
+    vendor_lng: float | None = None
 
 
 # (from_status, to_status) → required_role ("SYSTEM" = automated CF only)

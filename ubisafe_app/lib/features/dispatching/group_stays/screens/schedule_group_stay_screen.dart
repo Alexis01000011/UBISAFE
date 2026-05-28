@@ -64,6 +64,10 @@ class _ScheduleGroupStayScreenState
     final time = await showTimePicker(
       context: context,
       initialTime: TimeOfDay.fromDateTime(now.add(const Duration(hours: 1))),
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: false),
+        child: child!,
+      ),
     );
     if (time == null) return;
     if (!mounted) return;
@@ -105,11 +109,14 @@ class _ScheduleGroupStayScreenState
     setState(() => _loading = true);
     try {
       final module = ref.read(groupStayModuleProvider);
+      final gpsPosition = ref.read(gpsServiceProvider).valueOrNull;
       final response = await module.createStay(
         lat: location.latitude,
         lng: location.longitude,
         startAt: start,
         durationMinutes: _durationMinutes,
+        vendorLat: gpsPosition?.latitude,
+        vendorLng: gpsPosition?.longitude,
       );
 
       if (!mounted) return;
@@ -155,14 +162,15 @@ class _ScheduleGroupStayScreenState
         }
       }
 
-      // P3: reload stays so the new pin appears on the map immediately (fire-and-forget)
-      unawaited(ref.read(activeGroupStaysProvider.notifier).reload());
-
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Estancia programada exitosamente')),
       );
       context.pop();
+      // Reload after pop: the notifier lives in the map tree, not in this screen.
+      // Doing it after pop gives Firestore time to propagate the new document.
+      // The FCM group_stay_created that arrives seconds later is a second trigger.
+      unawaited(ref.read(activeGroupStaysProvider.notifier).reload());
     } on DioException catch (e) {
       if (!mounted) return;
       final code = e.response?.statusCode;
@@ -194,6 +202,15 @@ class _ScheduleGroupStayScreenState
             const SnackBar(
               content: Text(
                   'El punto seleccionado está a más de 2 km de tu posición actual.'),
+            ),
+          );
+          return;
+        }
+        if (errorKey == 'vendor_location_unavailable') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                  'No se pudo determinar tu posición. Activa el GPS e intenta de nuevo.'),
             ),
           );
           return;

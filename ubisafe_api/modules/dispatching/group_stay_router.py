@@ -60,18 +60,26 @@ async def create_group_stay(
     vendor_uid = current_user["uid"]
     await _require_vendor(vendor_uid)
 
-    # Validate vendor is within 2 km of the chosen stay location
-    vendor_loc = await FirestoreService.get_user_last_location(vendor_uid)
-    if vendor_loc:
-        dist = _dist_km(
-            vendor_loc["lat"], vendor_loc["lng"],
-            body.location.lat, body.location.lng,
-        )
-        if dist > _MAX_GROUP_STAY_RADIUS_KM:
+    # Validate vendor is within 2 km of the chosen stay location.
+    # Prefer GPS sent in the request body (real-time device position) over the
+    # potentially-stale last_location stored in Firestore.
+    if body.vendor_lat is not None and body.vendor_lng is not None:
+        ref_lat, ref_lng = body.vendor_lat, body.vendor_lng
+    else:
+        vendor_loc = await FirestoreService.get_user_last_location(vendor_uid)
+        if vendor_loc is None:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="location_out_of_range",
+                detail="vendor_location_unavailable",
             )
+        ref_lat = vendor_loc["lat"]
+        ref_lng = vendor_loc["lng"]
+
+    if _dist_km(ref_lat, ref_lng, body.location.lat, body.location.lng) > _MAX_GROUP_STAY_RADIUS_KM:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="location_out_of_range",
+        )
 
     # Validate temporal advance (R-B1: keep logic in server)
     now = datetime.now(tz=UTC)
