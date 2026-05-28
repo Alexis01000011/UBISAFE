@@ -191,6 +191,7 @@ class _MapScreenBuyerState extends ConsumerState<MapScreenBuyer>
           duration: const Duration(seconds: 5),
         ),
       );
+      ref.read(riskZoneAlertProvider.notifier).state = null;
     });
 
     ref.listen<Map<String, dynamic>?>(vendorProximityAlertProvider, (_, alert) {

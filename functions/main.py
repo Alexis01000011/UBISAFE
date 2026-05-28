@@ -224,6 +224,7 @@ def _notify_stay_cancelled(
         "type": "group_stay_cancelled",
         "group_stay_id": stay_id,
         "reason": reason,
+        "vendor_uid": vendor_uid or "",
     })
 
 

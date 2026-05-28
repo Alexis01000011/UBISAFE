@@ -323,7 +323,7 @@ class NotificationService:
 
     @staticmethod
     async def send_group_stay_cancelled_nearby(
-        tokens: list[str], stay_id: str, reason: str
+        tokens: list[str], stay_id: str, reason: str, vendor_uid: str = ""
     ) -> None:
         """Multicast group_stay_cancelled to all nearby users (not just confirmed attendees)."""
         if not tokens:
@@ -333,6 +333,7 @@ class NotificationService:
             "type": "group_stay_cancelled",
             "group_stay_id": stay_id,
             "reason": reason,
+            "vendor_uid": vendor_uid,
         }
         chunk_size = 500
         for i in range(0, len(tokens), chunk_size):

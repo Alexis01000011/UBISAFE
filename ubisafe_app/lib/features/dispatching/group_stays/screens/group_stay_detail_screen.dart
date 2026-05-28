@@ -222,6 +222,8 @@ class _GroupStayDetailScreenState extends ConsumerState<GroupStayDetailScreen> {
     ref.listen<Map<String, dynamic>?>(groupStayCancelledProvider, (_, payload) {
       if (payload == null) return;
       if (payload['group_stay_id'] != _stay.id) return;
+      // Skip if this screen already handled the cancellation via _cancel().
+      if (_stay.status == 'cancelled') return;
       if (!context.mounted) return;
       final reason = payload['reason'] as String? ?? '';
       final msg = reason == 'risk_zone_high'

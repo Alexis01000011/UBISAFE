@@ -203,7 +203,7 @@ async def cancel_stay(
     if nearby_tokens:
         asyncio.ensure_future(
             NotificationService.send_group_stay_cancelled_nearby(
-                nearby_tokens, stay_id, "vendor_cancelled"
+                nearby_tokens, stay_id, "vendor_cancelled", vendor_uid=vendor_uid
             )
         )
     return cancelled

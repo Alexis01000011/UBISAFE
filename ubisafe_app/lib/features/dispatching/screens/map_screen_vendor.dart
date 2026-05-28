@@ -271,6 +271,7 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
           duration: const Duration(seconds: 5),
         ),
       );
+      ref.read(riskZoneAlertProvider.notifier).state = null;
     });
 
     // Remove resolved lote_baldio marker immediately on FCM — no wait for API refetch (CU-07-B).
@@ -285,6 +286,11 @@ class _MapScreenVendorState extends ConsumerState<MapScreenVendor>
     ref.listen<Map<String, dynamic>?>(groupStayCancelledProvider, (_, data) {
       if (data == null || !context.mounted) return;
       final reason = data['reason'] as String? ?? '';
+      // Skip if this vendor is the one who cancelled (they already saw the
+      // confirmation SnackBar in GroupStayDetailScreen._cancel()).
+      final cancelledByUid = data['vendor_uid'] as String? ?? '';
+      final currentUid = ref.read(authStateProvider).valueOrNull?.uid ?? '';
+      if (reason != 'risk_zone_high' && cancelledByUid == currentUid) return;
       final msg = reason == 'risk_zone_high'
           ? 'Una estancia grupal fue cancelada por zona de riesgo alta.'
           : 'Una estancia grupal fue cancelada.';
