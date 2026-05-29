@@ -5,7 +5,7 @@ import asyncio
 import math
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from dependencies import get_current_user
 from modules.dispatching.group_stay_schemas import (
@@ -46,6 +46,7 @@ async def _require_vendor(uid: str) -> None:
 @router.post("", response_model=CreateGroupStayResponse, status_code=status.HTTP_201_CREATED)
 async def create_group_stay(
     body: CreateGroupStayBody,
+    response: Response,
     current_user: dict = Depends(get_current_user),
 ):
     """Schedule a new group stay at the given location.
@@ -53,9 +54,10 @@ async def create_group_stay(
     - 403 if caller is not VENDOR.
     - 422 if start_at is less than 5 minutes from now.
     - 422 with error='zone_high' if an active HIGH risk zone is within 200 m.
-    - 200 with warning if an active MEDIUM/LOW risk zone is within 200 m.
+    - 200 with stay=null+warning if MEDIUM/LOW zone within 200 m AND acknowledged_risk_warning=False.
+      No stay is created; the client must re-POST with acknowledged_risk_warning=True to confirm.
     - 409 if the vendor already has an overlapping stay (scheduled or active).
-    Returns 201 with the created GroupStay and an optional warning.
+    - 201 with the created GroupStay when no zone conflict or vendor acknowledged the warning.
     """
     vendor_uid = current_user["uid"]
     await _require_vendor(vendor_uid)
@@ -101,7 +103,6 @@ async def create_group_stay(
         radius_m=_ZONE_VALIDATION_RADIUS_M,
     )
 
-    warning: dict | None = None
     high_zone_ids = [z.id for z in nearby_zones if z.risk_level == "HIGH"]
     if high_zone_ids:
         raise HTTPException(
@@ -110,9 +111,15 @@ async def create_group_stay(
         )
 
     medium_low_zones = [z for z in nearby_zones if z.risk_level in ("MEDIUM", "LOW")]
-    if medium_low_zones:
+    if medium_low_zones and not body.acknowledged_risk_warning:
+        # Devuelve advertencia SIN crear la estancia ni enviar notificaciones.
+        # El cliente debe re-POST con acknowledged_risk_warning=True para confirmar.
         top = medium_low_zones[0]
-        warning = {"risk_level": top.risk_level, "risk_zone_id": top.id}
+        response.status_code = status.HTTP_200_OK
+        return CreateGroupStayResponse(
+            stay=None,
+            warning={"risk_level": top.risk_level, "risk_zone_id": top.id},
+        )
 
     # Validate overlap with existing stays (R-B7)
     has_overlap = await FirestoreService.vendor_has_overlapping_stay(
@@ -142,7 +149,7 @@ async def create_group_stay(
             NotificationService.send_group_stay_created(nearby_tokens, stay.id)
         )
 
-    return CreateGroupStayResponse(stay=stay, warning=warning)
+    return CreateGroupStayResponse(stay=stay)
 
 
 @router.get("", response_model=list[GroupStay])

@@ -110,7 +110,8 @@ class _ScheduleGroupStayScreenState
     try {
       final module = ref.read(groupStayModuleProvider);
       final gpsPosition = ref.read(gpsServiceProvider).valueOrNull;
-      final response = await module.createStay(
+
+      var response = await module.createStay(
         lat: location.latitude,
         lng: location.longitude,
         startAt: start,
@@ -121,48 +122,48 @@ class _ScheduleGroupStayScreenState
 
       if (!mounted) return;
 
-      if (response.warning != null) {
+      // HTTP 200: zona MEDIUM/LOW detectada — la estancia NO fue creada todavía.
+      // Mostrar diálogo antes de comprometerse; si el vendedor cancela, no hay
+      // nada que deshacer ni se han enviado notificaciones.
+      if (response.stay == null && response.warning != null) {
         final riskLevel = response.warning!['risk_level'] as String? ?? '';
-        final levelLabel = riskLevel == 'HIGH'
-            ? 'alto'
-            : riskLevel == 'MEDIUM'
-                ? 'medio'
-                : 'bajo';
-        final confirm = await showDialog<bool>(
+        final levelLabel = riskLevel == 'MEDIUM' ? 'medio' : 'bajo';
+        final confirmed = await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
             title: const Text('Zona con riesgo'),
             content: Text(
-              'Hay riesgo $levelLabel en la zona seleccionada. '
-              'La estancia ya fue programada. ¿Deseas mantenerla?',
+              'El punto seleccionado está en una zona de riesgo $levelLabel. '
+              '¿Deseas programar la estancia de todas formas?',
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(ctx).pop(false),
-                child: const Text('Cancelar estancia'),
+                child: const Text('Cancelar'),
               ),
               FilledButton(
                 onPressed: () => Navigator.of(ctx).pop(true),
-                child: const Text('Mantener'),
+                child: const Text('Programar de todas formas'),
               ),
             ],
           ),
         );
         if (!mounted) return;
-        if (confirm == false) {
-          try {
-            await module.cancelStay(response.stay.id);
-          } catch (_) {}
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Estancia cancelada')),
-          );
-          context.pop();
-          return;
-        }
+        if (confirmed != true) return; // vendedor declinó; nada creado, nada que limpiar
+
+        // Vendedor confirmó → crear la estancia aceptando el riesgo
+        response = await module.createStay(
+          lat: location.latitude,
+          lng: location.longitude,
+          startAt: start,
+          durationMinutes: _durationMinutes,
+          vendorLat: gpsPosition?.latitude,
+          vendorLng: gpsPosition?.longitude,
+          acknowledgedRiskWarning: true,
+        );
+        if (!mounted) return;
       }
 
-      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Estancia programada exitosamente')),
       );

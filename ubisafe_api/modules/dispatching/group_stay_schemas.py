@@ -38,6 +38,7 @@ class CreateGroupStayBody(BaseModel):
     duration_minutes: int = Field(ge=15, le=480)
     vendor_lat: float | None = None  # GPS en tiempo real del dispositivo (para validar distancia)
     vendor_lng: float | None = None
+    acknowledged_risk_warning: bool = False  # True en el segundo POST tras confirmar zona MEDIUM/LOW
 
 
 # (from_status, to_status) → required_role ("SYSTEM" = automated CF only)
@@ -50,8 +51,11 @@ GROUP_STAY_VALID_TRANSITIONS: dict[tuple[str, str], str] = {
 
 
 class CreateGroupStayResponse(BaseModel):
-    """Response for POST /group-stays. Includes the created stay and an optional
-    risk-zone warning when the location overlaps a MEDIUM or LOW risk zone."""
+    """Response for POST /group-stays.
 
-    stay: GroupStay
+    HTTP 200 + stay=None: MEDIUM/LOW zone detected; vendedor debe confirmar antes de crear.
+    HTTP 201 + stay=GroupStay: estancia creada (sin zona o vendor ya confirmó).
+    """
+
+    stay: GroupStay | None = None
     warning: dict | None = None

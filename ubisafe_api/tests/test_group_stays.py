@@ -137,6 +137,44 @@ async def test_create_rejected_if_zone_high_422(mock_firebase, as_vendor):
 
 @pytest.mark.asyncio
 async def test_create_returns_warning_for_medium_zone(mock_firebase, as_vendor):
+    """POST sin acknowledged_risk_warning en zona MEDIUM devuelve 200 + stay=null.
+
+    La estancia NO se crea: no se llama a FirestoreService.create_group_stay ni
+    a NotificationService, evitando el spam de notificaciones antes de confirmar.
+    """
+    from main import app
+
+    medium_zone = RiskZone(
+        id="rz-med-01",
+        reporter_uid="someone",
+        threat_type="robo",
+        risk_level="MEDIUM",
+        location=_LOCATION,
+        radius_meters=100,
+        active=True,
+        created_at=datetime.now(tz=UTC).isoformat(),
+        expires_at=(datetime.now(tz=UTC) + timedelta(hours=24)).isoformat(),
+    )
+
+    with (
+        patch(_FS_GET_USER, new_callable=AsyncMock, return_value=_VENDOR_PROFILE),
+        patch(_FS_GET_LOCATION, new_callable=AsyncMock, return_value=None),
+        patch(_FS_ZONES, new_callable=AsyncMock, return_value=[medium_zone]),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            res = await client.post("/group-stays", json=_stay_body(), headers=_AUTH)
+
+    assert res.status_code == 200  # advertencia, no creación
+    body = res.json()
+    assert body["stay"] is None  # la estancia aún no existe
+    assert body["warning"] is not None
+    assert body["warning"]["risk_level"] == "MEDIUM"
+    assert body["warning"]["risk_zone_id"] == "rz-med-01"
+
+
+@pytest.mark.asyncio
+async def test_create_with_acknowledged_risk_creates_stay(mock_firebase, as_vendor):
+    """POST con acknowledged_risk_warning=True crea la estancia aunque haya zona MEDIUM."""
     from main import app
 
     medium_zone = RiskZone(
@@ -159,14 +197,14 @@ async def test_create_returns_warning_for_medium_zone(mock_firebase, as_vendor):
         patch(_FS_CREATE, new_callable=AsyncMock, return_value=_CREATED_STAY),
         patch(_FS_NEARBY, new_callable=AsyncMock, return_value=[]),
     ):
+        body = {**_stay_body(), "acknowledged_risk_warning": True}
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            res = await client.post("/group-stays", json=_stay_body(), headers=_AUTH)
+            res = await client.post("/group-stays", json=body, headers=_AUTH)
 
     assert res.status_code == 201
-    body = res.json()
-    assert body["warning"] is not None
-    assert body["warning"]["risk_level"] == "MEDIUM"
-    assert body["warning"]["risk_zone_id"] == "rz-med-01"
+    data = res.json()
+    assert data["stay"]["status"] == "scheduled"
+    assert data["warning"] is None
 
 
 @pytest.mark.asyncio

@@ -10,6 +10,14 @@ class GroupStayModule {
   final Dio _dio;
 
   /// POST /group-stays — schedules a new group stay.
+  ///
+  /// Primera llamada (sin [acknowledgedRiskWarning]):
+  ///   → 200 + stay=null si hay zona MEDIUM/LOW; el caller muestra diálogo y
+  ///     re-llama con acknowledgedRiskWarning=true si el vendedor confirma.
+  ///   → 201 + stay si no hay conflicto de zona.
+  ///
+  /// Segunda llamada (con [acknowledgedRiskWarning]=true):
+  ///   → 201 + stay (zona registrada en risk_level_at_creation pero aceptada).
   Future<CreateGroupStayResponse> createStay({
     required double lat,
     required double lng,
@@ -17,6 +25,7 @@ class GroupStayModule {
     required int durationMinutes,
     double? vendorLat,
     double? vendorLng,
+    bool acknowledgedRiskWarning = false,
   }) async {
     final res = await _dio.post<Map<String, dynamic>>(
       '/group-stays',
@@ -26,6 +35,7 @@ class GroupStayModule {
         'duration_minutes': durationMinutes,
         if (vendorLat != null) 'vendor_lat': vendorLat,
         if (vendorLng != null) 'vendor_lng': vendorLng,
+        if (acknowledgedRiskWarning) 'acknowledged_risk_warning': true,
       },
     );
     return CreateGroupStayResponse.fromJson(res.data!);

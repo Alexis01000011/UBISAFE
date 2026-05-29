@@ -54,19 +54,25 @@ class GroupStay {
   }
 }
 
-/// Wraps the server response for POST /group-stays which may include a warning.
+/// Wraps the server response for POST /group-stays.
+///
+/// HTTP 200 → [stay] es null y [warning] tiene los datos de la zona MEDIUM/LOW.
+///   No se creó nada; el cliente debe re-POST con acknowledged_risk_warning=true.
+/// HTTP 201 → [stay] es el GroupStay creado; [warning] es null.
 class CreateGroupStayResponse {
-  const CreateGroupStayResponse({required this.stay, this.warning});
+  const CreateGroupStayResponse({this.stay, this.warning});
 
-  final GroupStay stay;
+  /// Null cuando el servidor devuelve 200 esperando confirmación del vendedor.
+  final GroupStay? stay;
 
-  /// Non-null when the location overlaps a MEDIUM/LOW risk zone.
+  /// Non-null cuando hay zona MEDIUM/LOW y aún no se ha confirmado.
   /// Keys: 'risk_level' (String), 'risk_zone_id' (String).
   final Map<String, dynamic>? warning;
 
   factory CreateGroupStayResponse.fromJson(Map<String, dynamic> json) {
+    final stayJson = json['stay'] as Map<String, dynamic>?;
     return CreateGroupStayResponse(
-      stay: GroupStay.fromJson(json['stay'] as Map<String, dynamic>),
+      stay: stayJson != null ? GroupStay.fromJson(stayJson) : null,
       warning: json['warning'] as Map<String, dynamic>?,
     );
   }
