@@ -117,6 +117,9 @@ class _GroupStayDetailScreenState extends ConsumerState<GroupStayDetailScreen> {
         const SnackBar(content: Text('Estancia cancelada')),
       );
       context.pop();
+      // El vendor está excluido del FCM group_stay_cancelled, así que no hay
+      // otro trigger que recargue su mapa. Reload explícito aquí lo garantiza.
+      unawaited(ref.read(activeGroupStaysProvider.notifier).reload());
     } on DioException {
       if (!mounted) return;
       // Rollback (R-F9)

@@ -138,11 +138,14 @@ async def create_group_stay(
         vendor_uid, body, risk_level_at_creation
     )
 
-    # Notify all nearby users so their maps update in real-time
+    # Notify all nearby users so their maps update in real-time.
+    # The creating vendor is intentionally included: their only other reload
+    # trigger (the unawaited reload in _submit) may run before Firestore
+    # propagates the new document. This FCM arrives ~1–2 s later and acts as
+    # a reliable second trigger with no visible side-effect for the vendor.
     nearby_tokens = await FirestoreService.get_nearby_user_fcm_tokens(
         body.location.lat, body.location.lng,
         radius_km=_MAX_GROUP_STAY_RADIUS_KM,
-        exclude_uid=vendor_uid,
     )
     if nearby_tokens:
         asyncio.ensure_future(
