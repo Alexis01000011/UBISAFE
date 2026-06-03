@@ -98,7 +98,16 @@ class FirestoreService:
 
     @classmethod
     async def update_device_token(cls, uid: str, token: str) -> None:
-        cls._db().collection("users").document(uid).set(
+        db = cls._db()
+        # Un mismo token físico puede estar registrado en documentos de cuentas
+        # anteriores del mismo dispositivo. Si no se limpia, get_nearby_user_fcm_tokens
+        # devuelve el token N veces (una por cada cuenta vieja) y el dispositivo
+        # recibe N FCMs. Se borra el token de cualquier otro documento antes de
+        # escribir el del usuario actual.
+        for doc in db.collection("users").where("fcm_token", "==", token).stream():
+            if doc.id != uid:
+                doc.reference.update({"fcm_token": None, "updated_at": SERVER_TIMESTAMP})
+        db.collection("users").document(uid).set(
             {"fcm_token": token, "updated_at": SERVER_TIMESTAMP}, merge=True
         )
 
@@ -356,10 +365,12 @@ class FirestoreService:
         """Return all non-null FCM tokens from the users collection."""
         docs = cls._db().collection("users").stream()
         tokens = []
+        seen: set[str] = set()
         for doc in docs:
             data = doc.to_dict() or {}
             token = data.get("fcm_token")
-            if token:
+            if token and token not in seen:
+                seen.add(token)
                 tokens.append(token)
         return tokens
 
@@ -379,13 +390,15 @@ class FirestoreService:
         """
         docs = cls._db().collection("users").stream()
         tokens: list[str] = []
+        seen: set[str] = set()
         for d in docs:
             if exclude_uid and d.id == exclude_uid:
                 continue
             data = d.to_dict() or {}
             token = data.get("fcm_token")
-            if not token:
+            if not token or token in seen:
                 continue
+            seen.add(token)
             loc = data.get("last_location")
             if not loc:
                 continue

@@ -51,11 +51,13 @@ def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
 def _get_nearby_fcm_tokens(db, lat: float, lng: float) -> list[str]:
     """Return FCM tokens for users whose last_location is within _NEARBY_RADIUS_KM."""
     tokens: list[str] = []
+    seen: set[str] = set()
     for user_doc in db.collection("users").stream():
         data = user_doc.to_dict() or {}
         token = data.get("fcm_token")
-        if not token:
+        if not token or token in seen:
             continue
+        seen.add(token)
         loc = data.get("last_location")
         if not loc:
             continue
@@ -350,6 +352,7 @@ def _find_nearby_users(
     last_location.
     """
     tokens: list[str] = []
+    seen: set[str] = set()
     for user_doc in db.collection("users").stream():
         data = user_doc.to_dict() or {}
         if user_doc.id == exclude_uid:
@@ -357,8 +360,9 @@ def _find_nearby_users(
         if data.get("role") != role_filter:
             continue
         token = data.get("fcm_token")
-        if not token:
+        if not token or token in seen:
             continue
+        seen.add(token)
         loc = data.get("last_location")
         if not loc:
             continue
